@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="Signup page for the NTT project.">
+    <title>NTT Signup</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <main class="login-shell">
+      <section class="brand-panel" aria-label="Project overview">
+        <div class="brand-mark" aria-hidden="true">N</div>
+        <div>
+          <p class="eyebrow">NTT Workspace</p>
+          <h1>Create access</h1>
+          <p class="brand-copy">
+            Sign up with an approved email address to start using the task tracker.
+          </p>
+        </div>
+      </section>
+
+      <section class="login-panel" aria-labelledby="signup-title">
+        <div class="login-header">
+          <p class="eyebrow">Approved users</p>
+          <h2 id="signup-title">Sign up</h2>
+        </div>
+
+        <form class="login-form" id="signup-form" novalidate>
+          <div class="field-group">
+            <label for="email">Email address</label>
+            <input
+              id="email"
+              name="email"
+              type="email"
+              autocomplete="email"
+              placeholder="name@example.com"
+              required
+            >
+          </div>
+
+          <div class="field-group">
+            <label for="password">Password</label>
+            <input
+              id="password"
+              name="password"
+              type="password"
+              autocomplete="new-password"
+              placeholder="Create a password"
+              minlength="8"
+              required
+            >
+          </div>
+
+          <button type="submit">Create account</button>
+          <p class="form-message" id="form-message" role="status" aria-live="polite"></p>
+        </form>
+
+        <p class="signup-note">
+          Already have an account? <a href="index.html" class="text-link">Sign in</a>
+        </p>
+      </section>
+    </main>
+    <script src="config.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>

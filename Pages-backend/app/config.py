@@ -15,6 +15,8 @@ class Settings:
     supabase_url: str
     supabase_publishable_key: str
     frontend_origin: str
+    signup_allowed_users_table: str
+    signup_allowed_users_email_column: str
 
 
 def _get_required_env(name: str) -> str:
@@ -36,4 +38,10 @@ def get_settings() -> Settings:
         supabase_url=_get_required_env("SUPABASE_URL"),
         supabase_publishable_key=_get_supabase_publishable_key(),
         frontend_origin=os.getenv("FRONTEND_ORIGIN", "http://localhost:8000"),
+        signup_allowed_users_table=os.getenv(
+            "SIGNUP_ALLOWED_USERS_TABLE", "REF_USERS"
+        ),
+        signup_allowed_users_email_column=os.getenv(
+            "SIGNUP_ALLOWED_USERS_EMAIL_COLUMN", "user_id"
+        ),
     )

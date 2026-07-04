@@ -26,7 +26,7 @@
           <h2 id="login-title">Log in</h2>
         </div>
 
-        <form class="login-form" action="#" method="post" novalidate>
+        <form class="login-form" id="login-form" novalidate>
           <div class="field-group">
             <label for="email">Email address</label>
             <input
@@ -61,9 +61,15 @@
           </label>
 
           <button type="submit">Sign in</button>
+          <p class="form-message" id="form-message" role="status" aria-live="polite"></p>
         </form>
 
+        <p class="signup-note">
+          Need an account? <a href="signup.html" class="text-link">Sign up</a>
+        </p>
       </section>
     </main>
+    <script src="config.js"></script>
+    <script src="app.js"></script>
   </body>
 </html>
