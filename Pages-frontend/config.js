@@ -1,3 +1,3 @@
 window.NTT_CONFIG = {
-  apiBaseUrl: "http://localhost:8000",
+  apiBaseUrl: "https://ntt-c122.onrender.com",
 };
