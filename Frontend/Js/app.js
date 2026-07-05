@@ -1,5 +1,6 @@
 const apiBaseUrl = window.NTT_CONFIG?.apiBaseUrl ?? "http://localhost:8000";
 const sessionKey = "ntt_auth_session";
+const historyLogoutKey = "ntt_history_logout";
 const authPages = new Set([
   "/",
   "/index.html",
@@ -40,6 +41,7 @@ function getSession() {
 }
 
 function saveSession(data) {
+  window.sessionStorage.removeItem(historyLogoutKey);
   window.sessionStorage.setItem(
     sessionKey,
     JSON.stringify({
@@ -51,17 +53,41 @@ function saveSession(data) {
   );
 }
 
+function clearSession() {
+  window.sessionStorage.removeItem(sessionKey);
+}
+
+function markHistoryLogout() {
+  window.sessionStorage.setItem(historyLogoutKey, "true");
+}
+
+function wasLoggedOutByHistory() {
+  return window.sessionStorage.getItem(historyLogoutKey) === "true";
+}
+
+function redirectToSignedOut() {
+  window.location.replace("/signed-out");
+}
+
 function guardPageAccess() {
   const path = normalizePath(window.location.pathname);
   const session = getSession();
 
   if (authPages.has(path) && session?.accessToken) {
-    window.location.replace("/post-login");
+    clearSession();
+    markHistoryLogout();
+    redirectToSignedOut();
+    return;
+  }
+
+  if (dashboardPages.has(path) && wasLoggedOutByHistory()) {
+    clearSession();
+    redirectToSignedOut();
     return;
   }
 
   if (dashboardPages.has(path) && !session?.accessToken) {
-    window.location.replace("/");
+    window.location.replace(wasLoggedOutByHistory() ? "/signed-out" : "/");
   }
 }
 
