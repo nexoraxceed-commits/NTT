@@ -17,6 +17,9 @@ const dashboardPages = new Set([
   "/post-login",
   "/post-login.html",
   "/Pages/post-login.html",
+  "/create-project",
+  "/create-project.html",
+  "/Pages/create-project.html",
 ]);
 
 function normalizePath(pathname) {
@@ -147,6 +150,38 @@ async function postJson(path, payload) {
   return data;
 }
 
+async function postAuthorizedJson(path, payload) {
+  const session = getSession();
+  if (!session?.accessToken) {
+    throw new Error("Session expired. Please sign in again.");
+  }
+
+  let response;
+
+  try {
+    response = await fetch(`${apiBaseUrl}${path}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${session.accessToken}`,
+      },
+      body: JSON.stringify(payload),
+    });
+  } catch (error) {
+    throw new Error("Could not reach the backend. Please try again in a moment.");
+  }
+
+  const data = await response.json().catch(() => ({
+    detail: response.ok ? "" : `Backend returned ${response.status}.`,
+  }));
+
+  if (!response.ok) {
+    throw new Error(data.detail ?? "Request failed. Please try again.");
+  }
+
+  return data;
+}
+
 function setupLoginForm() {
   const form = document.querySelector("#login-form");
   const messageElement = document.querySelector("#form-message");
@@ -234,8 +269,44 @@ function setupForgotPasswordForm() {
   });
 }
 
+function setupCreateProjectForm() {
+  const form = document.querySelector("#create-project-form");
+  const messageElement = document.querySelector("#form-message");
+
+  if (!form) {
+    return;
+  }
+
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+
+    if (!form.checkValidity()) {
+      form.reportValidity();
+      return;
+    }
+
+    const formData = new FormData(form);
+    const payload = {
+      project_name: String(formData.get("project_name") ?? "").trim(),
+      description: String(formData.get("description") ?? "").trim() || null,
+      documents: String(formData.get("documents") ?? "").trim() || null,
+    };
+
+    setMessage(messageElement, "Creating project...");
+
+    try {
+      const data = await postAuthorizedJson("/projects", payload);
+      form.reset();
+      setMessage(messageElement, data.detail || "Project created successfully.");
+    } catch (error) {
+      setMessage(messageElement, error.message, true);
+    }
+  });
+}
+
 window.addEventListener("pageshow", guardPageAccess);
 guardPageAccess();
 setupLoginForm();
 setupSignupForm();
 setupForgotPasswordForm();
+setupCreateProjectForm();

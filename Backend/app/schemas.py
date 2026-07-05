@@ -15,6 +15,12 @@ class ForgotPasswordRequest(BaseModel):
     email: str = Field(min_length=3, max_length=320)
 
 
+class CreateProjectRequest(BaseModel):
+    project_name: str = Field(min_length=1, max_length=160)
+    description: str | None = Field(default=None, max_length=1000)
+    documents: str | None = Field(default=None, max_length=2000)
+
+
 class LoginResponse(BaseModel):
     access_token: str
     refresh_token: str

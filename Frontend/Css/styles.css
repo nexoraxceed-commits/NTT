@@ -153,12 +153,13 @@ label,
 }
 
 input[type="email"],
-input[type="password"] {
+input[type="password"],
+input[type="text"],
+input[type="url"],
+textarea {
   width: 100%;
-  min-height: 48px;
   border: 1px solid var(--line);
   border-radius: 8px;
-  padding: 0 14px;
   color: var(--ink);
   background: #fbfdfc;
   font: inherit;
@@ -170,12 +171,32 @@ input[type="password"] {
 }
 
 input[type="email"]::placeholder,
-input[type="password"]::placeholder {
+input[type="password"]::placeholder,
+input[type="text"]::placeholder,
+input[type="url"]::placeholder,
+textarea::placeholder {
   color: #8b9993;
 }
 
+input[type="email"],
+input[type="password"],
+input[type="text"],
+input[type="url"] {
+  min-height: 48px;
+  padding: 0 14px;
+}
+
+textarea {
+  min-height: 128px;
+  padding: 12px 14px;
+  resize: vertical;
+}
+
 input[type="email"]:focus,
-input[type="password"]:focus {
+input[type="password"]:focus,
+input[type="text"]:focus,
+input[type="url"]:focus,
+textarea:focus {
   border-color: var(--accent);
   background: #ffffff;
   box-shadow: 0 0 0 4px rgba(11, 107, 87, 0.14);
@@ -214,6 +235,36 @@ button:hover {
   transform: translateY(-1px);
 }
 
+.button-link {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  padding: 0 18px;
+  color: #ffffff;
+  background: var(--accent);
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.button-link:hover {
+  color: #ffffff;
+  background: var(--accent-strong);
+  text-decoration: none;
+}
+
+.secondary-link {
+  display: inline-flex;
+  min-height: 40px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0 14px;
+  background: #ffffff;
+}
+
 button:focus-visible,
 a:focus-visible {
   outline: 3px solid var(--focus);
@@ -238,6 +289,45 @@ a:focus-visible {
 
 .form-message.is-error {
   color: #b42318;
+}
+
+.app-body {
+  background: var(--bg);
+}
+
+.workspace-shell {
+  width: min(1120px, calc(100% - 32px));
+  margin: 0 auto;
+  padding: 40px 0;
+}
+
+.workspace-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 28px;
+}
+
+.workspace-header h1 {
+  max-width: none;
+  margin-bottom: 0;
+  font-size: clamp(2.4rem, 6vw, 4.6rem);
+}
+
+.workspace-panel {
+  max-width: 720px;
+  border: 1px solid rgba(219, 228, 223, 0.9);
+  border-radius: 8px;
+  padding: clamp(22px, 4vw, 32px);
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: var(--shadow);
+}
+
+.project-form {
+  display: grid;
+  gap: 18px;
+  margin-top: 24px;
 }
 
 @media (max-width: 780px) {
@@ -265,6 +355,11 @@ a:focus-visible {
 
   .brand-copy {
     font-size: 1rem;
+  }
+
+  .workspace-header {
+    align-items: flex-start;
+    flex-direction: column;
   }
 }
 

@@ -1,10 +1,11 @@
-from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi import Depends, FastAPI, Header, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from supabase import Client
 
 from app.config import Settings, get_settings
 from app.schemas import (
+    CreateProjectRequest,
     ErrorResponse,
     ForgotPasswordRequest,
     LoginRequest,
@@ -16,6 +17,9 @@ from app.supabase_client import get_supabase_admin_client, get_supabase_client
 
 
 NORMAL_STATUS = "NORMAL"
+AUTH_UID_COLUMN = "auth_uid"
+PROJECTS_TABLE = "PROJECTS"
+PROJECT_MEMBERS_TABLE = "PROJECT_MEMBERS"
 
 
 def get_ref_user(
@@ -30,6 +34,7 @@ def get_ref_user(
                 (
                     app_settings.signup_allowed_users_email_column,
                     app_settings.signup_allowed_users_status_column,
+                    AUTH_UID_COLUMN,
                 )
             )
         )
@@ -53,6 +58,74 @@ def update_ref_user_status(
         .eq(app_settings.signup_allowed_users_email_column, email)
         .execute()
     )
+
+
+def update_ref_user_auth_uid(
+    supabase: Client,
+    app_settings: Settings,
+    email: str,
+    auth_uid: str,
+) -> None:
+    (
+        supabase.table(app_settings.signup_allowed_users_table)
+        .update({AUTH_UID_COLUMN: auth_uid})
+        .eq(app_settings.signup_allowed_users_email_column, email)
+        .execute()
+    )
+
+
+def sync_ref_user_auth_uid(
+    supabase: Client,
+    app_settings: Settings,
+    ref_user: dict,
+    email: str,
+    auth_uid: str,
+) -> None:
+    if ref_user.get(AUTH_UID_COLUMN) == auth_uid:
+        return
+
+    update_ref_user_auth_uid(supabase, app_settings, email, auth_uid)
+
+
+def get_bearer_token(authorization: str | None) -> str:
+    if not authorization:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing authorization token.",
+        )
+
+    scheme, _, token = authorization.partition(" ")
+    if scheme.lower() != "bearer" or not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid authorization header.",
+        )
+
+    return token
+
+
+def get_current_user(
+    authorization: str | None = Header(default=None),
+    supabase_admin: Client = Depends(get_supabase_admin_client),
+) -> object:
+    token = get_bearer_token(authorization)
+
+    try:
+        result = supabase_admin.auth.get_user(token)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Session expired. Please sign in again.",
+        ) from exc
+
+    user = getattr(result, "user", None)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Session expired. Please sign in again.",
+        )
+
+    return user
 
 
 def create_app() -> FastAPI:
@@ -119,12 +192,13 @@ def create_app() -> FastAPI:
             )
 
         try:
-            supabase.auth.sign_up(
+            signup_result = supabase.auth.sign_up(
                 {
                     "email": normalized_email,
                     "password": payload.password,
                 }
             )
+            signup_user = getattr(signup_result, "user", None)
         except Exception as exc:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -138,6 +212,13 @@ def create_app() -> FastAPI:
                 normalized_email,
                 NORMAL_STATUS,
             )
+            if signup_user and getattr(signup_user, "id", None):
+                update_ref_user_auth_uid(
+                    supabase_admin,
+                    app_settings,
+                    normalized_email,
+                    signup_user.id,
+                )
         except Exception as exc:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -222,6 +303,14 @@ def create_app() -> FastAPI:
                     detail="Invalid email or password.",
                 )
 
+            sync_ref_user_auth_uid(
+                supabase_admin,
+                app_settings,
+                ref_user,
+                normalized_email,
+                user.id,
+            )
+
             return LoginResponse(
                 access_token=session.access_token,
                 refresh_token=session.refresh_token,
@@ -241,6 +330,86 @@ def create_app() -> FastAPI:
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail=detail,
             ) from exc
+
+    @app.post("/projects", response_model=MessageResponse)
+    def create_project(
+        payload: CreateProjectRequest,
+        current_user: object = Depends(get_current_user),
+        supabase_admin: Client = Depends(get_supabase_admin_client),
+        app_settings: Settings = Depends(get_settings),
+    ) -> MessageResponse:
+        user_id = getattr(current_user, "id", None)
+        user_email = str(getattr(current_user, "email", "") or "").strip().lower()
+
+        if not user_id or not user_email:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Session expired. Please sign in again.",
+            )
+
+        ref_user = get_ref_user(supabase_admin, app_settings, user_email)
+        if not ref_user:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="This email is not registered.",
+            )
+
+        current_status = str(
+            ref_user.get(app_settings.signup_allowed_users_status_column) or ""
+        ).upper()
+        if current_status != NORMAL_STATUS:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="This email is not active for project creation.",
+            )
+
+        sync_ref_user_auth_uid(
+            supabase_admin,
+            app_settings,
+            ref_user,
+            user_email,
+            user_id,
+        )
+
+        project_payload = {
+            "project_name": payload.project_name.strip(),
+            "description": payload.description.strip() if payload.description else None,
+            "documents": payload.documents.strip() if payload.documents else None,
+            "created_by": user_id,
+            "status": "ACTIVE",
+        }
+
+        try:
+            project_response = (
+                supabase_admin.table(PROJECTS_TABLE)
+                .insert(project_payload)
+                .execute()
+            )
+            project_data = getattr(project_response, "data", None) or []
+            project_id = project_data[0]["id"] if project_data else None
+
+            if not project_id:
+                raise RuntimeError("Project insert did not return an id.")
+
+            (
+                supabase_admin.table(PROJECT_MEMBERS_TABLE)
+                .insert(
+                    {
+                        "project_id": project_id,
+                        "user_id": user_id,
+                        "role": "OWNER",
+                        "status": "ACTIVE",
+                    }
+                )
+                .execute()
+            )
+        except Exception as exc:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Could not create project. Please try again.",
+            ) from exc
+
+        return MessageResponse(detail="Project created successfully.")
 
     return app
 

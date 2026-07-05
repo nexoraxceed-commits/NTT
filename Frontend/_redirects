@@ -7,5 +7,7 @@
 /reset-password.html /Pages/reset-password.html 200
 /post-login /Pages/post-login.html 200
 /post-login.html /Pages/post-login.html 200
+/create-project /Pages/create-project.html 200
+/create-project.html /Pages/create-project.html 200
 /signed-out /Pages/signed-out.html 200
 /signed-out.html /Pages/signed-out.html 200
