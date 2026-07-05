@@ -471,7 +471,6 @@ def create_app() -> FastAPI:
             project_response = (
                 supabase_admin.table(PROJECTS_TABLE)
                 .insert(project_payload)
-                .select("id")
                 .execute()
             )
             project_data = getattr(project_response, "data", None) or []
