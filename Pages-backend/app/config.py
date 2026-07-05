@@ -16,6 +16,7 @@ load_dotenv(BACKEND_ROOT / ".env")
 class Settings:
     supabase_url: str
     supabase_publishable_key: str
+    supabase_secret_key: str | None
     frontend_origin: str
     signup_allowed_users_table: str
     signup_allowed_users_email_column: str
@@ -70,11 +71,18 @@ def _get_supabase_publishable_key() -> str:
     )
 
 
+def _get_supabase_secret_key() -> str | None:
+    return _get_config_value("SUPABASE_SECRET_KEY") or _get_config_value(
+        "SUPABASE_SERVICE_ROLE_KEY"
+    )
+
+
 @lru_cache
 def get_settings() -> Settings:
     return Settings(
         supabase_url=_get_required_env("SUPABASE_URL"),
         supabase_publishable_key=_get_supabase_publishable_key(),
+        supabase_secret_key=_get_supabase_secret_key(),
         frontend_origin=_get_config_value(
             "FRONTEND_ORIGIN", "http://localhost:8000"
         ),

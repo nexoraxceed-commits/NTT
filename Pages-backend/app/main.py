@@ -11,7 +11,7 @@ from app.schemas import (
     MessageResponse,
     SignupRequest,
 )
-from app.supabase_client import get_supabase_client
+from app.supabase_client import get_supabase_admin_client, get_supabase_client
 
 
 NORMAL_STATUS = "NORMAL"
@@ -89,12 +89,13 @@ def create_app() -> FastAPI:
     def signup(
         payload: SignupRequest,
         supabase: Client = Depends(get_supabase_client),
+        supabase_admin: Client = Depends(get_supabase_admin_client),
         app_settings: Settings = Depends(get_settings),
     ) -> MessageResponse:
         normalized_email = payload.email.strip().lower()
 
         try:
-            ref_user = get_ref_user(supabase, app_settings, normalized_email)
+            ref_user = get_ref_user(supabase_admin, app_settings, normalized_email)
         except Exception as exc:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -131,7 +132,7 @@ def create_app() -> FastAPI:
 
         try:
             update_ref_user_status(
-                supabase,
+                supabase_admin,
                 app_settings,
                 normalized_email,
                 NORMAL_STATUS,
@@ -148,12 +149,13 @@ def create_app() -> FastAPI:
     def login(
         payload: LoginRequest,
         supabase: Client = Depends(get_supabase_client),
+        supabase_admin: Client = Depends(get_supabase_admin_client),
         app_settings: Settings = Depends(get_settings),
     ) -> LoginResponse:
         normalized_email = payload.email.strip().lower()
 
         try:
-            ref_user = get_ref_user(supabase, app_settings, normalized_email)
+            ref_user = get_ref_user(supabase_admin, app_settings, normalized_email)
         except Exception as exc:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -201,9 +203,15 @@ def create_app() -> FastAPI:
         except HTTPException:
             raise
         except Exception as exc:
+            auth_error = str(exc)
+            if "email not confirmed" in auth_error.lower():
+                detail = "Please confirm your email before signing in."
+            else:
+                detail = "Invalid email or password."
+
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid email or password.",
+                detail=detail,
             ) from exc
 
     return app
