@@ -11,6 +11,7 @@ from app.schemas import (
     LoginRequest,
     LoginResponse,
     MessageResponse,
+    ProjectUserResponse,
     SignupRequest,
 )
 from app.supabase_client import get_supabase_admin_client, get_supabase_client
@@ -20,6 +21,7 @@ NORMAL_STATUS = "NORMAL"
 AUTH_UID_COLUMN = "auth_uid"
 PROJECTS_TABLE = "PROJECTS"
 PROJECT_MEMBERS_TABLE = "PROJECT_MEMBERS"
+REF_USER_NAME_COLUMN = "user_name"
 
 
 def get_ref_user(
@@ -44,6 +46,29 @@ def get_ref_user(
     )
     users = getattr(response, "data", None) or []
     return users[0] if users else None
+
+
+def get_active_ref_users(
+    supabase: Client,
+    app_settings: Settings,
+) -> list[dict]:
+    response = (
+        supabase.table(app_settings.signup_allowed_users_table)
+        .select(
+            ",".join(
+                (
+                    app_settings.signup_allowed_users_email_column,
+                    app_settings.signup_allowed_users_status_column,
+                    REF_USER_NAME_COLUMN,
+                    AUTH_UID_COLUMN,
+                )
+            )
+        )
+        .eq(app_settings.signup_allowed_users_status_column, NORMAL_STATUS)
+        .order(app_settings.signup_allowed_users_email_column)
+        .execute()
+    )
+    return getattr(response, "data", None) or []
 
 
 def update_ref_user_status(
@@ -331,6 +356,29 @@ def create_app() -> FastAPI:
                 detail=detail,
             ) from exc
 
+    @app.get("/users", response_model=list[ProjectUserResponse])
+    def list_project_users(
+        _current_user: object = Depends(get_current_user),
+        supabase_admin: Client = Depends(get_supabase_admin_client),
+        app_settings: Settings = Depends(get_settings),
+    ) -> list[ProjectUserResponse]:
+        try:
+            users = get_active_ref_users(supabase_admin, app_settings)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Could not load project users.",
+            ) from exc
+
+        return [
+            ProjectUserResponse(
+                email=user.get(app_settings.signup_allowed_users_email_column),
+                user_name=user.get(REF_USER_NAME_COLUMN),
+            )
+            for user in users
+            if user.get(app_settings.signup_allowed_users_email_column)
+        ]
+
     @app.post("/projects", response_model=MessageResponse)
     def create_project(
         payload: CreateProjectRequest,
@@ -371,6 +419,46 @@ def create_app() -> FastAPI:
             user_id,
         )
 
+        assigned_to_email = (
+            payload.assigned_to_email.strip().lower()
+            if payload.assigned_to_email
+            else None
+        )
+        assigned_ref_user = None
+        assigned_user_id = None
+
+        if assigned_to_email:
+            assigned_ref_user = get_ref_user(
+                supabase_admin,
+                app_settings,
+                assigned_to_email,
+            )
+            if not assigned_ref_user:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Selected assignee is not registered.",
+                )
+
+            assigned_status = str(
+                assigned_ref_user.get(app_settings.signup_allowed_users_status_column)
+                or ""
+            ).upper()
+            if assigned_status != NORMAL_STATUS:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Selected assignee is not active.",
+                )
+
+            assigned_user_id = assigned_ref_user.get(AUTH_UID_COLUMN)
+            if not assigned_user_id:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=(
+                        "Selected assignee must sign in once before they can be "
+                        "assigned to a project."
+                    ),
+                )
+
         project_payload = {
             "project_name": payload.project_name.strip(),
             "description": payload.description.strip() if payload.description else None,
@@ -383,6 +471,7 @@ def create_app() -> FastAPI:
             project_response = (
                 supabase_admin.table(PROJECTS_TABLE)
                 .insert(project_payload)
+                .select("id")
                 .execute()
             )
             project_data = getattr(project_response, "data", None) or []
@@ -390,7 +479,13 @@ def create_app() -> FastAPI:
 
             if not project_id:
                 raise RuntimeError("Project insert did not return an id.")
+        except Exception as exc:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Could not create project record.",
+            ) from exc
 
+        try:
             (
                 supabase_admin.table(PROJECT_MEMBERS_TABLE)
                 .insert(
@@ -403,10 +498,24 @@ def create_app() -> FastAPI:
                 )
                 .execute()
             )
+
+            if assigned_user_id and assigned_user_id != user_id:
+                (
+                    supabase_admin.table(PROJECT_MEMBERS_TABLE)
+                    .insert(
+                        {
+                            "project_id": project_id,
+                            "user_id": assigned_user_id,
+                            "role": "MEMBER",
+                            "status": "ACTIVE",
+                        }
+                    )
+                    .execute()
+                )
         except Exception as exc:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Could not create project. Please try again.",
+                detail="Project was created, but project members could not be assigned.",
             ) from exc
 
         return MessageResponse(detail="Project created successfully.")

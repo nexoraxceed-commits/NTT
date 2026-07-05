@@ -182,6 +182,36 @@ async function postAuthorizedJson(path, payload) {
   return data;
 }
 
+async function getAuthorizedJson(path) {
+  const session = getSession();
+  if (!session?.accessToken) {
+    throw new Error("Session expired. Please sign in again.");
+  }
+
+  let response;
+
+  try {
+    response = await fetch(`${apiBaseUrl}${path}`, {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${session.accessToken}`,
+      },
+    });
+  } catch (error) {
+    throw new Error("Could not reach the backend. Please try again in a moment.");
+  }
+
+  const data = await response.json().catch(() => ({
+    detail: response.ok ? "" : `Backend returned ${response.status}.`,
+  }));
+
+  if (!response.ok) {
+    throw new Error(data.detail ?? "Request failed. Please try again.");
+  }
+
+  return data;
+}
+
 function setupLoginForm() {
   const form = document.querySelector("#login-form");
   const messageElement = document.querySelector("#form-message");
@@ -272,9 +302,32 @@ function setupForgotPasswordForm() {
 function setupCreateProjectForm() {
   const form = document.querySelector("#create-project-form");
   const messageElement = document.querySelector("#form-message");
+  const assigneeSelect = document.querySelector("#assigned_to_email");
 
   if (!form) {
     return;
+  }
+
+  if (assigneeSelect) {
+    getAuthorizedJson("/users")
+      .then((users) => {
+        const session = getSession();
+        users.forEach((user) => {
+          if (!user.email || user.email === session?.email) {
+            return;
+          }
+
+          const option = document.createElement("option");
+          option.value = user.email;
+          option.textContent = user.user_name
+            ? `${user.user_name} (${user.email})`
+            : user.email;
+          assigneeSelect.append(option);
+        });
+      })
+      .catch((error) => {
+        setMessage(messageElement, error.message, true);
+      });
   }
 
   form.addEventListener("submit", async (event) => {
@@ -290,6 +343,8 @@ function setupCreateProjectForm() {
       project_name: String(formData.get("project_name") ?? "").trim(),
       description: String(formData.get("description") ?? "").trim() || null,
       documents: String(formData.get("documents") ?? "").trim() || null,
+      assigned_to_email:
+        String(formData.get("assigned_to_email") ?? "").trim() || null,
     };
 
     setMessage(messageElement, "Creating project...");

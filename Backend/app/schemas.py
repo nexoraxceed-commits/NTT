@@ -19,6 +19,12 @@ class CreateProjectRequest(BaseModel):
     project_name: str = Field(min_length=1, max_length=160)
     description: str | None = Field(default=None, max_length=1000)
     documents: str | None = Field(default=None, max_length=2000)
+    assigned_to_email: str | None = Field(default=None, max_length=320)
+
+
+class ProjectUserResponse(BaseModel):
+    email: str
+    user_name: str | None = None
 
 
 class LoginResponse(BaseModel):
