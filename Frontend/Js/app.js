@@ -1,5 +1,6 @@
 const apiBaseUrl = window.NTT_CONFIG?.apiBaseUrl ?? "http://localhost:8000";
 const sessionKey = "ntt_auth_session";
+const authActiveKey = "ntt_auth_active";
 const historyLogoutKey = "ntt_history_logout";
 const authPages = new Set([
   "/",
@@ -40,8 +41,14 @@ function getSession() {
   }
 }
 
+function isAuthActive() {
+  return window.localStorage.getItem(authActiveKey) === "true";
+}
+
 function saveSession(data) {
   window.sessionStorage.removeItem(historyLogoutKey);
+  window.localStorage.removeItem(historyLogoutKey);
+  window.localStorage.setItem(authActiveKey, "true");
   window.sessionStorage.setItem(
     sessionKey,
     JSON.stringify({
@@ -55,14 +62,19 @@ function saveSession(data) {
 
 function clearSession() {
   window.sessionStorage.removeItem(sessionKey);
+  window.localStorage.removeItem(authActiveKey);
 }
 
 function markHistoryLogout() {
   window.sessionStorage.setItem(historyLogoutKey, "true");
+  window.localStorage.setItem(historyLogoutKey, "true");
 }
 
 function wasLoggedOutByHistory() {
-  return window.sessionStorage.getItem(historyLogoutKey) === "true";
+  return (
+    window.sessionStorage.getItem(historyLogoutKey) === "true" ||
+    window.localStorage.getItem(historyLogoutKey) === "true"
+  );
 }
 
 function redirectToSignedOut() {
@@ -73,7 +85,7 @@ function guardPageAccess() {
   const path = normalizePath(window.location.pathname);
   const session = getSession();
 
-  if (authPages.has(path) && session?.accessToken) {
+  if (authPages.has(path) && (session?.accessToken || isAuthActive())) {
     clearSession();
     markHistoryLogout();
     redirectToSignedOut();
@@ -86,7 +98,7 @@ function guardPageAccess() {
     return;
   }
 
-  if (dashboardPages.has(path) && !session?.accessToken) {
+  if (dashboardPages.has(path) && (!session?.accessToken || !isAuthActive())) {
     window.location.replace(wasLoggedOutByHistory() ? "/signed-out" : "/");
   }
 }
@@ -156,7 +168,7 @@ function setupLoginForm() {
     try {
       const data = await postJson("/auth/login", getFormValues(form));
       saveSession(data);
-      window.location.replace("/post-login");
+      window.location.href = "/post-login";
     } catch (error) {
       setMessage(messageElement, error.message, true);
     }
