@@ -14,6 +14,46 @@ from app.schemas import (
 from app.supabase_client import get_supabase_client
 
 
+NORMAL_STATUS = "NORMAL"
+
+
+def get_ref_user(
+    supabase: Client,
+    app_settings: Settings,
+    email: str,
+) -> dict | None:
+    response = (
+        supabase.table(app_settings.signup_allowed_users_table)
+        .select(
+            ",".join(
+                (
+                    app_settings.signup_allowed_users_email_column,
+                    app_settings.signup_allowed_users_status_column,
+                )
+            )
+        )
+        .eq(app_settings.signup_allowed_users_email_column, email)
+        .limit(1)
+        .execute()
+    )
+    users = getattr(response, "data", None) or []
+    return users[0] if users else None
+
+
+def update_ref_user_status(
+    supabase: Client,
+    app_settings: Settings,
+    email: str,
+    new_status: str,
+) -> None:
+    (
+        supabase.table(app_settings.signup_allowed_users_table)
+        .update({app_settings.signup_allowed_users_status_column: new_status})
+        .eq(app_settings.signup_allowed_users_email_column, email)
+        .execute()
+    )
+
+
 def create_app() -> FastAPI:
     settings = get_settings()
 
@@ -54,24 +94,26 @@ def create_app() -> FastAPI:
         normalized_email = payload.email.strip().lower()
 
         try:
-            allowed_user_response = (
-                supabase.table(app_settings.signup_allowed_users_table)
-                .select(app_settings.signup_allowed_users_email_column)
-                .eq(app_settings.signup_allowed_users_email_column, normalized_email)
-                .limit(1)
-                .execute()
-            )
-            allowed_users = getattr(allowed_user_response, "data", None)
+            ref_user = get_ref_user(supabase, app_settings, normalized_email)
         except Exception as exc:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Could not verify whether this email is approved for signup.",
             ) from exc
 
-        if not allowed_users:
+        if not ref_user:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="This email is not approved for signup.",
+            )
+
+        current_status = str(
+            ref_user.get(app_settings.signup_allowed_users_status_column) or ""
+        ).upper()
+        if current_status == NORMAL_STATUS:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="This email is already signed up. Please sign in.",
             )
 
         try:
@@ -87,14 +129,51 @@ def create_app() -> FastAPI:
                 detail="Could not create account with this email and password.",
             ) from exc
 
+        try:
+            update_ref_user_status(
+                supabase,
+                app_settings,
+                normalized_email,
+                NORMAL_STATUS,
+            )
+        except Exception as exc:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Account created, but user status could not be updated.",
+            ) from exc
+
         return MessageResponse(detail="Signup successful. You can now sign in.")
 
     @app.post("/auth/login", response_model=LoginResponse)
     def login(
         payload: LoginRequest,
         supabase: Client = Depends(get_supabase_client),
+        app_settings: Settings = Depends(get_settings),
     ) -> LoginResponse:
         normalized_email = payload.email.strip().lower()
+
+        try:
+            ref_user = get_ref_user(supabase, app_settings, normalized_email)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Could not verify whether this email is approved for sign in.",
+            ) from exc
+
+        if not ref_user:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="This email is not registered.",
+            )
+
+        current_status = str(
+            ref_user.get(app_settings.signup_allowed_users_status_column) or ""
+        ).upper()
+        if current_status != NORMAL_STATUS:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="This email is not active for sign in.",
+            )
 
         try:
             result = supabase.auth.sign_in_with_password(

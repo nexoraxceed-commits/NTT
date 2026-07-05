@@ -19,6 +19,7 @@ class Settings:
     frontend_origin: str
     signup_allowed_users_table: str
     signup_allowed_users_email_column: str
+    signup_allowed_users_status_column: str
 
 
 def _load_properties_file(path: Path) -> dict[str, str]:
@@ -82,5 +83,8 @@ def get_settings() -> Settings:
         ),
         signup_allowed_users_email_column=_get_config_value(
             "SIGNUP_ALLOWED_USERS_EMAIL_COLUMN", "user_id"
+        ),
+        signup_allowed_users_status_column=_get_config_value(
+            "SIGNUP_ALLOWED_USERS_STATUS_COLUMN", "status"
         ),
     )
