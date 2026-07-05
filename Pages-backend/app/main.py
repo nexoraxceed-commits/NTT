@@ -46,20 +46,21 @@ def create_app() -> FastAPI:
         normalized_email = payload.email.strip().lower()
 
         try:
-            allowed_user = (
+            allowed_user_response = (
                 supabase.table(app_settings.signup_allowed_users_table)
                 .select(app_settings.signup_allowed_users_email_column)
                 .eq(app_settings.signup_allowed_users_email_column, normalized_email)
                 .limit(1)
                 .execute()
             )
+            allowed_users = getattr(allowed_user_response, "data", None)
         except Exception as exc:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Could not verify whether this email is approved for signup.",
             ) from exc
 
-        if not allowed_user.data:
+        if not allowed_users:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="This email is not approved for signup.",

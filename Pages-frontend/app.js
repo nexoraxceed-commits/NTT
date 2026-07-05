@@ -19,13 +19,19 @@ function setMessage(messageElement, text, isError = false) {
 }
 
 async function postJson(path, payload) {
-  const response = await fetch(`${apiBaseUrl}${path}`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(payload),
-  });
+  let response;
+
+  try {
+    response = await fetch(`${apiBaseUrl}${path}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+  } catch (error) {
+    throw new Error("Could not reach the backend. Please try again in a moment.");
+  }
 
   const data = await response.json().catch(() => ({}));
 
