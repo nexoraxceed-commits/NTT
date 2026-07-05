@@ -11,9 +11,14 @@ Python backend for the NTT login flow.
    pip install -r requirements.txt
    ```
 
-3. Copy `.env.example` to `.env` and fill in your Supabase project values.
-   Use the Supabase publishable key for `SUPABASE_PUBLISHABLE_KEY`.
-   By default, signup checks `REF_USERS.user_id` for the email address.
+3. Project defaults are stored in the root `Resources` folder:
+
+   - `Resources/RENDER.PROPERTIES`
+   - `Resources/SUPABASE.PROPERTIES`
+   - `Resources/CLOUDFLARE.PROPERTIES`
+
+   Environment variables and `Pages-backend/.env` override these values.
+   Use Render environment variables for deployment-specific secrets/config.
 4. Run the API from the `Pages-backend` folder:
 
    ```powershell
