@@ -3,9 +3,9 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="description" content="Signup page for the NTT project.">
-    <title>NTT Signup</title>
-    <link rel="stylesheet" href="styles.css">
+    <meta name="description" content="Login page for the NTT project.">
+    <title>NTT Login</title>
+    <link rel="stylesheet" href="../Css/styles.css">
   </head>
   <body>
     <main class="login-shell">
@@ -13,20 +13,20 @@
         <div class="brand-mark" aria-hidden="true">N</div>
         <div>
           <p class="eyebrow">NTT Workspace</p>
-          <h1>Create access</h1>
+          <h1>Welcome back</h1>
           <p class="brand-copy">
-            Sign up with an approved email address to start using the task tracker.
+            Sign in to manage your project workspace, resources, and connected services.
           </p>
         </div>
       </section>
 
-      <section class="login-panel" aria-labelledby="signup-title">
+      <section class="login-panel" aria-labelledby="login-title">
         <div class="login-header">
-          <p class="eyebrow">Approved users</p>
-          <h2 id="signup-title">Sign up</h2>
+          <p class="eyebrow">Secure access</p>
+          <h2 id="login-title">Log in</h2>
         </div>
 
-        <form class="login-form" id="signup-form" novalidate>
+        <form class="login-form" id="login-form" novalidate>
           <div class="field-group">
             <label for="email">Email address</label>
             <input
@@ -40,28 +40,36 @@
           </div>
 
           <div class="field-group">
-            <label for="password">Password</label>
+            <div class="label-row">
+              <label for="password">Password</label>
+              <a href="/forgot-password" class="text-link">Forgot?</a>
+            </div>
             <input
               id="password"
               name="password"
               type="password"
-              autocomplete="new-password"
-              placeholder="Create a password"
+              autocomplete="current-password"
+              placeholder="Enter your password"
               minlength="8"
               required
             >
           </div>
 
-          <button type="submit">Create account</button>
+          <label class="remember-row">
+            <input type="checkbox" name="remember">
+            <span>Keep me signed in</span>
+          </label>
+
+          <button type="submit">Sign in</button>
           <p class="form-message" id="form-message" role="status" aria-live="polite"></p>
         </form>
 
         <p class="signup-note">
-          Already have an account? <a href="index.html" class="text-link">Sign in</a>
+          Need an account? <a href="/signup" class="text-link">Sign up</a>
         </p>
       </section>
     </main>
-    <script src="config.js"></script>
-    <script src="app.js"></script>
+    <script src="../Js/config.js"></script>
+    <script src="../Js/app.js"></script>
   </body>
 </html>

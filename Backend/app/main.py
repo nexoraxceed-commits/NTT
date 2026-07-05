@@ -6,6 +6,7 @@ from supabase import Client
 from app.config import Settings, get_settings
 from app.schemas import (
     ErrorResponse,
+    ForgotPasswordRequest,
     LoginRequest,
     LoginResponse,
     MessageResponse,
@@ -144,6 +145,33 @@ def create_app() -> FastAPI:
             ) from exc
 
         return MessageResponse(detail="Signup successful. You can now sign in.")
+
+    @app.post("/auth/forgot-password", response_model=MessageResponse)
+    def forgot_password(
+        payload: ForgotPasswordRequest,
+        supabase: Client = Depends(get_supabase_client),
+        app_settings: Settings = Depends(get_settings),
+    ) -> MessageResponse:
+        normalized_email = payload.email.strip().lower()
+
+        try:
+            supabase.auth.reset_password_email(
+                normalized_email,
+                {
+                    "redirect_to": app_settings.password_reset_redirect_url,
+                },
+            )
+        except TypeError:
+            supabase.auth.reset_password_email(normalized_email)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Could not send password reset email.",
+            ) from exc
+
+        return MessageResponse(
+            detail="If this email has an account, a password reset link has been sent."
+        )
 
     @app.post("/auth/login", response_model=LoginResponse)
     def login(

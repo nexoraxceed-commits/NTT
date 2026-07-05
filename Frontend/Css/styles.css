@@ -108,6 +108,11 @@ h2 {
   line-height: 1.7;
 }
 
+.compact-copy {
+  font-size: 0.98rem;
+  line-height: 1.6;
+}
+
 .login-panel {
   width: 100%;
   border: 1px solid rgba(219, 228, 223, 0.9);

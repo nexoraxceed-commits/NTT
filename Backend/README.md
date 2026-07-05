@@ -17,9 +17,9 @@ Python backend for the NTT login flow.
    - `Resources/SUPABASE.PROPERTIES`
    - `Resources/CLOUDFLARE.PROPERTIES`
 
-   Environment variables and `Pages-backend/.env` override these values.
+   Environment variables and `Backend/.env` override these values.
    Use Render environment variables for deployment-specific secrets/config.
-4. Run the API from the `Pages-backend` folder:
+4. Run the API from the `Backend` folder:
 
    ```powershell
    uvicorn app.main:app --reload
@@ -34,6 +34,6 @@ Python backend for the NTT login flow.
 
 ## Frontend API URL
 
-The static frontend reads the backend URL from `Pages-frontend/config.js`.
+The static frontend reads the backend URL from `Frontend/Js/config.js`.
 For local development, keep `apiBaseUrl` as `http://localhost:8000`.
 When the backend is deployed, change it to the deployed backend URL.

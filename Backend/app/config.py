@@ -18,6 +18,7 @@ class Settings:
     supabase_publishable_key: str
     supabase_secret_key: str | None
     frontend_origin: str
+    password_reset_redirect_url: str
     signup_allowed_users_table: str
     signup_allowed_users_email_column: str
     signup_allowed_users_status_column: str
@@ -85,6 +86,10 @@ def get_settings() -> Settings:
         supabase_secret_key=_get_supabase_secret_key(),
         frontend_origin=_get_config_value(
             "FRONTEND_ORIGIN", "http://localhost:8000"
+        ),
+        password_reset_redirect_url=_get_config_value(
+            "PASSWORD_RESET_REDIRECT_URL",
+            "http://localhost:8000/reset-password.html",
         ),
         signup_allowed_users_table=_get_config_value(
             "SIGNUP_ALLOWED_USERS_TABLE", "REF_USERS"
