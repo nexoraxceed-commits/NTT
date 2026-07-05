@@ -312,6 +312,12 @@ function setupCreateProjectForm() {
     getAuthorizedJson("/users")
       .then((users) => {
         const session = getSession();
+        let optionCount = 0;
+
+        assigneeSelect.querySelectorAll("option[disabled]").forEach((option) => {
+          option.remove();
+        });
+
         users.forEach((user) => {
           if (!user.email || user.email === session?.email) {
             return;
@@ -323,9 +329,21 @@ function setupCreateProjectForm() {
             ? `${user.user_name} (${user.email})`
             : user.email;
           assigneeSelect.append(option);
+          optionCount += 1;
         });
+
+        if (optionCount === 0) {
+          const option = document.createElement("option");
+          option.value = "";
+          option.disabled = true;
+          option.textContent = "No other active users found";
+          assigneeSelect.append(option);
+        }
       })
       .catch((error) => {
+        assigneeSelect.querySelectorAll("option[disabled]").forEach((option) => {
+          option.remove();
+        });
         setMessage(messageElement, error.message, true);
       });
   }

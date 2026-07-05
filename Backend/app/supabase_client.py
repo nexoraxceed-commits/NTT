@@ -14,5 +14,7 @@ def get_supabase_client() -> Client:
 @lru_cache
 def get_supabase_admin_client() -> Client:
     settings = get_settings()
-    key = settings.supabase_secret_key or settings.supabase_publishable_key
-    return create_client(settings.supabase_url, key)
+    if not settings.supabase_secret_key:
+        raise RuntimeError("Missing required configuration value: SUPABASE_SECRET_KEY")
+
+    return create_client(settings.supabase_url, settings.supabase_secret_key)

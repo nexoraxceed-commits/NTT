@@ -482,7 +482,7 @@ def create_app() -> FastAPI:
         except Exception as exc:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Could not create project record.",
+                detail=f"Could not create project record: {exc}",
             ) from exc
 
         try:
@@ -515,7 +515,10 @@ def create_app() -> FastAPI:
         except Exception as exc:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Project was created, but project members could not be assigned.",
+                detail=(
+                    "Project was created, but project members could not be "
+                    f"assigned: {exc}"
+                ),
             ) from exc
 
         return MessageResponse(detail="Project created successfully.")
