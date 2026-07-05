@@ -1,5 +1,6 @@
 from fastapi import Depends, FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from supabase import Client
 
 from app.config import Settings, get_settings
@@ -36,6 +37,13 @@ def create_app() -> FastAPI:
     @app.get("/health")
     def health_check() -> dict[str, str]:
         return {"status": "ok"}
+
+    @app.exception_handler(Exception)
+    def unexpected_error_handler(_request, _exc: Exception) -> JSONResponse:
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={"detail": "Unexpected backend error."},
+        )
 
     @app.post("/auth/signup", response_model=MessageResponse)
     def signup(
@@ -95,24 +103,29 @@ def create_app() -> FastAPI:
                     "password": payload.password,
                 }
             )
+
+            session = getattr(result, "session", None)
+            user = getattr(result, "user", None)
+
+            if not session or not user:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Invalid email or password.",
+                )
+
+            return LoginResponse(
+                access_token=session.access_token,
+                refresh_token=session.refresh_token,
+                user_id=user.id,
+                email=user.email,
+            )
+        except HTTPException:
+            raise
         except Exception as exc:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid email or password.",
             ) from exc
-
-        if not result.session or not result.user:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid email or password.",
-            )
-
-        return LoginResponse(
-            access_token=result.session.access_token,
-            refresh_token=result.session.refresh_token,
-            user_id=result.user.id,
-            email=result.user.email,
-        )
 
     return app
 

@@ -33,7 +33,9 @@ async function postJson(path, payload) {
     throw new Error("Could not reach the backend. Please try again in a moment.");
   }
 
-  const data = await response.json().catch(() => ({}));
+  const data = await response.json().catch(() => ({
+    detail: response.ok ? "" : `Backend returned ${response.status}.`,
+  }));
 
   if (!response.ok) {
     throw new Error(data.detail ?? "Request failed. Please try again.");
