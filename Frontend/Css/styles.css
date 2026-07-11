@@ -232,6 +232,17 @@ button {
     box-shadow 160ms ease;
 }
 
+.secondary-button {
+  border: 1px solid var(--line);
+  color: var(--accent);
+  background: #ffffff;
+  box-shadow: none;
+}
+
+.secondary-button:hover {
+  color: #ffffff;
+}
+
 button:hover {
   background: var(--accent-strong);
   box-shadow: 0 12px 24px rgba(11, 107, 87, 0.2);
@@ -327,10 +338,105 @@ a:focus-visible {
   box-shadow: var(--shadow);
 }
 
+.wide-panel {
+  max-width: none;
+}
+
+.workspace-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 24px;
+  margin-bottom: 28px;
+}
+
+.header-actions,
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.section-header {
+  margin-bottom: 20px;
+}
+
 .project-form {
   display: grid;
   gap: 18px;
   margin-top: 24px;
+}
+
+.item-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 16px;
+}
+
+.item-card {
+  display: grid;
+  gap: 10px;
+  min-height: 150px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 18px;
+  color: var(--ink);
+  background: #ffffff;
+  text-decoration: none;
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    transform 160ms ease;
+}
+
+.item-card:hover {
+  border-color: rgba(11, 107, 87, 0.45);
+  color: var(--ink);
+  box-shadow: 0 16px 32px rgba(20, 35, 30, 0.1);
+  text-decoration: none;
+  transform: translateY(-1px);
+}
+
+.item-card h3 {
+  margin: 0;
+  font-size: 1.2rem;
+  line-height: 1.25;
+}
+
+.item-card p,
+.detail-copy,
+.empty-state,
+.comment-card p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.meta-text {
+  color: var(--accent);
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.detail-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 20px;
+}
+
+.comment-list {
+  display: grid;
+  gap: 14px;
+  margin-top: 22px;
+}
+
+.comment-card {
+  display: grid;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 14px;
+  background: #fbfdfc;
 }
 
 @media (max-width: 780px) {
@@ -363,6 +469,22 @@ a:focus-visible {
   .workspace-header {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .workspace-grid,
+  .detail-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .header-actions,
+  .section-header {
+    align-items: stretch;
+    flex-direction: column;
+    width: 100%;
+  }
+
+  .header-actions > * {
+    width: 100%;
   }
 }
 

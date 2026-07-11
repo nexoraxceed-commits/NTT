@@ -5,14 +5,23 @@ from supabase import Client
 
 from app.config import Settings, get_settings
 from app.schemas import (
+    CreateTaskCommentRequest,
     CreateProjectRequest,
+    CreateTaskRequest,
     ErrorResponse,
     ForgotPasswordRequest,
     LoginRequest,
     LoginResponse,
     MessageResponse,
+    ProjectDetailResponse,
+    ProjectMemberResponse,
+    ProjectSummaryResponse,
     ProjectUserResponse,
     SignupRequest,
+    TaskCommentResponse,
+    TaskDetailResponse,
+    TaskSummaryResponse,
+    UpdateProjectRequest,
 )
 from app.supabase_client import get_supabase_admin_client, get_supabase_client
 
@@ -21,6 +30,8 @@ NORMAL_STATUS = "NORMAL"
 AUTH_UID_COLUMN = "auth_uid"
 PROJECTS_TABLE = "PROJECTS"
 PROJECT_MEMBERS_TABLE = "PROJECT_MEMBERS"
+TASKS_TABLE = "TASKS"
+TASK_COMMENTS_TABLE = "TASK_COMMENTS"
 REF_USER_NAME_COLUMN = "user_name"
 
 
@@ -69,6 +80,160 @@ def get_active_ref_users(
         .execute()
     )
     return getattr(response, "data", None) or []
+
+
+def get_ref_users_by_auth_uids(
+    supabase: Client,
+    app_settings: Settings,
+    auth_uids: list[str],
+) -> dict[str, dict]:
+    if not auth_uids:
+        return {}
+
+    response = (
+        supabase.table(app_settings.signup_allowed_users_table)
+        .select(
+            ",".join(
+                (
+                    app_settings.signup_allowed_users_email_column,
+                    REF_USER_NAME_COLUMN,
+                    AUTH_UID_COLUMN,
+                )
+            )
+        )
+        .in_(AUTH_UID_COLUMN, list(set(auth_uids)))
+        .execute()
+    )
+    users = getattr(response, "data", None) or []
+    return {
+        str(user.get(AUTH_UID_COLUMN)): user
+        for user in users
+        if user.get(AUTH_UID_COLUMN)
+    }
+
+
+def get_project_members(
+    supabase: Client,
+    project_id: int,
+) -> list[dict]:
+    response = (
+        supabase.table(PROJECT_MEMBERS_TABLE)
+        .select("project_id,user_id,role,status")
+        .eq("project_id", project_id)
+        .eq("status", "ACTIVE")
+        .execute()
+    )
+    return getattr(response, "data", None) or []
+
+
+def get_user_project_memberships(
+    supabase: Client,
+    user_id: str,
+) -> list[dict]:
+    response = (
+        supabase.table(PROJECT_MEMBERS_TABLE)
+        .select("project_id,user_id,role,status")
+        .eq("user_id", user_id)
+        .eq("status", "ACTIVE")
+        .execute()
+    )
+    return getattr(response, "data", None) or []
+
+
+def ensure_project_member(
+    supabase: Client,
+    project_id: int,
+    user_id: str,
+) -> None:
+    response = (
+        supabase.table(PROJECT_MEMBERS_TABLE)
+        .select("id")
+        .eq("project_id", project_id)
+        .eq("user_id", user_id)
+        .eq("status", "ACTIVE")
+        .limit(1)
+        .execute()
+    )
+    memberships = getattr(response, "data", None) or []
+    if memberships:
+        return
+
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="You do not have access to this project.",
+    )
+
+
+def get_project_by_id(
+    supabase: Client,
+    project_id: int,
+) -> dict:
+    response = (
+        supabase.table(PROJECTS_TABLE)
+        .select("id,created_at,project_name,description,documents,created_by,status")
+        .eq("id", project_id)
+        .limit(1)
+        .execute()
+    )
+    projects = getattr(response, "data", None) or []
+    if not projects:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Project not found.",
+        )
+
+    return projects[0]
+
+
+def get_task_by_id(
+    supabase: Client,
+    task_id: int,
+) -> dict:
+    response = (
+        supabase.table(TASKS_TABLE)
+        .select(
+            "id,created_at,project_id,task_title,task_details,documents,"
+            "assigned_to,created_by,status,due_date"
+        )
+        .eq("id", task_id)
+        .limit(1)
+        .execute()
+    )
+    tasks = getattr(response, "data", None) or []
+    if not tasks:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Task not found.",
+        )
+
+    return tasks[0]
+
+
+def build_member_responses(
+    members: list[dict],
+    users_by_auth_uid: dict[str, dict],
+    app_settings: Settings,
+) -> list[ProjectMemberResponse]:
+    responses: list[ProjectMemberResponse] = []
+    for member in members:
+        ref_user = users_by_auth_uid.get(str(member.get("user_id"))) or {}
+        responses.append(
+            ProjectMemberResponse(
+                email=ref_user.get(app_settings.signup_allowed_users_email_column),
+                user_name=ref_user.get(REF_USER_NAME_COLUMN),
+                role=member.get("role") or "MEMBER",
+            )
+        )
+
+    return responses
+
+
+def normalize_optional_text(value: str | None) -> str | None:
+    if value is None:
+        return None
+
+    stripped_value = value.strip()
+    return stripped_value or None
 
 
 def update_ref_user_status(
@@ -379,6 +544,199 @@ def create_app() -> FastAPI:
             if user.get(app_settings.signup_allowed_users_email_column)
         ]
 
+    @app.get("/projects", response_model=list[ProjectSummaryResponse])
+    def list_projects(
+        current_user: object = Depends(get_current_user),
+        supabase_admin: Client = Depends(get_supabase_admin_client),
+        app_settings: Settings = Depends(get_settings),
+    ) -> list[ProjectSummaryResponse]:
+        user_id = getattr(current_user, "id", None)
+        if not user_id:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Session expired. Please sign in again.",
+            )
+
+        memberships = get_user_project_memberships(supabase_admin, user_id)
+        project_ids = [membership["project_id"] for membership in memberships]
+        if not project_ids:
+            return []
+
+        project_response = (
+            supabase_admin.table(PROJECTS_TABLE)
+            .select("id,project_name,description,documents,status")
+            .in_("id", project_ids)
+            .order("created_at", desc=True)
+            .execute()
+        )
+        projects = getattr(project_response, "data", None) or []
+        members_by_project: dict[int, list[dict]] = {}
+        all_member_ids: list[str] = []
+
+        for project in projects:
+            members = get_project_members(supabase_admin, int(project["id"]))
+            members_by_project[int(project["id"])] = members
+            all_member_ids.extend(
+                str(member["user_id"]) for member in members if member.get("user_id")
+            )
+
+        users_by_auth_uid = get_ref_users_by_auth_uids(
+            supabase_admin,
+            app_settings,
+            all_member_ids,
+        )
+
+        return [
+            ProjectSummaryResponse(
+                id=project["id"],
+                project_name=project["project_name"],
+                description=project.get("description"),
+                documents=project.get("documents"),
+                status=project.get("status") or "ACTIVE",
+                assignees=build_member_responses(
+                    members_by_project.get(int(project["id"]), []),
+                    users_by_auth_uid,
+                    app_settings,
+                ),
+            )
+            for project in projects
+        ]
+
+    @app.get("/projects/{project_id}", response_model=ProjectDetailResponse)
+    def get_project_detail(
+        project_id: int,
+        current_user: object = Depends(get_current_user),
+        supabase_admin: Client = Depends(get_supabase_admin_client),
+        app_settings: Settings = Depends(get_settings),
+    ) -> ProjectDetailResponse:
+        user_id = getattr(current_user, "id", None)
+        if not user_id:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Session expired. Please sign in again.",
+            )
+
+        ensure_project_member(supabase_admin, project_id, user_id)
+        project = get_project_by_id(supabase_admin, project_id)
+        members = get_project_members(supabase_admin, project_id)
+
+        task_response = (
+            supabase_admin.table(TASKS_TABLE)
+            .select(
+                "id,project_id,task_title,task_details,documents,assigned_to,status"
+            )
+            .eq("project_id", project_id)
+            .order("created_at", desc=True)
+            .execute()
+        )
+        tasks = getattr(task_response, "data", None) or []
+        user_ids = [
+            str(member["user_id"]) for member in members if member.get("user_id")
+        ]
+        user_ids.extend(
+            str(task["assigned_to"]) for task in tasks if task.get("assigned_to")
+        )
+        users_by_auth_uid = get_ref_users_by_auth_uids(
+            supabase_admin,
+            app_settings,
+            user_ids,
+        )
+
+        return ProjectDetailResponse(
+            id=project["id"],
+            project_name=project["project_name"],
+            description=project.get("description"),
+            documents=project.get("documents"),
+            status=project.get("status") or "ACTIVE",
+            assignees=build_member_responses(members, users_by_auth_uid, app_settings),
+            tasks=[
+                TaskSummaryResponse(
+                    id=task["id"],
+                    project_id=task["project_id"],
+                    task_title=task["task_title"],
+                    task_details=task.get("task_details"),
+                    documents=task.get("documents"),
+                    assigned_to_email=(
+                        users_by_auth_uid.get(str(task.get("assigned_to")), {}).get(
+                            app_settings.signup_allowed_users_email_column
+                        )
+                        if task.get("assigned_to")
+                        else None
+                    ),
+                    assigned_to_name=(
+                        users_by_auth_uid.get(str(task.get("assigned_to")), {}).get(
+                            REF_USER_NAME_COLUMN
+                        )
+                        if task.get("assigned_to")
+                        else None
+                    ),
+                    status=task.get("status") or "TODO",
+                )
+                for task in tasks
+            ],
+        )
+
+    @app.post("/projects/{project_id}/update", response_model=MessageResponse)
+    def update_project(
+        project_id: int,
+        payload: UpdateProjectRequest,
+        current_user: object = Depends(get_current_user),
+        supabase_admin: Client = Depends(get_supabase_admin_client),
+        app_settings: Settings = Depends(get_settings),
+    ) -> MessageResponse:
+        user_id = getattr(current_user, "id", None)
+        if not user_id:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Session expired. Please sign in again.",
+            )
+
+        ensure_project_member(supabase_admin, project_id, user_id)
+        update_payload = {
+            "description": normalize_optional_text(payload.description),
+            "documents": normalize_optional_text(payload.documents),
+        }
+        (
+            supabase_admin.table(PROJECTS_TABLE)
+            .update(update_payload)
+            .eq("id", project_id)
+            .execute()
+        )
+
+        assigned_to_email = normalize_optional_text(payload.assigned_to_email)
+        if assigned_to_email:
+            assigned_ref_user = get_ref_user(
+                supabase_admin,
+                app_settings,
+                assigned_to_email.lower(),
+            )
+            if not assigned_ref_user or not assigned_ref_user.get(AUTH_UID_COLUMN):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Selected assignee must sign in once before assignment.",
+                )
+
+            assigned_user_id = assigned_ref_user[AUTH_UID_COLUMN]
+            existing_members = get_project_members(supabase_admin, project_id)
+            if not any(
+                str(member.get("user_id")) == str(assigned_user_id)
+                for member in existing_members
+            ):
+                (
+                    supabase_admin.table(PROJECT_MEMBERS_TABLE)
+                    .insert(
+                        {
+                            "project_id": project_id,
+                            "user_id": assigned_user_id,
+                            "role": "MEMBER",
+                            "status": "ACTIVE",
+                        }
+                    )
+                    .execute()
+                )
+
+        return MessageResponse(detail="Project updated successfully.")
+
     @app.post("/projects", response_model=MessageResponse)
     def create_project(
         payload: CreateProjectRequest,
@@ -521,6 +879,162 @@ def create_app() -> FastAPI:
             ) from exc
 
         return MessageResponse(detail="Project created successfully.")
+
+    @app.post("/projects/{project_id}/tasks", response_model=MessageResponse)
+    def create_task(
+        project_id: int,
+        payload: CreateTaskRequest,
+        current_user: object = Depends(get_current_user),
+        supabase_admin: Client = Depends(get_supabase_admin_client),
+        app_settings: Settings = Depends(get_settings),
+    ) -> MessageResponse:
+        user_id = getattr(current_user, "id", None)
+        if not user_id:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Session expired. Please sign in again.",
+            )
+
+        ensure_project_member(supabase_admin, project_id, user_id)
+        assigned_user_id = None
+        assigned_to_email = normalize_optional_text(payload.assigned_to_email)
+        if assigned_to_email:
+            assigned_ref_user = get_ref_user(
+                supabase_admin,
+                app_settings,
+                assigned_to_email.lower(),
+            )
+            if not assigned_ref_user or not assigned_ref_user.get(AUTH_UID_COLUMN):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Selected assignee must sign in once before assignment.",
+                )
+
+            assigned_user_id = assigned_ref_user[AUTH_UID_COLUMN]
+
+        (
+            supabase_admin.table(TASKS_TABLE)
+            .insert(
+                {
+                    "project_id": project_id,
+                    "task_title": payload.task_title.strip(),
+                    "task_details": normalize_optional_text(payload.task_details),
+                    "documents": normalize_optional_text(payload.documents),
+                    "assigned_to": assigned_user_id,
+                    "created_by": user_id,
+                    "status": "TODO",
+                }
+            )
+            .execute()
+        )
+
+        return MessageResponse(detail="Task created successfully.")
+
+    @app.get("/tasks/{task_id}", response_model=TaskDetailResponse)
+    def get_task_detail(
+        task_id: int,
+        current_user: object = Depends(get_current_user),
+        supabase_admin: Client = Depends(get_supabase_admin_client),
+        app_settings: Settings = Depends(get_settings),
+    ) -> TaskDetailResponse:
+        user_id = getattr(current_user, "id", None)
+        if not user_id:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Session expired. Please sign in again.",
+            )
+
+        task = get_task_by_id(supabase_admin, task_id)
+        project_id = int(task["project_id"])
+        ensure_project_member(supabase_admin, project_id, user_id)
+        project = get_project_by_id(supabase_admin, project_id)
+
+        comment_response = (
+            supabase_admin.table(TASK_COMMENTS_TABLE)
+            .select("id,created_at,task_id,commented_by,comment_text,deliverable_url")
+            .eq("task_id", task_id)
+            .order("created_at", desc=False)
+            .execute()
+        )
+        comments = getattr(comment_response, "data", None) or []
+        user_ids = []
+        if task.get("assigned_to"):
+            user_ids.append(str(task["assigned_to"]))
+        user_ids.extend(
+            str(comment["commented_by"])
+            for comment in comments
+            if comment.get("commented_by")
+        )
+        users_by_auth_uid = get_ref_users_by_auth_uids(
+            supabase_admin,
+            app_settings,
+            user_ids,
+        )
+        assigned_ref_user = users_by_auth_uid.get(str(task.get("assigned_to"))) or {}
+
+        return TaskDetailResponse(
+            id=task["id"],
+            project_id=project_id,
+            project_name=project["project_name"],
+            task_title=task["task_title"],
+            task_details=task.get("task_details"),
+            documents=task.get("documents"),
+            assigned_to_email=assigned_ref_user.get(
+                app_settings.signup_allowed_users_email_column
+            ),
+            assigned_to_name=assigned_ref_user.get(REF_USER_NAME_COLUMN),
+            status=task.get("status") or "TODO",
+            comments=[
+                TaskCommentResponse(
+                    id=comment["id"],
+                    comment_text=comment.get("comment_text"),
+                    deliverable_url=comment.get("deliverable_url"),
+                    commented_by_email=(
+                        users_by_auth_uid.get(
+                            str(comment.get("commented_by")), {}
+                        ).get(app_settings.signup_allowed_users_email_column)
+                    ),
+                    commented_by_name=(
+                        users_by_auth_uid.get(
+                            str(comment.get("commented_by")), {}
+                        ).get(REF_USER_NAME_COLUMN)
+                    ),
+                    created_at=comment.get("created_at"),
+                )
+                for comment in comments
+            ],
+        )
+
+    @app.post("/tasks/{task_id}/comments", response_model=MessageResponse)
+    def create_task_comment(
+        task_id: int,
+        payload: CreateTaskCommentRequest,
+        current_user: object = Depends(get_current_user),
+        supabase_admin: Client = Depends(get_supabase_admin_client),
+    ) -> MessageResponse:
+        user_id = getattr(current_user, "id", None)
+        if not user_id:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Session expired. Please sign in again.",
+            )
+
+        task = get_task_by_id(supabase_admin, task_id)
+        ensure_project_member(supabase_admin, int(task["project_id"]), user_id)
+        (
+            supabase_admin.table(TASK_COMMENTS_TABLE)
+            .insert(
+                {
+                    "task_id": task_id,
+                    "commented_by": user_id,
+                    "comment_text": payload.comment_text.strip(),
+                    "deliverable_url": normalize_optional_text(payload.deliverable_url),
+                }
+            )
+            .execute()
+        )
+
+        return MessageResponse(detail="Comment added successfully.")
 
     return app
 

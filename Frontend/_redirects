@@ -8,5 +8,9 @@
 /post-login.html /Pages/post-login.html 200
 /create-project /Pages/create-project.html 200
 /create-project.html /Pages/create-project.html 200
+/project /Pages/project.html 200
+/project.html /Pages/project.html 200
+/task /Pages/task.html 200
+/task.html /Pages/task.html 200
 /signed-out /Pages/signed-out.html 200
 /signed-out.html /Pages/signed-out.html 200

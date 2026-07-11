@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Project | NTT Workspace</title>
+    <link rel="stylesheet" href="/Css/styles.css">
+  </head>
+  <body class="app-body">
+    <main class="workspace-shell">
+      <header class="workspace-header">
+        <div>
+          <p class="eyebrow">Project dashboard</p>
+          <h1 id="project-title">Project</h1>
+        </div>
+        <a class="secondary-link" href="/post-login">Back to Dashboard</a>
+      </header>
+
+      <section class="workspace-panel wide-panel">
+        <div class="detail-grid">
+          <div>
+            <p class="eyebrow">Description</p>
+            <p class="detail-copy" id="project-description"></p>
+          </div>
+          <div>
+            <p class="eyebrow">Documents</p>
+            <p class="detail-copy" id="project-documents"></p>
+          </div>
+          <div>
+            <p class="eyebrow">Assignees</p>
+            <p class="detail-copy" id="project-assignees"></p>
+          </div>
+        </div>
+      </section>
+
+      <section class="workspace-grid">
+        <section class="workspace-panel" aria-labelledby="edit-project-title">
+          <h2 id="edit-project-title">Edit project</h2>
+          <form class="project-form" id="edit-project-form" novalidate>
+            <div class="field-group">
+              <label for="edit_description">Description</label>
+              <textarea id="edit_description" name="description" rows="4" maxlength="1000"></textarea>
+            </div>
+            <div class="field-group">
+              <label for="edit_documents">Documents URL</label>
+              <input id="edit_documents" name="documents" type="url" maxlength="2000">
+            </div>
+            <div class="field-group">
+              <label for="edit_assigned_to_email">Add assignee</label>
+              <select id="edit_assigned_to_email" name="assigned_to_email">
+                <option value="">No new assignee</option>
+                <option value="" disabled>Loading users...</option>
+              </select>
+            </div>
+            <button type="submit">Save Project</button>
+            <p class="form-message" id="edit-project-message" role="status" aria-live="polite"></p>
+          </form>
+        </section>
+
+        <section class="workspace-panel" aria-labelledby="create-task-title">
+          <h2 id="create-task-title">Create task</h2>
+          <form class="project-form" id="create-task-form" novalidate>
+            <div class="field-group">
+              <label for="task_title">Task name</label>
+              <input id="task_title" name="task_title" type="text" maxlength="160" required>
+            </div>
+            <div class="field-group">
+              <label for="task_details">Task description</label>
+              <textarea id="task_details" name="task_details" rows="4" maxlength="1000"></textarea>
+            </div>
+            <div class="field-group">
+              <label for="task_documents">Task documents</label>
+              <input id="task_documents" name="documents" type="url" maxlength="2000">
+            </div>
+            <div class="field-group">
+              <label for="task_assigned_to_email">Task assignee</label>
+              <select id="task_assigned_to_email" name="assigned_to_email">
+                <option value="">Unassigned</option>
+                <option value="" disabled>Loading users...</option>
+              </select>
+            </div>
+            <button type="submit">Create Task</button>
+            <p class="form-message" id="create-task-message" role="status" aria-live="polite"></p>
+          </form>
+        </section>
+      </section>
+
+      <section class="workspace-panel wide-panel" aria-labelledby="tasks-title">
+        <div class="section-header">
+          <h2 id="tasks-title">Tasks</h2>
+          <p class="form-message" id="project-message" role="status" aria-live="polite"></p>
+        </div>
+        <div class="item-grid" id="task-list"></div>
+      </section>
+    </main>
+    <script src="/Js/config.js"></script>
+    <script src="/Js/app.js?v=20260705-task-flow"></script>
+  </body>
+</html>

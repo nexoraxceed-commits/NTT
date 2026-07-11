@@ -22,9 +22,71 @@ class CreateProjectRequest(BaseModel):
     assigned_to_email: str | None = Field(default=None, max_length=320)
 
 
+class UpdateProjectRequest(BaseModel):
+    description: str | None = Field(default=None, max_length=1000)
+    documents: str | None = Field(default=None, max_length=2000)
+    assigned_to_email: str | None = Field(default=None, max_length=320)
+
+
+class CreateTaskRequest(BaseModel):
+    task_title: str = Field(min_length=1, max_length=160)
+    task_details: str | None = Field(default=None, max_length=1000)
+    documents: str | None = Field(default=None, max_length=2000)
+    assigned_to_email: str | None = Field(default=None, max_length=320)
+
+
+class CreateTaskCommentRequest(BaseModel):
+    comment_text: str = Field(min_length=1, max_length=1000)
+    deliverable_url: str | None = Field(default=None, max_length=2000)
+
+
 class ProjectUserResponse(BaseModel):
     email: str
     user_name: str | None = None
+
+
+class ProjectMemberResponse(BaseModel):
+    email: str | None = None
+    user_name: str | None = None
+    role: str
+
+
+class ProjectSummaryResponse(BaseModel):
+    id: int
+    project_name: str
+    description: str | None = None
+    documents: str | None = None
+    status: str
+    assignees: list[ProjectMemberResponse]
+
+
+class TaskSummaryResponse(BaseModel):
+    id: int
+    project_id: int
+    task_title: str
+    task_details: str | None = None
+    documents: str | None = None
+    assigned_to_email: str | None = None
+    assigned_to_name: str | None = None
+    status: str
+
+
+class TaskCommentResponse(BaseModel):
+    id: int
+    comment_text: str | None = None
+    deliverable_url: str | None = None
+    commented_by_email: str | None = None
+    commented_by_name: str | None = None
+    created_at: str | None = None
+
+
+class TaskDetailResponse(TaskSummaryResponse):
+    project_name: str
+    comments: list[TaskCommentResponse]
+
+
+class ProjectDetailResponse(ProjectSummaryResponse):
+    tasks: list[TaskSummaryResponse]
 
 
 class LoginResponse(BaseModel):
