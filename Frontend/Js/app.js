@@ -82,28 +82,39 @@ function clearSession() {
 
 function markHistoryLogout() {
   window.sessionStorage.setItem(historyLogoutKey, "true");
-  window.localStorage.setItem(historyLogoutKey, "true");
 }
 
 function wasLoggedOutByHistory() {
-  return (
-    window.sessionStorage.getItem(historyLogoutKey) === "true" ||
-    window.localStorage.getItem(historyLogoutKey) === "true"
-  );
+  return window.sessionStorage.getItem(historyLogoutKey) === "true";
 }
 
 function redirectToSignedOut() {
   window.location.replace("/signed-out");
 }
 
-function guardPageAccess() {
+function isBackForwardNavigation(event) {
+  if (event?.persisted) {
+    return true;
+  }
+
+  const navigation = window.performance?.getEntriesByType?.("navigation")?.[0];
+  return navigation?.type === "back_forward";
+}
+
+function guardPageAccess(event) {
   const path = normalizePath(window.location.pathname);
   const session = getSession();
+  const cameFromHistory = isBackForwardNavigation(event);
 
   if (authPages.has(path) && (session?.accessToken || isAuthActive())) {
-    clearSession();
-    markHistoryLogout();
-    redirectToSignedOut();
+    if (cameFromHistory) {
+      clearSession();
+      markHistoryLogout();
+      redirectToSignedOut();
+      return;
+    }
+
+    window.location.replace("/post-login");
     return;
   }
 
