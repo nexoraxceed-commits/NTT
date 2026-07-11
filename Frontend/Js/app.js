@@ -499,30 +499,61 @@ function renderTaskList(tasks) {
     return;
   }
 
-  tasks.forEach((task) => {
-    const card = document.createElement("a");
-    card.className = "item-card";
-    card.href = `/task?id=${task.id}`;
+  const tableWrap = document.createElement("div");
+  tableWrap.className = "data-table-wrap";
 
-    const title = document.createElement("h3");
-    title.textContent = task.task_title;
-    const description = document.createElement("p");
-    description.textContent = task.task_details || "No description added.";
-    const assignee = document.createElement("p");
-    assignee.className = "meta-text";
-    assignee.textContent = `Assignee: ${
-      task.assigned_to_name || task.assigned_to_email || "Unassigned"
-    }`;
+  const table = document.createElement("table");
+  table.className = "data-table";
 
-    card.append(title, description, assignee);
-    taskList.append(card);
+  const thead = document.createElement("thead");
+  const headerRow = document.createElement("tr");
+  ["Task Title", "Assignee", "Status"].forEach((label) => {
+    const cell = document.createElement("th");
+    cell.scope = "col";
+    cell.textContent = label;
+    headerRow.append(cell);
   });
+  thead.append(headerRow);
+
+  const tbody = document.createElement("tbody");
+
+  tasks.forEach((task) => {
+    const row = document.createElement("tr");
+    row.addEventListener("click", () => {
+      window.location.href = `/task?id=${task.id}`;
+    });
+
+    const titleCell = document.createElement("td");
+    const taskLink = document.createElement("a");
+    taskLink.href = `/task?id=${task.id}`;
+    taskLink.textContent = task.task_title;
+    titleCell.append(taskLink);
+
+    const assigneeCell = document.createElement("td");
+    assigneeCell.textContent =
+      task.assigned_to_name || task.assigned_to_email || "Unassigned";
+
+    const statusCell = document.createElement("td");
+    statusCell.textContent = task.status || "TODO";
+
+    row.append(titleCell, assigneeCell, statusCell);
+    tbody.append(row);
+  });
+
+  table.append(thead, tbody);
+  tableWrap.append(table);
+  taskList.append(tableWrap);
 }
 
 function setupProjectPage() {
   const projectTitle = document.querySelector("#project-title");
   const editForm = document.querySelector("#edit-project-form");
   const createTaskForm = document.querySelector("#create-task-form");
+  const actionPanels = document.querySelector("#project-action-panels");
+  const editPanel = editForm?.closest(".workspace-panel");
+  const createTaskPanel = createTaskForm?.closest(".workspace-panel");
+  const showEditButton = document.querySelector("#show-edit-project-button");
+  const showCreateTaskButton = document.querySelector("#show-create-task-button");
   const projectMessage = document.querySelector("#project-message");
   const editMessage = document.querySelector("#edit-project-message");
   const taskMessage = document.querySelector("#create-task-message");
@@ -550,6 +581,22 @@ function setupProjectPage() {
   }
 
   fillSelectsForProjectPage();
+
+  function showActionPanel(panelToShow) {
+    if (!actionPanels || !editPanel || !createTaskPanel) {
+      return;
+    }
+
+    actionPanels.hidden = false;
+    editPanel.hidden = panelToShow !== editPanel;
+    createTaskPanel.hidden = panelToShow !== createTaskPanel;
+    panelToShow.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  showEditButton?.addEventListener("click", () => showActionPanel(editPanel));
+  showCreateTaskButton?.addEventListener("click", () =>
+    showActionPanel(createTaskPanel)
+  );
 
   editForm?.addEventListener("submit", async (event) => {
     event.preventDefault();

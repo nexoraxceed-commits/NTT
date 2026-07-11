@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Project | NTT Workspace</title>
-    <link rel="stylesheet" href="/Css/styles.css">
+    <link rel="stylesheet" href="/Css/styles.css?v=20260711-project-layout">
   </head>
   <body class="app-body">
     <main class="workspace-shell">
@@ -13,7 +13,15 @@
           <p class="eyebrow">Project dashboard</p>
           <h1 id="project-title">Project</h1>
         </div>
-        <a class="secondary-link" href="/post-login">Back to Dashboard</a>
+        <div class="header-actions">
+          <button class="secondary-button" id="show-edit-project-button" type="button">
+            Edit Project
+          </button>
+          <button id="show-create-task-button" type="button">
+            Create Task
+          </button>
+          <a class="secondary-link" href="/post-login">Back to Dashboard</a>
+        </div>
       </header>
 
       <section class="workspace-panel wide-panel">
@@ -33,7 +41,15 @@
         </div>
       </section>
 
-      <section class="workspace-grid">
+      <section class="workspace-panel wide-panel" aria-labelledby="tasks-title">
+        <div class="section-header">
+          <h2 id="tasks-title">Tasks</h2>
+          <p class="form-message" id="project-message" role="status" aria-live="polite"></p>
+        </div>
+        <div id="task-list"></div>
+      </section>
+
+      <section class="workspace-grid action-panels" id="project-action-panels" hidden>
         <section class="workspace-panel" aria-labelledby="edit-project-title">
           <h2 id="edit-project-title">Edit project</h2>
           <form class="project-form" id="edit-project-form" novalidate>
@@ -84,16 +100,8 @@
           </form>
         </section>
       </section>
-
-      <section class="workspace-panel wide-panel" aria-labelledby="tasks-title">
-        <div class="section-header">
-          <h2 id="tasks-title">Tasks</h2>
-          <p class="form-message" id="project-message" role="status" aria-live="polite"></p>
-        </div>
-        <div class="item-grid" id="task-list"></div>
-      </section>
     </main>
     <script src="/Js/config.js"></script>
-    <script src="/Js/app.js?v=20260705-task-flow"></script>
+    <script src="/Js/app.js?v=20260711-project-layout"></script>
   </body>
 </html>
