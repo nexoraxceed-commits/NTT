@@ -319,6 +319,10 @@ a:focus-visible {
   padding: 40px 0;
 }
 
+.narrow-shell {
+  width: min(760px, calc(100% - 32px));
+}
+
 .workspace-header {
   display: flex;
   align-items: center;

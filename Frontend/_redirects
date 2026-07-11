@@ -8,6 +8,10 @@
 /post-login.html /Pages/post-login.html 200
 /create-project /Pages/create-project.html 200
 /create-project.html /Pages/create-project.html 200
+/edit-project /Pages/edit-project.html 200
+/edit-project.html /Pages/edit-project.html 200
+/create-task /Pages/create-task.html 200
+/create-task.html /Pages/create-task.html 200
 /project /Pages/project.html 200
 /project.html /Pages/project.html 200
 /task /Pages/task.html 200

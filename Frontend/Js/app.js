@@ -20,6 +20,12 @@ const dashboardPages = new Set([
   "/create-project",
   "/create-project.html",
   "/Pages/create-project.html",
+  "/edit-project",
+  "/edit-project.html",
+  "/Pages/edit-project.html",
+  "/create-task",
+  "/create-task.html",
+  "/Pages/create-task.html",
   "/project",
   "/project.html",
   "/Pages/project.html",
@@ -485,9 +491,6 @@ function renderProjectDetail(project) {
   document.querySelector("#project-assignees").textContent = formatProjectMembers(
     project.assignees
   );
-
-  document.querySelector("#edit_description").value = project.description || "";
-  document.querySelector("#edit_documents").value = project.documents || "";
 }
 
 function renderTaskList(tasks) {
@@ -547,16 +550,9 @@ function renderTaskList(tasks) {
 
 function setupProjectPage() {
   const projectTitle = document.querySelector("#project-title");
-  const editForm = document.querySelector("#edit-project-form");
-  const createTaskForm = document.querySelector("#create-task-form");
-  const actionPanels = document.querySelector("#project-action-panels");
-  const editPanel = editForm?.closest(".workspace-panel");
-  const createTaskPanel = createTaskForm?.closest(".workspace-panel");
-  const showEditButton = document.querySelector("#show-edit-project-button");
-  const showCreateTaskButton = document.querySelector("#show-create-task-button");
+  const editProjectLink = document.querySelector("#edit-project-link");
+  const createTaskLink = document.querySelector("#create-task-link");
   const projectMessage = document.querySelector("#project-message");
-  const editMessage = document.querySelector("#edit-project-message");
-  const taskMessage = document.querySelector("#create-task-message");
   const projectId = getQueryParam("id");
 
   if (!projectTitle) {
@@ -567,6 +563,9 @@ function setupProjectPage() {
     setMessage(projectMessage, "Project id is missing.", true);
     return;
   }
+
+  editProjectLink.href = `/edit-project?id=${projectId}`;
+  createTaskLink.href = `/create-task?id=${projectId}`;
 
   async function loadProject() {
     setMessage(projectMessage, "Loading project...");
@@ -580,23 +579,38 @@ function setupProjectPage() {
     }
   }
 
-  fillSelectsForProjectPage();
+  loadProject();
+}
 
-  function showActionPanel(panelToShow) {
-    if (!actionPanels || !editPanel || !createTaskPanel) {
-      return;
-    }
+function setupEditProjectPage() {
+  const editForm = document.querySelector("#edit-project-form");
+  const editMessage = document.querySelector("#edit-project-message");
+  const backLink = document.querySelector("#edit-project-back-link");
+  const projectId = getQueryParam("id");
 
-    actionPanels.hidden = false;
-    editPanel.hidden = panelToShow !== editPanel;
-    createTaskPanel.hidden = panelToShow !== createTaskPanel;
-    panelToShow.scrollIntoView({ behavior: "smooth", block: "start" });
+  if (!editForm) {
+    return;
   }
 
-  showEditButton?.addEventListener("click", () => showActionPanel(editPanel));
-  showCreateTaskButton?.addEventListener("click", () =>
-    showActionPanel(createTaskPanel)
+  if (!projectId) {
+    setMessage(editMessage, "Project id is missing.", true);
+    return;
+  }
+
+  backLink.href = `/project?id=${projectId}`;
+  populateUserSelect(document.querySelector("#edit_assigned_to_email")).catch(
+    () => {}
   );
+
+  async function loadProjectForEdit() {
+    try {
+      const project = await getAuthorizedJson(`/projects/${projectId}`);
+      document.querySelector("#edit_description").value = project.description || "";
+      document.querySelector("#edit_documents").value = project.documents || "";
+    } catch (error) {
+      setMessage(editMessage, error.message, true);
+    }
+  }
 
   editForm?.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -611,11 +625,34 @@ function setupProjectPage() {
           String(formData.get("assigned_to_email") ?? "").trim() || null,
       });
       setMessage(editMessage, data.detail || "Project updated successfully.");
-      await loadProject();
+      window.location.href = `/project?id=${projectId}`;
     } catch (error) {
       setMessage(editMessage, error.message, true);
     }
   });
+
+  loadProjectForEdit();
+}
+
+function setupCreateTaskPage() {
+  const createTaskForm = document.querySelector("#create-task-form");
+  const taskMessage = document.querySelector("#create-task-message");
+  const backLink = document.querySelector("#create-task-back-link");
+  const projectId = getQueryParam("id");
+
+  if (!createTaskForm) {
+    return;
+  }
+
+  if (!projectId) {
+    setMessage(taskMessage, "Project id is missing.", true);
+    return;
+  }
+
+  backLink.href = `/project?id=${projectId}`;
+  populateUserSelect(document.querySelector("#task_assigned_to_email"), {
+    includeCurrentUser: true,
+  }).catch(() => {});
 
   createTaskForm?.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -638,13 +675,11 @@ function setupProjectPage() {
       });
       createTaskForm.reset();
       setMessage(taskMessage, data.detail || "Task created successfully.");
-      await loadProject();
+      window.location.href = `/project?id=${projectId}`;
     } catch (error) {
       setMessage(taskMessage, error.message, true);
     }
   });
-
-  loadProject();
 }
 
 function renderTaskDetail(task) {
@@ -756,4 +791,6 @@ setupForgotPasswordForm();
 setupCreateProjectForm();
 setupDashboardProjects();
 setupProjectPage();
+setupEditProjectPage();
+setupCreateTaskPage();
 setupTaskPage();

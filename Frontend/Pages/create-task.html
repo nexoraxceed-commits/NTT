@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Create Task | NTT Workspace</title>
+    <link rel="stylesheet" href="/Css/styles.css?v=20260711-project-pages">
+  </head>
+  <body class="app-body">
+    <main class="workspace-shell narrow-shell">
+      <header class="workspace-header">
+        <div>
+          <p class="eyebrow">Project task</p>
+          <h1>Create task</h1>
+        </div>
+        <a class="secondary-link" id="create-task-back-link" href="/post-login">Back to Project</a>
+      </header>
+
+      <section class="workspace-panel wide-panel" aria-labelledby="create-task-title">
+        <h2 id="create-task-title">Task details</h2>
+        <form class="project-form" id="create-task-form" novalidate>
+          <div class="field-group">
+            <label for="task_title">Task name</label>
+            <input id="task_title" name="task_title" type="text" maxlength="160" required>
+          </div>
+          <div class="field-group">
+            <label for="task_details">Task description</label>
+            <textarea id="task_details" name="task_details" rows="4" maxlength="1000"></textarea>
+          </div>
+          <div class="field-group">
+            <label for="task_documents">Task documents</label>
+            <input id="task_documents" name="documents" type="url" maxlength="2000">
+          </div>
+          <div class="field-group">
+            <label for="task_assigned_to_email">Task assignee</label>
+            <select id="task_assigned_to_email" name="assigned_to_email">
+              <option value="">Unassigned</option>
+              <option value="" disabled>Loading users...</option>
+            </select>
+          </div>
+          <button type="submit">Create Task</button>
+          <p class="form-message" id="create-task-message" role="status" aria-live="polite"></p>
+        </form>
+      </section>
+    </main>
+    <script src="/Js/config.js"></script>
+    <script src="/Js/app.js?v=20260711-project-pages"></script>
+  </body>
+</html>

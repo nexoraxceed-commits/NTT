@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Edit Project | NTT Workspace</title>
+    <link rel="stylesheet" href="/Css/styles.css?v=20260711-project-pages">
+  </head>
+  <body class="app-body">
+    <main class="workspace-shell narrow-shell">
+      <header class="workspace-header">
+        <div>
+          <p class="eyebrow">Project setup</p>
+          <h1>Edit project</h1>
+        </div>
+        <a class="secondary-link" id="edit-project-back-link" href="/post-login">Back to Project</a>
+      </header>
+
+      <section class="workspace-panel wide-panel" aria-labelledby="edit-project-title">
+        <h2 id="edit-project-title">Project details</h2>
+        <form class="project-form" id="edit-project-form" novalidate>
+          <div class="field-group">
+            <label for="edit_description">Description</label>
+            <textarea id="edit_description" name="description" rows="4" maxlength="1000"></textarea>
+          </div>
+          <div class="field-group">
+            <label for="edit_documents">Documents URL</label>
+            <input id="edit_documents" name="documents" type="url" maxlength="2000">
+          </div>
+          <div class="field-group">
+            <label for="edit_assigned_to_email">Add assignee</label>
+            <select id="edit_assigned_to_email" name="assigned_to_email">
+              <option value="">No new assignee</option>
+              <option value="" disabled>Loading users...</option>
+            </select>
+          </div>
+          <button type="submit">Save Project</button>
+          <p class="form-message" id="edit-project-message" role="status" aria-live="polite"></p>
+        </form>
+      </section>
+    </main>
+    <script src="/Js/config.js"></script>
+    <script src="/Js/app.js?v=20260711-project-pages"></script>
+  </body>
+</html>

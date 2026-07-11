@@ -14,12 +14,8 @@
           <h1 id="project-title">Project</h1>
         </div>
         <div class="header-actions">
-          <button class="secondary-button" id="show-edit-project-button" type="button">
-            Edit Project
-          </button>
-          <button id="show-create-task-button" type="button">
-            Create Task
-          </button>
+          <a class="secondary-link" id="edit-project-link" href="/edit-project">Edit Project</a>
+          <a class="button-link" id="create-task-link" href="/create-task">Create Task</a>
           <a class="secondary-link" href="/post-login">Back to Dashboard</a>
         </div>
       </header>
@@ -49,57 +45,6 @@
         <div id="task-list"></div>
       </section>
 
-      <section class="workspace-grid action-panels" id="project-action-panels" hidden>
-        <section class="workspace-panel" aria-labelledby="edit-project-title">
-          <h2 id="edit-project-title">Edit project</h2>
-          <form class="project-form" id="edit-project-form" novalidate>
-            <div class="field-group">
-              <label for="edit_description">Description</label>
-              <textarea id="edit_description" name="description" rows="4" maxlength="1000"></textarea>
-            </div>
-            <div class="field-group">
-              <label for="edit_documents">Documents URL</label>
-              <input id="edit_documents" name="documents" type="url" maxlength="2000">
-            </div>
-            <div class="field-group">
-              <label for="edit_assigned_to_email">Add assignee</label>
-              <select id="edit_assigned_to_email" name="assigned_to_email">
-                <option value="">No new assignee</option>
-                <option value="" disabled>Loading users...</option>
-              </select>
-            </div>
-            <button type="submit">Save Project</button>
-            <p class="form-message" id="edit-project-message" role="status" aria-live="polite"></p>
-          </form>
-        </section>
-
-        <section class="workspace-panel" aria-labelledby="create-task-title">
-          <h2 id="create-task-title">Create task</h2>
-          <form class="project-form" id="create-task-form" novalidate>
-            <div class="field-group">
-              <label for="task_title">Task name</label>
-              <input id="task_title" name="task_title" type="text" maxlength="160" required>
-            </div>
-            <div class="field-group">
-              <label for="task_details">Task description</label>
-              <textarea id="task_details" name="task_details" rows="4" maxlength="1000"></textarea>
-            </div>
-            <div class="field-group">
-              <label for="task_documents">Task documents</label>
-              <input id="task_documents" name="documents" type="url" maxlength="2000">
-            </div>
-            <div class="field-group">
-              <label for="task_assigned_to_email">Task assignee</label>
-              <select id="task_assigned_to_email" name="assigned_to_email">
-                <option value="">Unassigned</option>
-                <option value="" disabled>Loading users...</option>
-              </select>
-            </div>
-            <button type="submit">Create Task</button>
-            <p class="form-message" id="create-task-message" role="status" aria-live="polite"></p>
-          </form>
-        </section>
-      </section>
     </main>
     <script src="/Js/config.js"></script>
     <script src="/Js/app.js?v=20260711-project-actions"></script>
