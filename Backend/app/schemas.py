@@ -18,13 +18,15 @@ class ForgotPasswordRequest(BaseModel):
 class CreateProjectRequest(BaseModel):
     project_name: str = Field(min_length=1, max_length=160)
     description: str | None = Field(default=None, max_length=1000)
-    documents: str | None = Field(default=None, max_length=2000)
+    document_name: str | None = Field(default=None, max_length=160)
+    document_url: str | None = Field(default=None, max_length=2000)
     assigned_to_email: str | None = Field(default=None, max_length=320)
 
 
 class UpdateProjectRequest(BaseModel):
     description: str | None = Field(default=None, max_length=1000)
-    documents: str | None = Field(default=None, max_length=2000)
+    document_name: str | None = Field(default=None, max_length=160)
+    document_url: str | None = Field(default=None, max_length=2000)
     assigned_to_email: str | None = Field(default=None, max_length=320)
 
 
@@ -55,6 +57,8 @@ class ProjectSummaryResponse(BaseModel):
     id: int
     project_name: str
     description: str | None = None
+    document_name: str | None = None
+    document_url: str | None = None
     documents: str | None = None
     status: str
     assignees: list[ProjectMemberResponse]

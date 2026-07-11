@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Create Project | NTT Workspace</title>
-    <link rel="stylesheet" href="/Css/styles.css">
+    <link rel="stylesheet" href="/Css/styles.css?v=20260711-project-documents">
   </head>
   <body class="app-body">
     <main class="workspace-shell">
@@ -42,10 +42,22 @@
           </div>
 
           <div class="field-group">
-            <label for="documents">Documents URL</label>
+            <label for="document_name">Document name</label>
             <input
-              id="documents"
-              name="documents"
+              id="document_name"
+              name="document_name"
+              type="text"
+              autocomplete="off"
+              maxlength="160"
+              placeholder="Project brief"
+            >
+          </div>
+
+          <div class="field-group">
+            <label for="document_url">Document URL</label>
+            <input
+              id="document_url"
+              name="document_url"
               type="url"
               autocomplete="off"
               maxlength="2000"
@@ -67,6 +79,6 @@
       </section>
     </main>
     <script src="/Js/config.js"></script>
-    <script src="/Js/app.js?v=20260705-projects"></script>
+    <script src="/Js/app.js?v=20260711-project-documents"></script>
   </body>
 </html>

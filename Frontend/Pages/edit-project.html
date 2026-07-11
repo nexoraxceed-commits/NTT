@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Edit Project | NTT Workspace</title>
-    <link rel="stylesheet" href="/Css/styles.css?v=20260711-project-pages">
+    <link rel="stylesheet" href="/Css/styles.css?v=20260711-project-documents">
   </head>
   <body class="app-body">
     <main class="workspace-shell narrow-shell">
@@ -24,8 +24,12 @@
             <textarea id="edit_description" name="description" rows="4" maxlength="1000"></textarea>
           </div>
           <div class="field-group">
-            <label for="edit_documents">Documents URL</label>
-            <input id="edit_documents" name="documents" type="url" maxlength="2000">
+            <label for="edit_document_name">Document name</label>
+            <input id="edit_document_name" name="document_name" type="text" maxlength="160">
+          </div>
+          <div class="field-group">
+            <label for="edit_document_url">Document URL</label>
+            <input id="edit_document_url" name="document_url" type="url" maxlength="2000">
           </div>
           <div class="field-group">
             <label for="edit_assigned_to_email">Add assignee</label>
@@ -40,6 +44,6 @@
       </section>
     </main>
     <script src="/Js/config.js"></script>
-    <script src="/Js/app.js?v=20260711-project-pages"></script>
+    <script src="/Js/app.js?v=20260711-project-documents"></script>
   </body>
 </html>

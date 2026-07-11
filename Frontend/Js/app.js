@@ -395,7 +395,8 @@ function setupCreateProjectForm() {
     const payload = {
       project_name: String(formData.get("project_name") ?? "").trim(),
       description: String(formData.get("description") ?? "").trim() || null,
-      documents: String(formData.get("documents") ?? "").trim() || null,
+      document_name: String(formData.get("document_name") ?? "").trim() || null,
+      document_url: String(formData.get("document_url") ?? "").trim() || null,
       assigned_to_email:
         String(formData.get("assigned_to_email") ?? "").trim() || null,
     };
@@ -506,10 +507,12 @@ function renderProjectDetail(project) {
   document.querySelector("#project-description").textContent =
     project.description || "No description added.";
   const documentsElement = document.querySelector("#project-documents");
+  const documentUrl = project.document_url || project.documents;
+  const documentName = project.document_name || documentUrl;
   documentsElement.innerHTML = "";
   documentsElement.append(
-    project.documents
-      ? createTextLink(project.documents, project.documents)
+    documentUrl
+      ? createTextLink(documentUrl, documentName)
       : "No documents URL added."
   );
   document.querySelector("#project-assignees").textContent = formatProjectMembers(
@@ -627,7 +630,10 @@ function setupEditProjectPage() {
     try {
       const project = await getAuthorizedJson(`/projects/${projectId}`);
       document.querySelector("#edit_description").value = project.description || "";
-      document.querySelector("#edit_documents").value = project.documents || "";
+      document.querySelector("#edit_document_name").value =
+        project.document_name || "";
+      document.querySelector("#edit_document_url").value =
+        project.document_url || project.documents || "";
     } catch (error) {
       setMessage(editMessage, error.message, true);
     }
@@ -641,7 +647,8 @@ function setupEditProjectPage() {
     try {
       const data = await postAuthorizedJson(`/projects/${projectId}/update`, {
         description: String(formData.get("description") ?? "").trim() || null,
-        documents: String(formData.get("documents") ?? "").trim() || null,
+        document_name: String(formData.get("document_name") ?? "").trim() || null,
+        document_url: String(formData.get("document_url") ?? "").trim() || null,
         assigned_to_email:
           String(formData.get("assigned_to_email") ?? "").trim() || null,
       });

@@ -170,7 +170,10 @@ def get_project_by_id(
 ) -> dict:
     response = (
         supabase.table(PROJECTS_TABLE)
-        .select("id,created_at,project_name,description,documents,created_by,status")
+        .select(
+            "id,created_at,project_name,description,document_name,document_url,"
+            "documents,created_by,status"
+        )
         .eq("id", project_id)
         .limit(1)
         .execute()
@@ -564,7 +567,7 @@ def create_app() -> FastAPI:
 
         project_response = (
             supabase_admin.table(PROJECTS_TABLE)
-            .select("id,project_name,description,documents,status")
+            .select("id,project_name,description,document_name,document_url,documents,status")
             .in_("id", project_ids)
             .order("created_at", desc=True)
             .execute()
@@ -591,6 +594,8 @@ def create_app() -> FastAPI:
                 id=project["id"],
                 project_name=project["project_name"],
                 description=project.get("description"),
+                document_name=project.get("document_name"),
+                document_url=project.get("document_url"),
                 documents=project.get("documents"),
                 status=project.get("status") or "ACTIVE",
                 assignees=build_member_responses(
@@ -646,6 +651,8 @@ def create_app() -> FastAPI:
             id=project["id"],
             project_name=project["project_name"],
             description=project.get("description"),
+            document_name=project.get("document_name"),
+            document_url=project.get("document_url"),
             documents=project.get("documents"),
             status=project.get("status") or "ACTIVE",
             assignees=build_member_responses(members, users_by_auth_uid, app_settings),
@@ -694,7 +701,8 @@ def create_app() -> FastAPI:
         ensure_project_member(supabase_admin, project_id, user_id)
         update_payload = {
             "description": normalize_optional_text(payload.description),
-            "documents": normalize_optional_text(payload.documents),
+            "document_name": normalize_optional_text(payload.document_name),
+            "document_url": normalize_optional_text(payload.document_url),
         }
         (
             supabase_admin.table(PROJECTS_TABLE)
@@ -820,7 +828,8 @@ def create_app() -> FastAPI:
         project_payload = {
             "project_name": payload.project_name.strip(),
             "description": payload.description.strip() if payload.description else None,
-            "documents": payload.documents.strip() if payload.documents else None,
+            "document_name": normalize_optional_text(payload.document_name),
+            "document_url": normalize_optional_text(payload.document_url),
             "created_by": user_id,
             "status": "ACTIVE",
         }
