@@ -1,0 +1,22 @@
+from app.config import Settings
+from app.constants import AUTH_UID_COLUMN, REF_USER_NAME_COLUMN
+from app.schemas import ProjectMemberResponse
+
+
+def build_member_responses(
+    members: list[dict],
+    users_by_auth_uid: dict[str, dict],
+    app_settings: Settings,
+) -> list[ProjectMemberResponse]:
+    responses: list[ProjectMemberResponse] = []
+    for member in members:
+        ref_user = users_by_auth_uid.get(str(member.get("user_id"))) or {}
+        responses.append(
+            ProjectMemberResponse(
+                email=ref_user.get(app_settings.signup_allowed_users_email_column),
+                user_name=ref_user.get(REF_USER_NAME_COLUMN),
+                role=member.get("role") or "MEMBER",
+            )
+        )
+
+    return responses

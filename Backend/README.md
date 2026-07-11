@@ -32,6 +32,20 @@ Python backend for the NTT login flow.
   allowed-users table, then creates the Supabase Auth user.
 - `POST /auth/login` signs in with Supabase email/password auth.
 
+## Code Structure
+
+The backend is organized so each module has one clear responsibility:
+
+- `app/main.py` creates the FastAPI app, configures middleware, and wires routes.
+- `app/config.py` loads environment and property-file configuration.
+- `app/supabase_client.py` creates Supabase clients.
+- `app/dependencies.py` contains reusable FastAPI dependencies, including auth.
+- `app/repositories.py` contains Supabase table access functions.
+- `app/mappers.py` converts database rows into API response objects.
+- `app/schemas.py` defines request and response models.
+- `app/constants.py` stores shared table and column names.
+- `app/utils.py` stores small shared helpers.
+
 ## Frontend API URL
 
 The static frontend reads the backend URL from `Frontend/Js/config.js`.
