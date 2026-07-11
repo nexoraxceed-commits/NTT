@@ -441,22 +441,46 @@ function setupDashboardProjects() {
         return;
       }
 
-      projects.forEach((project) => {
-        const card = document.createElement("a");
-        card.className = "item-card";
-        card.href = `/project?id=${project.id}`;
+      const tableWrap = document.createElement("div");
+      tableWrap.className = "data-table-wrap";
 
-        const title = document.createElement("h3");
-        title.textContent = project.project_name;
-        const description = document.createElement("p");
-        description.textContent = project.description || "No description added.";
-        const assignees = document.createElement("p");
-        assignees.className = "meta-text";
-        assignees.textContent = `Assignees: ${formatProjectMembers(project.assignees)}`;
+      const table = document.createElement("table");
+      table.className = "data-table";
 
-        card.append(title, description, assignees);
-        projectList.append(card);
+      const thead = document.createElement("thead");
+      const headerRow = document.createElement("tr");
+      ["Project title", "Assignee"].forEach((label) => {
+        const cell = document.createElement("th");
+        cell.scope = "col";
+        cell.textContent = label;
+        headerRow.append(cell);
       });
+      thead.append(headerRow);
+
+      const tbody = document.createElement("tbody");
+
+      projects.forEach((project) => {
+        const row = document.createElement("tr");
+        row.addEventListener("click", () => {
+          window.location.href = `/project?id=${project.id}`;
+        });
+
+        const titleCell = document.createElement("td");
+        const projectLink = document.createElement("a");
+        projectLink.href = `/project?id=${project.id}`;
+        projectLink.textContent = project.project_name;
+        titleCell.append(projectLink);
+
+        const assigneeCell = document.createElement("td");
+        assigneeCell.textContent = formatProjectMembers(project.assignees);
+
+        row.append(titleCell, assigneeCell);
+        tbody.append(row);
+      });
+
+      table.append(thead, tbody);
+      tableWrap.append(table);
+      projectList.append(tableWrap);
 
       setMessage(messageElement, "");
     } catch (error) {
@@ -510,7 +534,7 @@ function renderTaskList(tasks) {
 
   const thead = document.createElement("thead");
   const headerRow = document.createElement("tr");
-  ["Task Title", "Assignee", "Status"].forEach((label) => {
+  ["Task title", "Assignee"].forEach((label) => {
     const cell = document.createElement("th");
     cell.scope = "col";
     cell.textContent = label;
@@ -536,10 +560,7 @@ function renderTaskList(tasks) {
     assigneeCell.textContent =
       task.assigned_to_name || task.assigned_to_email || "Unassigned";
 
-    const statusCell = document.createElement("td");
-    statusCell.textContent = task.status || "TODO";
-
-    row.append(titleCell, assigneeCell, statusCell);
+    row.append(titleCell, assigneeCell);
     tbody.append(row);
   });
 
