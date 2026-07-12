@@ -293,6 +293,16 @@ function createTextLink(url, text) {
   return link;
 }
 
+function createStatusBadge(status) {
+  const normalizedStatus = String(status || "OPEN").toUpperCase();
+  const badge = document.createElement("span");
+  badge.className = `status-badge status-${normalizedStatus
+    .toLowerCase()
+    .replaceAll(" ", "-")}`;
+  badge.textContent = normalizedStatus;
+  return badge;
+}
+
 function formatDisplayDate(value) {
   if (!value) {
     return "Not set";
@@ -567,9 +577,9 @@ function setupWorkspaceNavigation() {
     return "dashboard";
   })();
   const links = [
-    { href: "/post-login", label: "Dashboard", key: "dashboard" },
-    { href: "/projects", label: "Projects", key: "projects" },
-    { href: "/tasks", label: "Tasks", key: "tasks" },
+    { href: "/post-login", label: "Dashboard", key: "dashboard", icon: "D" },
+    { href: "/projects", label: "Projects", key: "projects", icon: "P" },
+    { href: "/tasks", label: "Tasks", key: "tasks", icon: "T" },
   ];
   const nav = document.createElement("nav");
   nav.className = "workspace-nav";
@@ -594,8 +604,8 @@ function setupWorkspaceNavigation() {
   links.forEach((link) => {
     const item = document.createElement("a");
     item.href = link.href;
-    item.textContent = link.label;
     item.className = "nav-link";
+    item.innerHTML = `<span class="nav-link-icon" aria-hidden="true">${link.icon}</span><span>${link.label}</span>`;
     if (link.key === activeKey) {
       item.classList.add("is-active");
     }
@@ -606,7 +616,7 @@ function setupWorkspaceNavigation() {
   logoutButton.className = "nav-logout";
   logoutButton.type = "button";
   logoutButton.dataset.logoutButton = "true";
-  logoutButton.textContent = "Log out";
+  logoutButton.innerHTML = "<span class=\"nav-link-icon\" aria-hidden=\"true\">L</span><span>Log out</span>";
 
   panel.append(brand, list, logoutButton);
   nav.append(trigger, panel);
@@ -902,20 +912,21 @@ function setupDashboardProjects() {
 
     analyticsElement.innerHTML = "";
     [
-      ["Open tasks", openTasks],
-      ["In progress", inProgressTasks],
-      ["Overdue", overdueTasks],
-      ["Closed", closedTasks],
-    ].forEach(([label, value]) => {
+      ["Open tasks", openTasks, "Ready for assignment or action", "metric-open"],
+      ["In progress", inProgressTasks, "Currently being worked", "metric-progress"],
+      ["Overdue", overdueTasks, "Past end date and not closed", "metric-overdue"],
+      ["Closed", closedTasks, "Completed tasks", "metric-closed"],
+    ].forEach(([label, value, caption, className]) => {
       const card = document.createElement("article");
-      card.className = "analytics-card";
-      card.innerHTML = `<p>${label}</p><strong>${value}</strong>`;
+      card.className = `analytics-card metric-card ${className}`;
+      card.innerHTML = `<p>${label}</p><strong>${value}</strong><span>${caption}</span>`;
       analyticsElement.append(card);
     });
 
     const workloadCard = document.createElement("article");
     workloadCard.className = "analytics-card analytics-chart-card";
     const title = document.createElement("p");
+    title.className = "chart-title";
     title.textContent = "Tasks by assignee";
     const bars = document.createElement("div");
     bars.className = "bar-list";
@@ -937,6 +948,7 @@ function setupDashboardProjects() {
     const weeklyHoursCard = document.createElement("article");
     weeklyHoursCard.className = "analytics-card analytics-chart-card";
     const weeklyHoursTitle = document.createElement("p");
+    weeklyHoursTitle.className = "chart-title";
     weeklyHoursTitle.textContent = "Work log by assignee";
     const weeklyHoursBars = document.createElement("div");
     weeklyHoursBars.className = "bar-list";
@@ -1196,7 +1208,7 @@ function setupDashboardProjects() {
       assigneeCell.textContent = getTaskAssigneeLabel(task);
 
       const statusCell = document.createElement("td");
-      statusCell.textContent = task.status || "OPEN";
+      statusCell.append(createStatusBadge(task.status));
 
       const endDateCell = document.createElement("td");
       endDateCell.textContent = formatDisplayDate(task.end_date);
@@ -1510,26 +1522,26 @@ function renderTaskList(tasks) {
     }
 
     filteredTasks.forEach((task) => {
-    const row = document.createElement("tr");
-    row.addEventListener("click", () => {
-      window.location.href = `/task?id=${task.id}`;
+      const row = document.createElement("tr");
+      row.addEventListener("click", () => {
+        window.location.href = `/task?id=${task.id}`;
+      });
+
+      const titleCell = document.createElement("td");
+      const taskLink = document.createElement("a");
+      taskLink.href = `/task?id=${task.id}`;
+      taskLink.textContent = task.task_title;
+      titleCell.append(taskLink);
+
+      const assigneeCell = document.createElement("td");
+      assigneeCell.textContent = formatTaskAssignees(task);
+
+      const statusCell = document.createElement("td");
+      statusCell.append(createStatusBadge(task.status));
+
+      row.append(titleCell, assigneeCell, statusCell);
+      tbody.append(row);
     });
-
-    const titleCell = document.createElement("td");
-    const taskLink = document.createElement("a");
-    taskLink.href = `/task?id=${task.id}`;
-    taskLink.textContent = task.task_title;
-    titleCell.append(taskLink);
-
-    const assigneeCell = document.createElement("td");
-    assigneeCell.textContent = formatTaskAssignees(task);
-
-    const statusCell = document.createElement("td");
-    statusCell.textContent = task.status || "OPEN";
-
-    row.append(titleCell, assigneeCell, statusCell);
-    tbody.append(row);
-  });
   }
 
   table.append(thead, tbody);
@@ -1818,7 +1830,9 @@ function renderTaskDetail(task) {
     task.task_details || "No description added.";
   document.querySelector("#task-assignee").textContent =
     task.assigned_to_name || task.assigned_to_email || "Unassigned";
-  document.querySelector("#task-status").textContent = task.status || "OPEN";
+  const taskStatusElement = document.querySelector("#task-status");
+  taskStatusElement.innerHTML = "";
+  taskStatusElement.append(createStatusBadge(task.status));
   document.querySelector("#task-start-date").textContent = formatDisplayDate(
     task.start_date
   );

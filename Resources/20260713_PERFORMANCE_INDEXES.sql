@@ -42,6 +42,9 @@ on public."PROJECT_WATCHERS" (user_id, status, project_id);
 create index if not exists idx_tasks_project_created
 on public."TASKS" (project_id, created_at desc, id desc);
 
+create index if not exists idx_tasks_created_at
+on public."TASKS" (created_at desc, id desc);
+
 create index if not exists idx_tasks_project_status
 on public."TASKS" (project_id, status);
 
@@ -78,6 +81,9 @@ on public."TASK_WORK_LOGS" (logged_by, work_date desc);
 create index if not exists idx_task_work_logs_work_date
 on public."TASK_WORK_LOGS" (work_date desc);
 
+create index if not exists idx_task_work_logs_weekly_rollup
+on public."TASK_WORK_LOGS" (work_date desc, logged_by, task_id);
+
 create index if not exists idx_task_access_log_task_created
 on public."TASK_ACCESS_LOG" (task_id, created_at desc);
 
@@ -86,6 +92,9 @@ on public."TASK_ACCESS_LOG" (project_id, created_at desc);
 
 create index if not exists idx_task_access_log_event_type
 on public."TASK_ACCESS_LOG" (event_type);
+
+create index if not exists idx_task_access_log_created_at
+on public."TASK_ACCESS_LOG" (created_at desc, task_id);
 
 create index if not exists idx_notification_log_recipient_status
 on public."NOTIFICATION_LOG" (recipient_user_id, status);
