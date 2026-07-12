@@ -107,6 +107,22 @@ function redirectToSignedOut() {
   window.location.replace("/signed-out");
 }
 
+function redirectToSignIn() {
+  clearSession();
+  clearHistoryLogout();
+  window.location.replace("/");
+}
+
+function isExpiredSessionResponse(response, data) {
+  const detail = String(data?.detail ?? "").toLowerCase();
+  return (
+    response.status === 401 ||
+    detail.includes("session expired") ||
+    detail.includes("invalid authorization") ||
+    detail.includes("missing authorization")
+  );
+}
+
 function isBackForwardNavigation(event) {
   if (event?.persisted) {
     return true;
@@ -240,7 +256,8 @@ async function postJson(path, payload) {
 async function authorizedJson(path, options = {}) {
   const session = getSession();
   if (!session?.accessToken) {
-    throw new Error("Session expired. Please sign in again.");
+    redirectToSignIn();
+    throw new Error("Session expired. Redirecting to sign in.");
   }
 
   const headers = {
@@ -264,6 +281,11 @@ async function authorizedJson(path, options = {}) {
   }));
 
   if (!response.ok) {
+    if (isExpiredSessionResponse(response, data)) {
+      redirectToSignIn();
+      throw new Error("Session expired. Redirecting to sign in.");
+    }
+
     throw new Error(data.detail ?? "Request failed. Please try again.");
   }
 
