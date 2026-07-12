@@ -45,8 +45,6 @@ from app.repositories import (
     get_task_watchers_for_tasks,
     get_task_work_logs,
     get_task_work_logs_for_tasks,
-    get_user_project_memberships,
-    get_user_project_watchlist,
     insert_task_access_log,
     replace_project_watchers,
     replace_task_watchers,
@@ -213,14 +211,7 @@ def has_project_access(
     watchers: list[dict],
     user_id: str,
 ) -> bool:
-    return (
-        any(str(member.get("user_id")) == str(user_id) for member in members)
-        or (
-            project.get("stakeholder_id")
-            and str(project.get("stakeholder_id")) == str(user_id)
-        )
-        or is_project_editor(project, watchers, user_id)
-    )
+    return True
 
 
 def build_task_access_log_responses(
@@ -515,56 +506,12 @@ def create_app() -> FastAPI:
         if cached_projects is not None:
             return [ProjectSummaryResponse(**project) for project in cached_projects]
 
-        memberships = get_user_project_memberships(supabase_admin, user_id)
-        watchlist = get_user_project_watchlist(supabase_admin, user_id)
-        assigned_project_response = (
-            supabase_admin.table(PROJECTS_TABLE)
-            .select("id")
-            .eq("assigned_to", user_id)
-            .execute()
-        )
-        stakeholder_project_response = (
-            supabase_admin.table(PROJECTS_TABLE)
-            .select("id")
-            .eq("stakeholder_id", user_id)
-            .execute()
-        )
-        project_ids = list(
-            {
-                *(
-                    int(membership["project_id"])
-                    for membership in memberships
-                    if membership.get("project_id")
-                ),
-                *(
-                    int(watch["project_id"])
-                    for watch in watchlist
-                    if watch.get("project_id")
-                ),
-                *(
-                    int(project["id"])
-                    for project in (getattr(assigned_project_response, "data", None) or [])
-                    if project.get("id")
-                ),
-                *(
-                    int(project["id"])
-                    for project in (
-                        getattr(stakeholder_project_response, "data", None) or []
-                    )
-                    if project.get("id")
-                ),
-            }
-        )
-        if not project_ids:
-            return []
-
         project_response = (
             supabase_admin.table(PROJECTS_TABLE)
             .select(
                 "id,project_name,description,document_name,document_url,documents,"
                 "status,assigned_to,stakeholder_id"
             )
-            .in_("id", project_ids)
             .order("created_at", desc=True)
             .execute()
         )
@@ -1467,7 +1414,6 @@ def create_app() -> FastAPI:
 
         task = get_task_by_id(supabase_admin, task_id)
         project_id = int(task["project_id"])
-        ensure_project_member(supabase_admin, project_id, user_id)
         cache_key = f"tasks:detail:{task_id}"
         cached_task = backend_cache.get(cache_key)
         if cached_task is not None:

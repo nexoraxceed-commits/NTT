@@ -722,28 +722,16 @@ function setupDashboardProjects() {
   }
 
   function getProjectAssignees(project) {
-    const projectMembers = Array.isArray(project.assignees)
-      ? project.assignees.filter((member) => member.status !== "INACTIVE")
-      : [];
-    const candidates = projectMembers.length ? projectMembers : [project];
-    const assignees = candidates
-      .map((assignee) => ({
-        name:
-          assignee.assigned_to_name ||
-          assignee.name ||
-          assignee.user_name ||
-          assignee.assigned_to_email ||
-          assignee.email ||
-          null,
-        email: assignee.assigned_to_email || assignee.email || null,
-      }))
-      .filter((assignee) => assignee.name || assignee.email);
-
-    if (!assignees.length) {
-      return [{ name: "Unassigned", email: null }];
+    if (project.assigned_to_name || project.assigned_to_email) {
+      return [
+        {
+          name: project.assigned_to_name || project.assigned_to_email,
+          email: project.assigned_to_email || null,
+        },
+      ];
     }
 
-    return assignees;
+    return [{ name: "Unassigned", email: null }];
   }
 
   function getProjectAssigneeLabel(project) {
