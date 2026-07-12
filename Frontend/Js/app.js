@@ -605,11 +605,6 @@ function setupWorkspaceNavigation() {
   const panel = document.createElement("div");
   panel.className = "nav-panel";
 
-  const brand = document.createElement("div");
-  brand.className = "nav-brand";
-  brand.innerHTML =
-    "<span class=\"nav-brand-mark\" aria-hidden=\"true\"><span></span><span></span><span></span></span>";
-
   const list = document.createElement("div");
   list.className = "nav-links";
 
@@ -630,7 +625,7 @@ function setupWorkspaceNavigation() {
   logoutButton.dataset.logoutButton = "true";
   logoutButton.innerHTML = `<span class="nav-link-icon">${icons.logout}</span><span>Log out</span>`;
 
-  panel.append(brand, list, logoutButton);
+  panel.append(list, logoutButton);
   nav.append(trigger, panel);
   shell.prepend(nav);
 }
