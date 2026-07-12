@@ -1,3 +1,5 @@
+from datetime import date, datetime, timezone
+
 from fastapi import Depends, FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -20,6 +22,7 @@ from app.constants import (
     TASK_STATUS_CLOSE_REQUESTED,
     TASK_STATUS_IN_PROGRESS,
     TASK_STATUS_OPEN,
+    TASK_WORK_LOGS_TABLE,
     TASKS_TABLE,
 )
 from app.dependencies import get_current_user
@@ -38,6 +41,7 @@ from app.repositories import (
     get_task_by_id,
     get_task_watchers,
     get_task_watchers_for_tasks,
+    get_task_work_logs,
     get_user_project_memberships,
     get_user_project_watchlist,
     replace_project_watchers,
@@ -48,6 +52,7 @@ from app.repositories import (
 )
 from app.schemas import (
     CreateTaskCommentRequest,
+    CreateTaskWorkLogRequest,
     CreateProjectRequest,
     CreateTaskRequest,
     ErrorResponse,
@@ -62,6 +67,7 @@ from app.schemas import (
     TaskCommentResponse,
     TaskDetailResponse,
     TaskSummaryResponse,
+    TaskWorkLogResponse,
     UpdateProjectRequest,
     UpdateTaskRequest,
     UpdateTaskStatusRequest,
@@ -72,6 +78,18 @@ from app.utils import normalize_optional_text
 
 def normalize_email_list(emails: list[str]) -> list[str]:
     return sorted({email.strip().lower() for email in emails if email and email.strip()})
+
+
+def parse_iso_date(value: str, field_name: str) -> str:
+    try:
+        parsed_date = date.fromisoformat(value)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"{field_name} must use YYYY-MM-DD format.",
+        ) from exc
+
+    return parsed_date.isoformat()
 
 
 def require_active_ref_user(
@@ -192,6 +210,10 @@ def has_project_access(
 ) -> bool:
     return (
         any(str(member.get("user_id")) == str(user_id) for member in members)
+        or (
+            project.get("stakeholder_id")
+            and str(project.get("stakeholder_id")) == str(user_id)
+        )
         or is_project_editor(project, watchers, user_id)
     )
 
@@ -454,13 +476,44 @@ def create_app() -> FastAPI:
 
         memberships = get_user_project_memberships(supabase_admin, user_id)
         watchlist = get_user_project_watchlist(supabase_admin, user_id)
-        project_ids = [
-            int(project_id)
-            for project_id in {
-                *(membership["project_id"] for membership in memberships),
-                *(watch["project_id"] for watch in watchlist),
+        assigned_project_response = (
+            supabase_admin.table(PROJECTS_TABLE)
+            .select("id")
+            .eq("assigned_to", user_id)
+            .execute()
+        )
+        stakeholder_project_response = (
+            supabase_admin.table(PROJECTS_TABLE)
+            .select("id")
+            .eq("stakeholder_id", user_id)
+            .execute()
+        )
+        project_ids = list(
+            {
+                *(
+                    int(membership["project_id"])
+                    for membership in memberships
+                    if membership.get("project_id")
+                ),
+                *(
+                    int(watch["project_id"])
+                    for watch in watchlist
+                    if watch.get("project_id")
+                ),
+                *(
+                    int(project["id"])
+                    for project in (getattr(assigned_project_response, "data", None) or [])
+                    if project.get("id")
+                ),
+                *(
+                    int(project["id"])
+                    for project in (
+                        getattr(stakeholder_project_response, "data", None) or []
+                    )
+                    if project.get("id")
+                ),
             }
-        ]
+        )
         if not project_ids:
             return []
 
@@ -468,7 +521,7 @@ def create_app() -> FastAPI:
             supabase_admin.table(PROJECTS_TABLE)
             .select(
                 "id,project_name,description,document_name,document_url,documents,"
-                "status,assigned_to"
+                "status,assigned_to,stakeholder_id"
             )
             .in_("id", project_ids)
             .order("created_at", desc=True)
@@ -501,6 +554,11 @@ def create_app() -> FastAPI:
             for project in projects
             if project.get("assigned_to")
         )
+        all_member_ids.extend(
+            str(project["stakeholder_id"])
+            for project in projects
+            if project.get("stakeholder_id")
+        )
 
         users_by_auth_uid = get_ref_users_by_auth_uids(
             supabase_admin,
@@ -529,6 +587,20 @@ def create_app() -> FastAPI:
                         REF_USER_NAME_COLUMN
                     )
                     if project.get("assigned_to")
+                    else None
+                ),
+                stakeholder_email=(
+                    users_by_auth_uid.get(str(project.get("stakeholder_id")), {}).get(
+                        app_settings.signup_allowed_users_email_column
+                    )
+                    if project.get("stakeholder_id")
+                    else None
+                ),
+                stakeholder_name=(
+                    users_by_auth_uid.get(str(project.get("stakeholder_id")), {}).get(
+                        REF_USER_NAME_COLUMN
+                    )
+                    if project.get("stakeholder_id")
                     else None
                 ),
                 assignees=build_member_responses(
@@ -588,7 +660,7 @@ def create_app() -> FastAPI:
             supabase_admin.table(TASKS_TABLE)
             .select(
                 "id,project_id,task_title,task_details,documents,assigned_to,"
-                "stakeholder_id,status"
+                "stakeholder_id,status,start_date,end_date"
             )
             .eq("project_id", project_id)
             .order("created_at", desc=True)
@@ -609,6 +681,8 @@ def create_app() -> FastAPI:
         user_ids.extend(
             str(task["stakeholder_id"]) for task in tasks if task.get("stakeholder_id")
         )
+        if project.get("stakeholder_id"):
+            user_ids.append(str(project["stakeholder_id"]))
         user_ids.extend(
             str(watcher["user_id"])
             for watchers in task_watchers_by_task.values()
@@ -641,6 +715,20 @@ def create_app() -> FastAPI:
                     REF_USER_NAME_COLUMN
                 )
                 if project.get("assigned_to")
+                else None
+            ),
+            stakeholder_email=(
+                users_by_auth_uid.get(str(project.get("stakeholder_id")), {}).get(
+                    app_settings.signup_allowed_users_email_column
+                )
+                if project.get("stakeholder_id")
+                else None
+            ),
+            stakeholder_name=(
+                users_by_auth_uid.get(str(project.get("stakeholder_id")), {}).get(
+                    REF_USER_NAME_COLUMN
+                )
+                if project.get("stakeholder_id")
                 else None
             ),
             assignees=build_member_responses(members, users_by_auth_uid, app_settings),
@@ -685,6 +773,8 @@ def create_app() -> FastAPI:
                         if task.get("stakeholder_id")
                         else None
                     ),
+                    start_date=task.get("start_date"),
+                    end_date=task.get("end_date"),
                     watchers=build_watcher_responses(
                         task_watchers_by_task.get(int(task["id"]), []),
                         users_by_auth_uid,
@@ -741,6 +831,18 @@ def create_app() -> FastAPI:
             )
             assigned_user_id = assigned_ref_user[AUTH_UID_COLUMN]
             update_payload["assigned_to"] = assigned_user_id
+
+        stakeholder_email = normalize_optional_text(payload.stakeholder_email)
+        if stakeholder_email:
+            stakeholder_ref_user = require_active_ref_user(
+                supabase_admin,
+                app_settings,
+                stakeholder_email.lower(),
+                "project stakeholder",
+            )
+            update_payload["stakeholder_id"] = stakeholder_ref_user[AUTH_UID_COLUMN]
+        elif payload.stakeholder_email == "":
+            update_payload["stakeholder_id"] = None
 
         (
             supabase_admin.table(PROJECTS_TABLE)
@@ -851,6 +953,21 @@ def create_app() -> FastAPI:
             )
             assigned_user_id = assigned_ref_user.get(AUTH_UID_COLUMN)
 
+        stakeholder_user_id = None
+        stakeholder_email = (
+            payload.stakeholder_email.strip().lower()
+            if payload.stakeholder_email
+            else None
+        )
+        if stakeholder_email:
+            stakeholder_ref_user = require_active_ref_user(
+                supabase_admin,
+                app_settings,
+                stakeholder_email,
+                "project stakeholder",
+            )
+            stakeholder_user_id = stakeholder_ref_user.get(AUTH_UID_COLUMN)
+
         watcher_user_ids = resolve_active_user_ids(
             supabase_admin,
             app_settings,
@@ -865,6 +982,7 @@ def create_app() -> FastAPI:
             "document_url": normalize_optional_text(payload.document_url),
             "created_by": user_id,
             "assigned_to": assigned_user_id,
+            "stakeholder_id": stakeholder_user_id,
             "status": "ACTIVE",
         }
 
@@ -963,6 +1081,7 @@ def create_app() -> FastAPI:
             payload.watcher_emails,
             "watcher",
         )
+        end_date = parse_iso_date(payload.end_date, "Task end date")
 
         task_response = (
             supabase_admin.table(TASKS_TABLE)
@@ -976,6 +1095,7 @@ def create_app() -> FastAPI:
                     "stakeholder_id": stakeholder_user_id,
                     "created_by": user_id,
                     "status": TASK_STATUS_OPEN,
+                    "end_date": end_date,
                 }
             )
             .execute()
@@ -1016,6 +1136,8 @@ def create_app() -> FastAPI:
             )
         if payload.documents is not None:
             update_payload["documents"] = normalize_optional_text(payload.documents)
+        if payload.end_date is not None:
+            update_payload["end_date"] = parse_iso_date(payload.end_date, "Task end date")
 
         assigned_to_email = normalize_optional_text(payload.assigned_to_email)
         if assigned_to_email:
@@ -1123,12 +1245,11 @@ def create_app() -> FastAPI:
                 detail="Only the stakeholder can close this task.",
             )
 
-        (
-            supabase_admin.table(TASKS_TABLE)
-            .update({"status": requested_status})
-            .eq("id", task_id)
-            .execute()
-        )
+        status_payload = {"status": requested_status}
+        if requested_status == TASK_STATUS_IN_PROGRESS and not task.get("start_date"):
+            status_payload["start_date"] = datetime.now(timezone.utc).isoformat()
+
+        supabase_admin.table(TASKS_TABLE).update(status_payload).eq("id", task_id).execute()
 
         if requested_status == TASK_STATUS_CLOSE_REQUESTED and task.get(
             "stakeholder_id"
@@ -1205,6 +1326,7 @@ def create_app() -> FastAPI:
             .execute()
         )
         comments = getattr(comment_response, "data", None) or []
+        work_logs = get_task_work_logs(supabase_admin, task_id)
         task_watchers = get_task_watchers(supabase_admin, task_id)
         user_ids = []
         if task.get("assigned_to"):
@@ -1218,6 +1340,11 @@ def create_app() -> FastAPI:
             str(comment["commented_by"])
             for comment in comments
             if comment.get("commented_by")
+        )
+        user_ids.extend(
+            str(work_log["logged_by"])
+            for work_log in work_logs
+            if work_log.get("logged_by")
         )
         users_by_auth_uid = get_ref_users_by_auth_uids(
             supabase_admin,
@@ -1244,6 +1371,8 @@ def create_app() -> FastAPI:
                 app_settings.signup_allowed_users_email_column
             ),
             stakeholder_name=stakeholder_ref_user.get(REF_USER_NAME_COLUMN),
+            start_date=task.get("start_date"),
+            end_date=task.get("end_date"),
             watchers=build_watcher_responses(
                 task_watchers,
                 users_by_auth_uid,
@@ -1268,6 +1397,26 @@ def create_app() -> FastAPI:
                     created_at=comment.get("created_at"),
                 )
                 for comment in comments
+            ],
+            work_logs=[
+                TaskWorkLogResponse(
+                    id=work_log["id"],
+                    work_note=work_log.get("work_note") or "",
+                    work_date=work_log.get("work_date"),
+                    hours=work_log.get("hours"),
+                    logged_by_email=(
+                        users_by_auth_uid.get(str(work_log.get("logged_by")), {}).get(
+                            app_settings.signup_allowed_users_email_column
+                        )
+                    ),
+                    logged_by_name=(
+                        users_by_auth_uid.get(str(work_log.get("logged_by")), {}).get(
+                            REF_USER_NAME_COLUMN
+                        )
+                    ),
+                    created_at=work_log.get("created_at"),
+                )
+                for work_log in work_logs
             ],
         )
         backend_cache.set(
@@ -1330,6 +1479,40 @@ def create_app() -> FastAPI:
 
         backend_cache.clear()
         return MessageResponse(detail="Comment added successfully.")
+
+    @app.post("/tasks/{task_id}/work-logs", response_model=MessageResponse)
+    def create_task_work_log(
+        task_id: int,
+        payload: CreateTaskWorkLogRequest,
+        current_user: object = Depends(get_current_user),
+        supabase_admin: Client = Depends(get_supabase_admin_client),
+    ) -> MessageResponse:
+        user_id = getattr(current_user, "id", None)
+        if not user_id:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Session expired. Please sign in again.",
+            )
+
+        task = get_task_by_id(supabase_admin, task_id)
+        ensure_project_member(supabase_admin, int(task["project_id"]), user_id)
+        work_date = (
+            parse_iso_date(payload.work_date, "Work date")
+            if payload.work_date
+            else date.today().isoformat()
+        )
+        supabase_admin.table(TASK_WORK_LOGS_TABLE).insert(
+            {
+                "task_id": task_id,
+                "logged_by": user_id,
+                "work_date": work_date,
+                "hours": payload.hours,
+                "work_note": payload.work_note.strip(),
+            }
+        ).execute()
+
+        backend_cache.clear()
+        return MessageResponse(detail="Work log added successfully.")
 
     return app
 

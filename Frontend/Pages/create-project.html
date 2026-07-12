@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Create Project | NTT Workspace</title>
-    <link rel="stylesheet" href="/Css/styles.css?v=20260712-workflow">
+    <link rel="stylesheet" href="/Css/styles.css?v=20260712-productivity">
   </head>
   <body class="app-body">
     <main class="workspace-shell">
@@ -14,7 +14,7 @@
           <h1>Create Project</h1>
         </div>
         <div class="header-actions">
-          <a class="secondary-link" href="/post-login">Back</a>
+          <a class="icon-link" href="/post-login" aria-label="Back to dashboard">←</a>
           <button class="secondary-link" type="button" data-logout-button>Log out</button>
         </div>
       </header>
@@ -77,6 +77,14 @@
           </div>
 
           <div class="field-group">
+            <label for="project_stakeholder_email">Project stakeholder</label>
+            <select id="project_stakeholder_email" name="stakeholder_email">
+              <option value="">No stakeholder</option>
+              <option value="" disabled>Loading users...</option>
+            </select>
+          </div>
+
+          <div class="field-group">
             <label for="project_watcher_emails">Project watchers</label>
             <select id="project_watcher_emails" name="watcher_emails" multiple size="4">
               <option value="" disabled>Loading users...</option>
@@ -89,6 +97,6 @@
       </section>
     </main>
     <script src="/Js/config.js"></script>
-    <script src="/Js/app.js?v=20260712-workflow"></script>
+    <script src="/Js/app.js?v=20260712-productivity"></script>
   </body>
 </html>

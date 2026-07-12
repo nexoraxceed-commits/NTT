@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Project | NTT Workspace</title>
-    <link rel="stylesheet" href="/Css/styles.css?v=20260712-inline-project">
+    <link rel="stylesheet" href="/Css/styles.css?v=20260712-productivity">
   </head>
   <body class="app-body">
     <main class="workspace-shell">
@@ -15,7 +15,7 @@
         </div>
         <div class="header-actions">
           <a class="button-link" id="create-task-link" href="/create-task">Create Task</a>
-          <a class="secondary-link" href="/post-login">Back to Dashboard</a>
+          <a class="icon-link" href="/post-login" aria-label="Back to dashboard">←</a>
           <button class="secondary-link" type="button" data-logout-button>Log out</button>
         </div>
       </header>
@@ -33,6 +33,10 @@
           <div>
             <p class="eyebrow">Assignees</p>
             <p class="detail-copy" id="project-assignees"></p>
+          </div>
+          <div>
+            <p class="eyebrow">Stakeholder</p>
+            <p class="detail-copy" id="project-stakeholder"></p>
           </div>
           <div>
             <p class="eyebrow">Watchers</p>
@@ -60,6 +64,12 @@
               <option value="">Unassigned</option>
             </select>
           </label>
+          <label for="inline_project_stakeholder_email">
+            Stakeholder
+            <select id="inline_project_stakeholder_email" name="stakeholder_email">
+              <option value="">No stakeholder</option>
+            </select>
+          </label>
           <div>
             <label>Watchers</label>
             <div class="checkbox-list" id="inline_project_watcher_emails"></div>
@@ -81,6 +91,6 @@
 
     </main>
     <script src="/Js/config.js"></script>
-    <script src="/Js/app.js?v=20260712-inline-project"></script>
+    <script src="/Js/app.js?v=20260712-productivity"></script>
   </body>
 </html>

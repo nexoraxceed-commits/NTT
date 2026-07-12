@@ -21,6 +21,7 @@ class CreateProjectRequest(BaseModel):
     document_name: str | None = Field(default=None, max_length=160)
     document_url: str | None = Field(default=None, max_length=2000)
     assigned_to_email: str | None = Field(default=None, max_length=320)
+    stakeholder_email: str | None = Field(default=None, max_length=320)
     watcher_emails: list[str] = Field(default_factory=list)
 
 
@@ -29,6 +30,7 @@ class UpdateProjectRequest(BaseModel):
     document_name: str | None = Field(default=None, max_length=160)
     document_url: str | None = Field(default=None, max_length=2000)
     assigned_to_email: str | None = Field(default=None, max_length=320)
+    stakeholder_email: str | None = Field(default=None, max_length=320)
     watcher_emails: list[str] = Field(default_factory=list)
 
 
@@ -38,6 +40,7 @@ class CreateTaskRequest(BaseModel):
     documents: str | None = Field(default=None, max_length=2000)
     assigned_to_email: str | None = Field(default=None, max_length=320)
     stakeholder_email: str | None = Field(default=None, max_length=320)
+    end_date: str = Field(min_length=10, max_length=10)
     watcher_emails: list[str] = Field(default_factory=list)
 
 
@@ -47,6 +50,7 @@ class UpdateTaskRequest(BaseModel):
     documents: str | None = Field(default=None, max_length=2000)
     assigned_to_email: str | None = Field(default=None, max_length=320)
     stakeholder_email: str | None = Field(default=None, max_length=320)
+    end_date: str | None = Field(default=None, min_length=10, max_length=10)
     watcher_emails: list[str] = Field(default_factory=list)
 
 
@@ -57,6 +61,12 @@ class UpdateTaskStatusRequest(BaseModel):
 class CreateTaskCommentRequest(BaseModel):
     comment_text: str = Field(min_length=1, max_length=1000)
     deliverable_url: str | None = Field(default=None, max_length=2000)
+
+
+class CreateTaskWorkLogRequest(BaseModel):
+    work_note: str = Field(min_length=1, max_length=1000)
+    work_date: str | None = Field(default=None, min_length=10, max_length=10)
+    hours: float | None = Field(default=None, ge=0, le=24)
 
 
 class ProjectUserResponse(BaseModel):
@@ -85,6 +95,8 @@ class ProjectSummaryResponse(BaseModel):
     status: str
     assigned_to_email: str | None = None
     assigned_to_name: str | None = None
+    stakeholder_email: str | None = None
+    stakeholder_name: str | None = None
     assignees: list[ProjectMemberResponse]
     watchers: list[WatcherResponse] = Field(default_factory=list)
     can_edit: bool = False
@@ -100,6 +112,8 @@ class TaskSummaryResponse(BaseModel):
     assigned_to_name: str | None = None
     stakeholder_email: str | None = None
     stakeholder_name: str | None = None
+    start_date: str | None = None
+    end_date: str | None = None
     watchers: list[WatcherResponse] = Field(default_factory=list)
     status: str
 
@@ -113,9 +127,20 @@ class TaskCommentResponse(BaseModel):
     created_at: str | None = None
 
 
+class TaskWorkLogResponse(BaseModel):
+    id: int
+    work_note: str
+    work_date: str | None = None
+    hours: float | None = None
+    logged_by_email: str | None = None
+    logged_by_name: str | None = None
+    created_at: str | None = None
+
+
 class TaskDetailResponse(TaskSummaryResponse):
     project_name: str
     comments: list[TaskCommentResponse]
+    work_logs: list[TaskWorkLogResponse] = Field(default_factory=list)
 
 
 class ProjectDetailResponse(ProjectSummaryResponse):

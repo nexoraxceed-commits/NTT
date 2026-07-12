@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Create Task | NTT Workspace</title>
-    <link rel="stylesheet" href="/Css/styles.css?v=20260712-workflow">
+    <link rel="stylesheet" href="/Css/styles.css?v=20260712-productivity">
   </head>
   <body class="app-body">
     <main class="workspace-shell narrow-shell">
@@ -14,7 +14,7 @@
           <h1>Create task</h1>
         </div>
         <div class="header-actions">
-          <a class="secondary-link" id="create-task-back-link" href="/post-login">Back to Project</a>
+          <a class="icon-link" id="create-task-back-link" href="/post-login" aria-label="Back to project">←</a>
           <button class="secondary-link" type="button" data-logout-button>Log out</button>
         </div>
       </header>
@@ -33,6 +33,10 @@
           <div class="field-group">
             <label for="task_documents">Task documents</label>
             <input id="task_documents" name="documents" type="url" maxlength="2000">
+          </div>
+          <div class="field-group">
+            <label for="task_end_date">End date</label>
+            <input id="task_end_date" name="end_date" type="date" required>
           </div>
           <div class="field-group">
             <label for="task_assigned_to_email">Task assignee</label>
@@ -60,6 +64,6 @@
       </section>
     </main>
     <script src="/Js/config.js"></script>
-    <script src="/Js/app.js?v=20260712-workflow"></script>
+    <script src="/Js/app.js?v=20260712-productivity"></script>
   </body>
 </html>

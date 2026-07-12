@@ -11,6 +11,7 @@ from app.constants import (
     PROJECTS_TABLE,
     REF_USER_NAME_COLUMN,
     TASK_WATCHERS_TABLE,
+    TASK_WORK_LOGS_TABLE,
     TASKS_TABLE,
 )
 
@@ -284,7 +285,7 @@ def get_project_by_id(
         supabase.table(PROJECTS_TABLE)
         .select(
             "id,created_at,project_name,description,document_name,document_url,"
-            "documents,created_by,status,assigned_to"
+            "documents,created_by,status,assigned_to,stakeholder_id"
         )
         .eq("id", project_id)
         .limit(1)
@@ -308,7 +309,7 @@ def get_task_by_id(
         supabase.table(TASKS_TABLE)
         .select(
             "id,created_at,project_id,task_title,task_details,documents,"
-            "assigned_to,stakeholder_id,created_by,status,due_date"
+            "assigned_to,stakeholder_id,created_by,status,due_date,start_date,end_date"
         )
         .eq("id", task_id)
         .limit(1)
@@ -375,6 +376,21 @@ def replace_task_watchers(
     ]
     if rows:
         supabase.table(TASK_WATCHERS_TABLE).insert(rows).execute()
+
+
+def get_task_work_logs(
+    supabase: Client,
+    task_id: int,
+) -> list[dict]:
+    response = (
+        supabase.table(TASK_WORK_LOGS_TABLE)
+        .select("id,created_at,task_id,logged_by,work_date,hours,work_note")
+        .eq("task_id", task_id)
+        .order("work_date", desc=True)
+        .order("created_at", desc=True)
+        .execute()
+    )
+    return getattr(response, "data", None) or []
 
 
 def update_ref_user_status(

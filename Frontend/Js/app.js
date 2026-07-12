@@ -257,6 +257,38 @@ function createTextLink(url, text) {
   return link;
 }
 
+function formatDisplayDate(value) {
+  if (!value) {
+    return "Not set";
+  }
+
+  const dateValue = new Date(value);
+  if (Number.isNaN(dateValue.getTime())) {
+    return String(value);
+  }
+
+  return dateValue.toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
+}
+
+function toCsvValue(value) {
+  const text = String(value ?? "");
+  return `"${text.replaceAll('"', '""')}"`;
+}
+
+function downloadCsv(filename, rows) {
+  const csv = rows.map((row) => row.map(toCsvValue).join(",")).join("\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(link.href);
+}
+
 async function postJson(path, payload) {
   let response;
 
@@ -571,6 +603,7 @@ function setupCreateProjectForm() {
   const form = document.querySelector("#create-project-form");
   const messageElement = document.querySelector("#form-message");
   const assigneeSelect = document.querySelector("#assigned_to_email");
+  const stakeholderSelect = document.querySelector("#project_stakeholder_email");
   const watcherSelect = document.querySelector("#project_watcher_emails");
 
   if (!form) {
@@ -582,6 +615,13 @@ function setupCreateProjectForm() {
       .catch((error) => {
         setMessage(messageElement, error.message, true);
       });
+  }
+  if (stakeholderSelect) {
+    populateUserSelect(stakeholderSelect, { includeCurrentUser: true }).catch(
+      (error) => {
+        setMessage(messageElement, error.message, true);
+      }
+    );
   }
   populateUserMultiSelect(watcherSelect).catch((error) => {
     setMessage(messageElement, error.message, true);
@@ -603,6 +643,8 @@ function setupCreateProjectForm() {
       document_url: String(formData.get("document_url") ?? "").trim() || null,
       assigned_to_email:
         String(formData.get("assigned_to_email") ?? "").trim() || null,
+      stakeholder_email:
+        String(formData.get("stakeholder_email") ?? "").trim() || null,
       watcher_emails: getSelectedValues(watcherSelect),
     };
 
@@ -630,73 +672,234 @@ function setupDashboardProjects() {
   const projectList = document.querySelector("#project-list");
   const messageElement = document.querySelector("#projects-message");
   const refreshButton = document.querySelector("#refresh-projects-button");
+  const analyticsElement = document.querySelector("#dashboard-analytics");
+  const downloadButton = document.querySelector("#download-analytics-button");
+  let dashboardProjects = [];
+  let dashboardDetails = [];
 
   if (!projectList) {
     return;
+  }
+
+  function renderAnalytics(projects, details) {
+    if (!analyticsElement) {
+      return;
+    }
+
+    const tasks = details.flatMap((project) => project.tasks || []);
+    const openTasks = tasks.filter((task) => task.status === "OPEN").length;
+    const inProgressTasks = tasks.filter(
+      (task) => task.status === "IN PROGRESS"
+    ).length;
+    const closedTasks = tasks.filter((task) => task.status === "CLOSED").length;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const overdueTasks = tasks.filter((task) => {
+      if (!task.end_date || task.status === "CLOSED") {
+        return false;
+      }
+      const endDate = new Date(task.end_date);
+      endDate.setHours(0, 0, 0, 0);
+      return endDate < today;
+    }).length;
+
+    const workload = new Map();
+    tasks.forEach((task) => {
+      const assignee = task.assigned_to_name || task.assigned_to_email || "Unassigned";
+      workload.set(assignee, (workload.get(assignee) || 0) + 1);
+    });
+    const maxWorkload = Math.max(...workload.values(), 1);
+
+    analyticsElement.innerHTML = "";
+    [
+      ["Projects", projects.length],
+      ["Open tasks", openTasks],
+      ["In progress", inProgressTasks],
+      ["Overdue", overdueTasks],
+      ["Closed", closedTasks],
+    ].forEach(([label, value]) => {
+      const card = document.createElement("article");
+      card.className = "analytics-card";
+      card.innerHTML = `<p>${label}</p><strong>${value}</strong>`;
+      analyticsElement.append(card);
+    });
+
+    const workloadCard = document.createElement("article");
+    workloadCard.className = "analytics-card";
+    const title = document.createElement("p");
+    title.textContent = "Tasks by assignee";
+    const bars = document.createElement("div");
+    bars.className = "bar-list";
+    Array.from(workload.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .forEach(([name, count]) => {
+        const row = document.createElement("div");
+        row.className = "bar-row";
+        row.innerHTML = `<span>${name}</span><span class="bar-track"><span class="bar-fill" style="width:${Math.max((count / maxWorkload) * 100, 8)}%"></span></span><span>${count}</span>`;
+        bars.append(row);
+      });
+    workloadCard.append(title, bars);
+    analyticsElement.append(workloadCard);
+  }
+
+  function renderProjectRows(projects, activeFilters = {}) {
+    projectList.innerHTML = "";
+
+    if (!projects.length) {
+      renderEmptyState(projectList, "No projects found.");
+      return;
+    }
+
+    const assignees = Array.from(
+      new Set(
+        dashboardProjects.map(
+          (project) => project.assigned_to_name || project.assigned_to_email || "Unassigned"
+        )
+      )
+    ).sort();
+    const stakeholders = Array.from(
+      new Set(
+        dashboardProjects.map(
+          (project) =>
+            project.stakeholder_name || project.stakeholder_email || "No stakeholder"
+        )
+      )
+    ).sort();
+
+    const tableWrap = document.createElement("div");
+    tableWrap.className = "data-table-wrap";
+
+    const table = document.createElement("table");
+    table.className = "data-table";
+
+    const thead = document.createElement("thead");
+    const headerRow = document.createElement("tr");
+    [
+      { label: "Project title" },
+      { label: "Assignee", filter: "assignee", options: assignees },
+      { label: "Stakeholder", filter: "stakeholder", options: stakeholders },
+    ].forEach((column) => {
+      const cell = document.createElement("th");
+      cell.scope = "col";
+      cell.textContent = column.label;
+      if (column.filter) {
+        const select = document.createElement("select");
+        select.className = "table-filter";
+        select.dataset.projectFilter = column.filter;
+        select.innerHTML = `<option value="">All</option>`;
+        column.options.forEach((optionValue) => {
+          const option = document.createElement("option");
+          option.value = optionValue;
+          option.textContent = optionValue;
+          option.selected = activeFilters[column.filter] === optionValue;
+          select.append(option);
+        });
+        cell.append(select);
+      }
+      headerRow.append(cell);
+    });
+    thead.append(headerRow);
+
+    const tbody = document.createElement("tbody");
+
+    projects.forEach((project) => {
+      const row = document.createElement("tr");
+      row.addEventListener("click", () => {
+        window.location.href = `/project?id=${project.id}`;
+      });
+
+      const titleCell = document.createElement("td");
+      const projectLink = document.createElement("a");
+      projectLink.href = `/project?id=${project.id}`;
+      projectLink.textContent = project.project_name;
+      titleCell.append(projectLink);
+
+      const assigneeCell = document.createElement("td");
+      assigneeCell.textContent =
+        project.assigned_to_name || project.assigned_to_email || "Unassigned";
+
+      const stakeholderCell = document.createElement("td");
+      stakeholderCell.textContent =
+        project.stakeholder_name || project.stakeholder_email || "No stakeholder";
+
+      row.append(titleCell, assigneeCell, stakeholderCell);
+      tbody.append(row);
+    });
+
+    table.append(thead, tbody);
+    tableWrap.append(table);
+    projectList.append(tableWrap);
+
+    table.querySelectorAll("[data-project-filter]").forEach((filter) => {
+      filter.addEventListener("change", () => {
+        const activeFilters = Object.fromEntries(
+          Array.from(table.querySelectorAll("[data-project-filter]")).map((select) => [
+            select.dataset.projectFilter,
+            select.value,
+          ])
+        );
+        const filtered = dashboardProjects.filter((project) => {
+          const assignee =
+            project.assigned_to_name || project.assigned_to_email || "Unassigned";
+          const stakeholder =
+            project.stakeholder_name || project.stakeholder_email || "No stakeholder";
+          return (
+            (!activeFilters.assignee || assignee === activeFilters.assignee) &&
+            (!activeFilters.stakeholder || stakeholder === activeFilters.stakeholder)
+          );
+        });
+        renderProjectRows(filtered, activeFilters);
+      });
+    });
   }
 
   async function loadProjects() {
     setMessage(messageElement, "Loading projects...");
     try {
       const projects = await getAuthorizedJson("/projects");
-      projectList.innerHTML = "";
-
-      if (!projects.length) {
-        renderEmptyState(projectList, "No projects found.");
-        setMessage(messageElement, "");
-        return;
-      }
-
-      const tableWrap = document.createElement("div");
-      tableWrap.className = "data-table-wrap";
-
-      const table = document.createElement("table");
-      table.className = "data-table";
-
-      const thead = document.createElement("thead");
-      const headerRow = document.createElement("tr");
-      ["Project title", "Assignee"].forEach((label) => {
-        const cell = document.createElement("th");
-        cell.scope = "col";
-        cell.textContent = label;
-        headerRow.append(cell);
-      });
-      thead.append(headerRow);
-
-      const tbody = document.createElement("tbody");
-
-      projects.forEach((project) => {
-        const row = document.createElement("tr");
-        row.addEventListener("click", () => {
-          window.location.href = `/project?id=${project.id}`;
-        });
-
-        const titleCell = document.createElement("td");
-        const projectLink = document.createElement("a");
-        projectLink.href = `/project?id=${project.id}`;
-        projectLink.textContent = project.project_name;
-        titleCell.append(projectLink);
-
-        const assigneeCell = document.createElement("td");
-        assigneeCell.textContent =
-          project.assigned_to_name ||
-          project.assigned_to_email ||
-          formatProjectMembers(project.assignees);
-
-        row.append(titleCell, assigneeCell);
-        tbody.append(row);
-      });
-
-      table.append(thead, tbody);
-      tableWrap.append(table);
-      projectList.append(tableWrap);
-
+      dashboardProjects = projects;
+      dashboardDetails = await Promise.all(
+        projects.map((project) => getAuthorizedJson(`/projects/${project.id}`))
+      );
+      renderAnalytics(projects, dashboardDetails);
+      renderProjectRows(projects);
       setMessage(messageElement, "");
     } catch (error) {
       renderEmptyState(projectList, "Projects could not be loaded.");
       setMessage(messageElement, error.message, true);
     }
   }
+
+  downloadButton?.addEventListener("click", () => {
+    const taskRows = dashboardDetails.flatMap((project) =>
+      (project.tasks || []).map((task) => [
+        project.project_name,
+        project.assigned_to_name || project.assigned_to_email || "",
+        project.stakeholder_name || project.stakeholder_email || "",
+        task.task_title,
+        task.assigned_to_name || task.assigned_to_email || "",
+        task.stakeholder_name || task.stakeholder_email || "",
+        task.status || "",
+        task.start_date || "",
+        task.end_date || "",
+      ])
+    );
+    downloadCsv("ntt-analytics-report.csv", [
+      [
+        "Project",
+        "Project Assignee",
+        "Project Stakeholder",
+        "Task",
+        "Task Assignee",
+        "Task Stakeholder",
+        "Task Status",
+        "Start Date",
+        "End Date",
+      ],
+      ...taskRows,
+    ]);
+  });
 
   refreshButton?.addEventListener("click", loadProjects);
   loadProjects();
@@ -728,6 +931,13 @@ function renderProjectDetail(project) {
     project.assigned_to_name ||
     project.assigned_to_email ||
     formatProjectMembers(project.assignees);
+  const projectStakeholderElement = document.querySelector("#project-stakeholder");
+  if (projectStakeholderElement) {
+    projectStakeholderElement.textContent =
+      project.stakeholder_name ||
+      project.stakeholder_email ||
+      "No stakeholder";
+  }
   const projectWatcherElement = document.querySelector("#project-watchers");
   if (projectWatcherElement) {
     projectWatcherElement.textContent = formatWatchers(project.watchers);
@@ -752,17 +962,58 @@ function renderTaskList(tasks) {
 
   const thead = document.createElement("thead");
   const headerRow = document.createElement("tr");
-  ["Task title", "Assignee", "Status"].forEach((label) => {
+  const assignees = Array.from(
+    new Set(
+      tasks.map((task) => task.assigned_to_name || task.assigned_to_email || "Unassigned")
+    )
+  ).sort();
+  const statuses = Array.from(new Set(tasks.map((task) => task.status || "OPEN"))).sort();
+  [
+    { label: "Task title", filter: "title", type: "search" },
+    { label: "Assignee", filter: "assignee", options: assignees },
+    { label: "Status", filter: "status", options: statuses },
+  ].forEach((column) => {
     const cell = document.createElement("th");
     cell.scope = "col";
-    cell.textContent = label;
+    cell.textContent = column.label;
+    if (column.type === "search") {
+      const input = document.createElement("input");
+      input.className = "table-filter";
+      input.type = "search";
+      input.dataset.taskFilter = column.filter;
+      cell.append(input);
+    } else if (column.filter) {
+      const select = document.createElement("select");
+      select.className = "table-filter";
+      select.dataset.taskFilter = column.filter;
+      select.innerHTML = `<option value="">All</option>`;
+      column.options.forEach((optionValue) => {
+        const option = document.createElement("option");
+        option.value = optionValue;
+        option.textContent = optionValue;
+        select.append(option);
+      });
+      cell.append(select);
+    }
     headerRow.append(cell);
   });
   thead.append(headerRow);
 
   const tbody = document.createElement("tbody");
 
-  tasks.forEach((task) => {
+  function renderRows(filteredTasks) {
+    tbody.innerHTML = "";
+    if (!filteredTasks.length) {
+      const row = document.createElement("tr");
+      const cell = document.createElement("td");
+      cell.colSpan = 3;
+      cell.textContent = "No tasks found.";
+      row.append(cell);
+      tbody.append(row);
+      return;
+    }
+
+    filteredTasks.forEach((task) => {
     const row = document.createElement("tr");
     row.addEventListener("click", () => {
       window.location.href = `/task?id=${task.id}`;
@@ -784,10 +1035,35 @@ function renderTaskList(tasks) {
     row.append(titleCell, assigneeCell, statusCell);
     tbody.append(row);
   });
+  }
 
   table.append(thead, tbody);
   tableWrap.append(table);
   taskList.append(tableWrap);
+
+  table.querySelectorAll("[data-task-filter]").forEach((filter) => {
+    filter.addEventListener("input", () => {
+      const activeFilters = Object.fromEntries(
+        Array.from(table.querySelectorAll("[data-task-filter]")).map((control) => [
+          control.dataset.taskFilter,
+          control.value,
+        ])
+      );
+      const filteredTasks = tasks.filter((task) => {
+        const title = String(task.task_title || "").toLowerCase();
+        const assignee = task.assigned_to_name || task.assigned_to_email || "Unassigned";
+        const status = task.status || "OPEN";
+        return (
+          (!activeFilters.title ||
+            title.includes(activeFilters.title.toLowerCase())) &&
+          (!activeFilters.assignee || assignee === activeFilters.assignee) &&
+          (!activeFilters.status || status === activeFilters.status)
+        );
+      });
+      renderRows(filteredTasks);
+    });
+  });
+  renderRows(tasks);
 }
 
 function setupProjectPage() {
@@ -800,6 +1076,9 @@ function setupProjectPage() {
   const inlineProjectCancel = document.querySelector("#inline-project-cancel");
   const inlineAssigneeSelect = document.querySelector(
     "#inline_project_assigned_to_email"
+  );
+  const inlineStakeholderSelect = document.querySelector(
+    "#inline_project_stakeholder_email"
   );
   const inlineWatcherList = document.querySelector(
     "#inline_project_watcher_emails"
@@ -836,8 +1115,12 @@ function setupProjectPage() {
       currentProject.document_url || currentProject.documents || "";
 
     await populateUserSelect(inlineAssigneeSelect, { includeCurrentUser: true });
+    await populateUserSelect(inlineStakeholderSelect, { includeCurrentUser: true });
     if (inlineAssigneeSelect && currentProject.assigned_to_email) {
       inlineAssigneeSelect.value = currentProject.assigned_to_email;
+    }
+    if (inlineStakeholderSelect && currentProject.stakeholder_email) {
+      inlineStakeholderSelect.value = currentProject.stakeholder_email;
     }
     await populateUserCheckboxList(
       inlineWatcherList,
@@ -889,6 +1172,8 @@ function setupProjectPage() {
         document_url: String(formData.get("document_url") ?? "").trim() || null,
         assigned_to_email:
           String(formData.get("assigned_to_email") ?? "").trim() || null,
+        stakeholder_email:
+          String(formData.get("stakeholder_email") ?? "").trim() || null,
         watcher_emails: getCheckedValues(inlineWatcherList),
       });
       setMessage(inlineProjectMessage, data.detail || "Project updated.");
@@ -1011,6 +1296,7 @@ function setupCreateTaskPage() {
         task_title: String(formData.get("task_title") ?? "").trim(),
         task_details: String(formData.get("task_details") ?? "").trim() || null,
         documents: String(formData.get("documents") ?? "").trim() || null,
+        end_date: String(formData.get("end_date") ?? "").trim(),
         assigned_to_email:
           String(formData.get("assigned_to_email") ?? "").trim() || null,
         stakeholder_email:
@@ -1036,6 +1322,12 @@ function renderTaskDetail(task) {
   document.querySelector("#task-assignee").textContent =
     task.assigned_to_name || task.assigned_to_email || "Unassigned";
   document.querySelector("#task-status").textContent = task.status || "OPEN";
+  document.querySelector("#task-start-date").textContent = formatDisplayDate(
+    task.start_date
+  );
+  document.querySelector("#task-end-date").textContent = formatDisplayDate(
+    task.end_date
+  );
   document.querySelector("#task-stakeholder").textContent =
     task.stakeholder_name || task.stakeholder_email || "No stakeholder";
   document.querySelector("#task-watchers").textContent = formatWatchers(
@@ -1117,14 +1409,62 @@ function renderComments(comments) {
   });
 }
 
+function renderWorkLogs(workLogs) {
+  const workLogList = document.querySelector("#work-log-list");
+  if (!workLogList) {
+    return;
+  }
+
+  workLogList.innerHTML = "";
+
+  if (!workLogs.length) {
+    renderEmptyState(workLogList, "No work logs yet.");
+    return;
+  }
+
+  workLogs.forEach((workLog) => {
+    const card = document.createElement("article");
+    card.className = "comment-card";
+
+    const author = document.createElement("p");
+    author.className = "meta-text";
+    const loggedBy = workLog.logged_by_name || workLog.logged_by_email || "User";
+    const hours = workLog.hours ? ` · ${workLog.hours}h` : "";
+    author.textContent = `${loggedBy} · ${formatDisplayDate(workLog.work_date)}${hours}`;
+
+    const body = document.createElement("p");
+    body.textContent = workLog.work_note || "";
+
+    card.append(author, body);
+    workLogList.append(card);
+  });
+}
+
+function setupActivityTabs() {
+  document.querySelectorAll("[data-activity-tab]").forEach((tab) => {
+    tab.addEventListener("click", () => {
+      const target = tab.dataset.activityTab;
+      document.querySelectorAll("[data-activity-tab]").forEach((item) => {
+        item.classList.toggle("is-active", item === tab);
+      });
+      document.querySelectorAll("[data-activity-panel]").forEach((panel) => {
+        panel.classList.toggle("is-hidden", panel.dataset.activityPanel !== target);
+      });
+    });
+  });
+}
+
 function setupTaskPage() {
   const taskTitle = document.querySelector("#task-title");
   const commentForm = document.querySelector("#task-comment-form");
+  const workLogForm = document.querySelector("#task-work-log-form");
   const messageElement = document.querySelector("#comment-message");
+  const workLogMessage = document.querySelector("#work-log-message");
   const taskActionMessage = document.querySelector("#task-action-message");
   const taskAssigneeSelect = document.querySelector("#task_edit_assigned_to_email");
   const taskStakeholderSelect = document.querySelector("#task_edit_stakeholder_email");
   const taskWatcherSelect = document.querySelector("#task_edit_watcher_emails");
+  const taskEndDateInput = document.querySelector("#task_edit_end_date");
   const taskId = getQueryParam("id");
 
   if (!taskTitle) {
@@ -1142,6 +1482,7 @@ function setupTaskPage() {
       renderTaskDetail(task);
       setTaskWorkflowVisibility(task);
       renderComments(task.comments || []);
+      renderWorkLogs(task.work_logs || []);
       await populateUserSelect(taskAssigneeSelect, { includeCurrentUser: true });
       await populateUserSelect(taskStakeholderSelect, { includeCurrentUser: true });
       await populateUserCheckboxList(
@@ -1154,6 +1495,9 @@ function setupTaskPage() {
       if (taskStakeholderSelect && task.stakeholder_email) {
         taskStakeholderSelect.value = task.stakeholder_email;
       }
+      if (taskEndDateInput) {
+        taskEndDateInput.value = task.end_date || "";
+      }
     } catch (error) {
       setMessage(messageElement, error.message, true);
     }
@@ -1165,6 +1509,7 @@ function setupTaskPage() {
       const data = await postAuthorizedJson(`/tasks/${taskId}/update`, {
         assigned_to_email: taskAssigneeSelect?.value || "",
         stakeholder_email: taskStakeholderSelect?.value || "",
+        end_date: taskEndDateInput?.value || null,
         watcher_emails: getCheckedValues(taskWatcherSelect),
       });
       setMessage(taskActionMessage, data.detail || "Task details saved.");
@@ -1240,6 +1585,34 @@ function setupTaskPage() {
     }
   });
 
+  workLogForm?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+
+    if (!workLogForm.checkValidity()) {
+      workLogForm.reportValidity();
+      return;
+    }
+
+    const formData = new FormData(workLogForm);
+    setMessage(workLogMessage, "Adding work log...");
+
+    try {
+      const data = await postAuthorizedJson(`/tasks/${taskId}/work-logs`, {
+        work_note: String(formData.get("work_note") ?? "").trim(),
+        work_date: String(formData.get("work_date") ?? "").trim() || null,
+        hours: formData.get("hours")
+          ? Number(String(formData.get("hours")).trim())
+          : null,
+      });
+      workLogForm.reset();
+      setMessage(workLogMessage, data.detail || "Work log added.");
+      await loadTask();
+    } catch (error) {
+      setMessage(workLogMessage, error.message, true);
+    }
+  });
+
+  setupActivityTabs();
   loadTask();
 }
 

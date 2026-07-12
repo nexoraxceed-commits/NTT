@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Task | NTT Workspace</title>
-    <link rel="stylesheet" href="/Css/styles.css?v=20260712-workflow-r3">
+    <link rel="stylesheet" href="/Css/styles.css?v=20260712-productivity">
   </head>
   <body class="app-body">
     <main class="workspace-shell">
@@ -14,7 +14,7 @@
           <h1 id="task-title">Task</h1>
         </div>
         <div class="header-actions">
-          <a class="secondary-link" id="task-back-link" href="/post-login">Back to Project</a>
+          <a class="icon-link" id="task-back-link" href="/post-login" aria-label="Back to project">←</a>
           <button class="secondary-link" type="button" data-logout-button>Log out</button>
         </div>
       </header>
@@ -44,6 +44,14 @@
           <div>
             <p class="eyebrow">Status</p>
             <p class="detail-copy" id="task-status"></p>
+          </div>
+          <div>
+            <p class="eyebrow">Start date</p>
+            <p class="detail-copy" id="task-start-date"></p>
+          </div>
+          <div>
+            <p class="eyebrow">End date</p>
+            <p class="detail-copy" id="task-end-date"></p>
           </div>
         </div>
       </section>
@@ -81,7 +89,31 @@
                   <p class="empty-state">Loading users...</p>
                 </div>
               </div>
+              <div class="field-group">
+                <label for="task_edit_end_date">End date</label>
+                <input id="task_edit_end_date" name="end_date" type="date">
+              </div>
               <button type="button" class="secondary-action" id="save-task-button">Save Task Details</button>
+            </form>
+          </details>
+
+          <details class="task-edit-details">
+            <summary>Log work</summary>
+            <form class="project-form" id="task-work-log-form" novalidate>
+              <div class="field-group">
+                <label for="work_date">Work date</label>
+                <input id="work_date" name="work_date" type="date">
+              </div>
+              <div class="field-group">
+                <label for="work_hours">Hours</label>
+                <input id="work_hours" name="hours" type="number" min="0" max="24" step="0.25">
+              </div>
+              <div class="field-group">
+                <label for="work_note">Work note</label>
+                <textarea id="work_note" name="work_note" rows="4" maxlength="1000" required></textarea>
+              </div>
+              <button type="submit" class="secondary-action">Add Work Log</button>
+              <p class="form-message" id="work-log-message" role="status" aria-live="polite"></p>
             </form>
           </details>
         </section>
@@ -101,14 +133,19 @@
             <p class="form-message" id="comment-message" role="status" aria-live="polite"></p>
           </form>
 
-          <div class="comments-section" aria-labelledby="comments-title">
-            <h3 id="comments-title">Comments</h3>
-            <div class="comment-list scrollable-comments" id="comment-list"></div>
+          <div class="comments-section" aria-labelledby="activity-title">
+            <h3 id="activity-title">Activity</h3>
+            <div class="tab-list" role="tablist" aria-label="Task activity">
+              <button type="button" class="tab-button is-active" data-activity-tab="comments">Comments</button>
+              <button type="button" class="tab-button" data-activity-tab="work-logs">Work Logs</button>
+            </div>
+            <div class="comment-list scrollable-comments" id="comment-list" data-activity-panel="comments"></div>
+            <div class="comment-list scrollable-comments is-hidden" id="work-log-list" data-activity-panel="work-logs"></div>
           </div>
         </section>
       </section>
     </main>
     <script src="/Js/config.js"></script>
-    <script src="/Js/app.js?v=20260712-workflow-r3"></script>
+    <script src="/Js/app.js?v=20260712-productivity"></script>
   </body>
 </html>

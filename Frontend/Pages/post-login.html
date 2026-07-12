@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>NTT Workspace</title>
-    <link rel="stylesheet" href="/Css/styles.css?v=20260712-workflow">
+    <link rel="stylesheet" href="/Css/styles.css?v=20260712-productivity">
   </head>
   <body class="app-body">
     <main class="workspace-shell">
@@ -14,10 +14,12 @@
           <h1>Dashboard</h1>
         </div>
         <div class="header-actions">
+          <button class="secondary-link" type="button" id="download-analytics-button">Download Report</button>
           <a class="button-link" href="/create-project">Create Project</a>
           <button class="secondary-link" type="button" data-logout-button>Log out</button>
         </div>
       </header>
+      <section class="analytics-grid" id="dashboard-analytics"></section>
       <section class="workspace-panel wide-panel" aria-labelledby="projects-title">
         <div class="section-header">
           <h2 id="projects-title">Projects</h2>
@@ -27,6 +29,6 @@
       </section>
     </main>
     <script src="/Js/config.js"></script>
-    <script src="/Js/app.js?v=20260712-workflow"></script>
+    <script src="/Js/app.js?v=20260712-productivity"></script>
   </body>
 </html>

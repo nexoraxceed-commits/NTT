@@ -287,6 +287,29 @@ button:hover {
   text-decoration: none;
 }
 
+.icon-link {
+  display: inline-flex;
+  width: 44px;
+  min-width: 44px;
+  height: 44px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--accent);
+  background: #ffffff;
+  font-size: 1.25rem;
+  font-weight: 900;
+  line-height: 1;
+  text-decoration: none;
+}
+
+.icon-link:hover {
+  color: #ffffff;
+  background: var(--accent-strong);
+  text-decoration: none;
+}
+
 .secondary-action {
   border: 1px solid var(--line);
   color: var(--accent);
@@ -372,6 +395,63 @@ a:focus-visible {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 24px;
   margin-bottom: 28px;
+}
+
+.analytics-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.analytics-card {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 18px;
+  background: #ffffff;
+  box-shadow: var(--shadow);
+}
+
+.analytics-card p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.analytics-card strong {
+  display: block;
+  margin-top: 8px;
+  color: var(--ink);
+  font-size: 2rem;
+  line-height: 1;
+}
+
+.bar-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.bar-row {
+  display: grid;
+  grid-template-columns: 88px 1fr 32px;
+  gap: 10px;
+  align-items: center;
+  color: var(--muted);
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.bar-track {
+  height: 10px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e9f0ed;
+}
+
+.bar-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
 }
 
 .header-actions,
@@ -460,6 +540,10 @@ a:focus-visible {
   background: #fbfdfc;
 }
 
+.checkbox-list.compact {
+  gap: 6px;
+}
+
 .checkbox-option {
   display: flex;
   align-items: center;
@@ -487,6 +571,27 @@ a:focus-visible {
 .comments-section h3 {
   margin: 0;
   font-size: 1.35rem;
+}
+
+.tab-list {
+  display: flex;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.tab-button {
+  width: auto;
+  min-height: 38px;
+  border: 1px solid var(--line);
+  padding: 0 14px;
+  color: var(--accent);
+  background: #ffffff;
+  box-shadow: none;
+}
+
+.tab-button.is-active {
+  color: #ffffff;
+  background: var(--accent);
 }
 
 .scrollable-comments {
@@ -582,6 +687,16 @@ a:focus-visible {
   text-transform: uppercase;
 }
 
+.table-filter {
+  width: 100%;
+  min-height: 34px;
+  margin-top: 10px;
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 0.9rem;
+  text-transform: none;
+}
+
 .data-table tbody tr {
   cursor: pointer;
   transition: background 160ms ease;
@@ -644,6 +759,7 @@ a:focus-visible {
 
   .workspace-grid,
   .form-grid,
+  .analytics-grid,
   .detail-grid {
     grid-template-columns: 1fr;
   }
