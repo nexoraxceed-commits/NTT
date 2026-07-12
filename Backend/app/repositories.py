@@ -238,6 +238,20 @@ def get_user_project_memberships(
     return getattr(response, "data", None) or []
 
 
+def get_user_project_watchlist(
+    supabase: Client,
+    user_id: str,
+) -> list[dict]:
+    response = (
+        supabase.table(PROJECT_WATCHERS_TABLE)
+        .select("project_id,user_id,status")
+        .eq("user_id", user_id)
+        .eq("status", ACTIVE_STATUS)
+        .execute()
+    )
+    return getattr(response, "data", None) or []
+
+
 def ensure_project_member(
     supabase: Client,
     project_id: int,

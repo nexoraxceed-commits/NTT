@@ -39,6 +39,7 @@ from app.repositories import (
     get_task_watchers,
     get_task_watchers_for_tasks,
     get_user_project_memberships,
+    get_user_project_watchlist,
     replace_project_watchers,
     replace_task_watchers,
     sync_ref_user_auth_uid,
@@ -174,6 +175,25 @@ def queue_notification_log(
 
     if rows:
         supabase_admin.table(NOTIFICATION_LOG_TABLE).insert(rows).execute()
+
+
+def is_project_editor(project: dict, watchers: list[dict], user_id: str) -> bool:
+    if project.get("assigned_to") and str(project.get("assigned_to")) == str(user_id):
+        return True
+
+    return any(str(watcher.get("user_id")) == str(user_id) for watcher in watchers)
+
+
+def has_project_access(
+    project: dict,
+    members: list[dict],
+    watchers: list[dict],
+    user_id: str,
+) -> bool:
+    return (
+        any(str(member.get("user_id")) == str(user_id) for member in members)
+        or is_project_editor(project, watchers, user_id)
+    )
 
 
 def create_app() -> FastAPI:
@@ -433,7 +453,14 @@ def create_app() -> FastAPI:
             return [ProjectSummaryResponse(**project) for project in cached_projects]
 
         memberships = get_user_project_memberships(supabase_admin, user_id)
-        project_ids = [membership["project_id"] for membership in memberships]
+        watchlist = get_user_project_watchlist(supabase_admin, user_id)
+        project_ids = [
+            int(project_id)
+            for project_id in {
+                *(membership["project_id"] for membership in memberships),
+                *(watch["project_id"] for watch in watchlist),
+            }
+        ]
         if not project_ids:
             return []
 
@@ -514,6 +541,11 @@ def create_app() -> FastAPI:
                     users_by_auth_uid,
                     app_settings,
                 ),
+                can_edit=is_project_editor(
+                    project,
+                    watchers_by_project.get(int(project["id"]), []),
+                    user_id,
+                ),
             )
             for project in projects
         ]
@@ -538,19 +570,19 @@ def create_app() -> FastAPI:
                 detail="Session expired. Please sign in again.",
             )
 
+        project = get_project_by_id(supabase_admin, project_id)
         members = get_project_members(supabase_admin, project_id)
-        if not any(str(member.get("user_id")) == str(user_id) for member in members):
+        project_watchers = get_project_watchers(supabase_admin, project_id)
+        if not has_project_access(project, members, project_watchers, user_id):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="You do not have access to this project.",
             )
 
-        cache_key = f"projects:detail:{project_id}"
+        cache_key = f"projects:detail:{project_id}:{user_id}"
         cached_project = backend_cache.get(cache_key)
         if cached_project is not None:
             return ProjectDetailResponse(**cached_project)
-
-        project = get_project_by_id(supabase_admin, project_id)
 
         task_response = (
             supabase_admin.table(TASKS_TABLE)
@@ -564,7 +596,6 @@ def create_app() -> FastAPI:
         )
         tasks = getattr(task_response, "data", None) or []
         task_ids = [int(task["id"]) for task in tasks]
-        project_watchers = get_project_watchers(supabase_admin, project_id)
         task_watchers_by_task = get_task_watchers_for_tasks(supabase_admin, task_ids)
         user_ids = [
             str(member["user_id"]) for member in members if member.get("user_id")
@@ -618,6 +649,7 @@ def create_app() -> FastAPI:
                 users_by_auth_uid,
                 app_settings,
             ),
+            can_edit=is_project_editor(project, project_watchers, user_id),
             tasks=[
                 TaskSummaryResponse(
                     id=task["id"],
@@ -685,7 +717,14 @@ def create_app() -> FastAPI:
                 detail="Session expired. Please sign in again.",
             )
 
-        ensure_project_member(supabase_admin, project_id, user_id)
+        project = get_project_by_id(supabase_admin, project_id)
+        project_watchers = get_project_watchers(supabase_admin, project_id)
+        if not is_project_editor(project, project_watchers, user_id):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only the project assignee or watcher can edit this project.",
+            )
+
         update_payload = {
             "description": normalize_optional_text(payload.description),
             "document_name": normalize_optional_text(payload.document_name),

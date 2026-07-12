@@ -711,6 +711,7 @@ function fillSelectsForProjectPage() {
 }
 
 function renderProjectDetail(project) {
+  const detailPanel = document.querySelector("#project-detail-panel");
   document.querySelector("#project-title").textContent = project.project_name;
   document.querySelector("#project-description").textContent =
     project.description || "No description added.";
@@ -731,6 +732,7 @@ function renderProjectDetail(project) {
   if (projectWatcherElement) {
     projectWatcherElement.textContent = formatWatchers(project.watchers);
   }
+  detailPanel?.classList.toggle("is-editable", Boolean(project.can_edit));
 }
 
 function renderTaskList(tasks) {
@@ -790,10 +792,20 @@ function renderTaskList(tasks) {
 
 function setupProjectPage() {
   const projectTitle = document.querySelector("#project-title");
-  const editProjectLink = document.querySelector("#edit-project-link");
   const createTaskLink = document.querySelector("#create-task-link");
   const projectMessage = document.querySelector("#project-message");
+  const detailPanel = document.querySelector("#project-detail-panel");
+  const inlineProjectForm = document.querySelector("#inline-project-form");
+  const inlineProjectMessage = document.querySelector("#inline-project-message");
+  const inlineProjectCancel = document.querySelector("#inline-project-cancel");
+  const inlineAssigneeSelect = document.querySelector(
+    "#inline_project_assigned_to_email"
+  );
+  const inlineWatcherList = document.querySelector(
+    "#inline_project_watcher_emails"
+  );
   const projectId = getQueryParam("id");
+  let currentProject = null;
 
   if (!projectTitle) {
     return;
@@ -804,20 +816,88 @@ function setupProjectPage() {
     return;
   }
 
-  editProjectLink.href = `/edit-project?id=${projectId}`;
   createTaskLink.href = `/create-task?id=${projectId}`;
+
+  function hideInlineProjectEditor() {
+    inlineProjectForm?.classList.add("is-hidden");
+    setMessage(inlineProjectMessage, "");
+  }
+
+  async function showInlineProjectEditor() {
+    if (!currentProject?.can_edit || !inlineProjectForm) {
+      return;
+    }
+
+    document.querySelector("#inline_project_description").value =
+      currentProject.description || "";
+    document.querySelector("#inline_project_document_name").value =
+      currentProject.document_name || "";
+    document.querySelector("#inline_project_document_url").value =
+      currentProject.document_url || currentProject.documents || "";
+
+    await populateUserSelect(inlineAssigneeSelect, { includeCurrentUser: true });
+    if (inlineAssigneeSelect && currentProject.assigned_to_email) {
+      inlineAssigneeSelect.value = currentProject.assigned_to_email;
+    }
+    await populateUserCheckboxList(
+      inlineWatcherList,
+      (currentProject.watchers || []).map((watcher) => watcher.email)
+    );
+
+    inlineProjectForm.classList.remove("is-hidden");
+  }
 
   async function loadProject() {
     setMessage(projectMessage, "Loading project...");
     try {
       const project = await getAuthorizedJson(`/projects/${projectId}`);
+      currentProject = project;
       renderProjectDetail(project);
       renderTaskList(project.tasks || []);
+      hideInlineProjectEditor();
       setMessage(projectMessage, "");
     } catch (error) {
       setMessage(projectMessage, error.message, true);
     }
   }
+
+  detailPanel?.addEventListener("click", (event) => {
+    if (
+      event.target.closest("a, button, input, textarea, select, label") ||
+      !currentProject?.can_edit
+    ) {
+      return;
+    }
+
+    showInlineProjectEditor().catch((error) => {
+      setMessage(inlineProjectMessage, error.message, true);
+    });
+  });
+
+  inlineProjectCancel?.addEventListener("click", hideInlineProjectEditor);
+
+  inlineProjectForm?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const formData = new FormData(inlineProjectForm);
+    setMessage(inlineProjectMessage, "Saving project...");
+
+    try {
+      const data = await postAuthorizedJson(`/projects/${projectId}/update`, {
+        description: String(formData.get("description") ?? "").trim() || null,
+        document_name:
+          String(formData.get("document_name") ?? "").trim() || null,
+        document_url: String(formData.get("document_url") ?? "").trim() || null,
+        assigned_to_email:
+          String(formData.get("assigned_to_email") ?? "").trim() || null,
+        watcher_emails: getCheckedValues(inlineWatcherList),
+      });
+      setMessage(inlineProjectMessage, data.detail || "Project updated.");
+      await loadProject();
+      setMessage(projectMessage, data.detail || "Project updated.");
+    } catch (error) {
+      setMessage(inlineProjectMessage, error.message, true);
+    }
+  });
 
   loadProject();
 }

@@ -87,6 +87,7 @@ class ProjectSummaryResponse(BaseModel):
     assigned_to_name: str | None = None
     assignees: list[ProjectMemberResponse]
     watchers: list[WatcherResponse] = Field(default_factory=list)
+    can_edit: bool = False
 
 
 class TaskSummaryResponse(BaseModel):

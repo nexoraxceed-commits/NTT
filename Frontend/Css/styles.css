@@ -400,6 +400,36 @@ a:focus-visible {
   margin-top: 24px;
 }
 
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.inline-editor {
+  border-top: 1px solid var(--line);
+  padding-top: 24px;
+}
+
+.inline-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.inline-actions button {
+  width: auto;
+  min-width: 160px;
+}
+
+.project-detail-panel.is-editable .detail-grid {
+  cursor: pointer;
+}
+
+.project-detail-panel.is-editable .detail-grid:hover .detail-copy {
+  color: var(--accent);
+}
+
 .workflow-actions {
   display: grid;
   gap: 12px;
@@ -613,6 +643,7 @@ a:focus-visible {
   }
 
   .workspace-grid,
+  .form-grid,
   .detail-grid {
     grid-template-columns: 1fr;
   }

@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Project | NTT Workspace</title>
-    <link rel="stylesheet" href="/Css/styles.css?v=20260712-workflow">
+    <link rel="stylesheet" href="/Css/styles.css?v=20260712-inline-project">
   </head>
   <body class="app-body">
     <main class="workspace-shell">
@@ -14,14 +14,13 @@
           <h1 id="project-title">Project</h1>
         </div>
         <div class="header-actions">
-          <a class="secondary-link" id="edit-project-link" href="/edit-project">Edit Project</a>
           <a class="button-link" id="create-task-link" href="/create-task">Create Task</a>
           <a class="secondary-link" href="/post-login">Back to Dashboard</a>
           <button class="secondary-link" type="button" data-logout-button>Log out</button>
         </div>
       </header>
 
-      <section class="workspace-panel wide-panel">
+      <section class="workspace-panel wide-panel project-detail-panel" id="project-detail-panel">
         <div class="detail-grid">
           <div>
             <p class="eyebrow">Description</p>
@@ -40,6 +39,37 @@
             <p class="detail-copy" id="project-watchers"></p>
           </div>
         </div>
+        <form class="project-form inline-editor is-hidden" id="inline-project-form" novalidate>
+          <label for="inline_project_description">
+            Description
+            <textarea id="inline_project_description" name="description" rows="4"></textarea>
+          </label>
+          <div class="form-grid">
+            <label for="inline_project_document_name">
+              Document name
+              <input id="inline_project_document_name" name="document_name" type="text">
+            </label>
+            <label for="inline_project_document_url">
+              Document URL
+              <input id="inline_project_document_url" name="document_url" type="url">
+            </label>
+          </div>
+          <label for="inline_project_assigned_to_email">
+            Assignee
+            <select id="inline_project_assigned_to_email" name="assigned_to_email">
+              <option value="">Unassigned</option>
+            </select>
+          </label>
+          <div>
+            <label>Watchers</label>
+            <div class="checkbox-list" id="inline_project_watcher_emails"></div>
+          </div>
+          <div class="inline-actions">
+            <button type="submit">Save Project</button>
+            <button class="secondary-link" type="button" id="inline-project-cancel">Cancel</button>
+          </div>
+          <p class="form-message" id="inline-project-message" role="status" aria-live="polite"></p>
+        </form>
       </section>
 
       <section class="workspace-panel wide-panel">
@@ -51,6 +81,6 @@
 
     </main>
     <script src="/Js/config.js"></script>
-    <script src="/Js/app.js?v=20260712-workflow"></script>
+    <script src="/Js/app.js?v=20260712-inline-project"></script>
   </body>
 </html>
