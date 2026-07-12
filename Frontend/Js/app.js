@@ -91,6 +91,12 @@ function clearSession() {
   window.localStorage.removeItem(authActiveKey);
 }
 
+function logout() {
+  clearSession();
+  clearHistoryLogout();
+  window.location.replace("/");
+}
+
 function markHistoryLogout() {
   window.sessionStorage.setItem(historyLogoutKey, "true");
 }
@@ -216,6 +222,16 @@ function formatProjectMembers(members = []) {
       const name = member.user_name || member.email || "Unknown user";
       return `${name} - ${member.role}`;
     })
+    .join(", ");
+}
+
+function formatWatchers(watchers = []) {
+  if (!watchers.length) {
+    return "No watchers";
+  }
+
+  return watchers
+    .map((watcher) => watcher.user_name || watcher.email || "Unknown user")
     .join(", ");
 }
 
@@ -372,6 +388,50 @@ async function populateUserSelect(selectElement, options = {}) {
   selectElement.append(fragment);
 }
 
+async function populateUserMultiSelect(selectElement, selectedEmails = []) {
+  if (!selectElement) {
+    return;
+  }
+
+  const users = await getActiveUsers();
+  const selected = new Set(selectedEmails.filter(Boolean));
+  selectElement
+    .querySelectorAll("option[data-generated='true']")
+    .forEach((option) => option.remove());
+
+  const fragment = document.createDocumentFragment();
+  users.forEach((user) => {
+    if (!user.email) {
+      return;
+    }
+
+    const option = document.createElement("option");
+    option.value = user.email;
+    option.textContent = formatAssignee(user);
+    option.selected = selected.has(user.email);
+    option.dataset.generated = "true";
+    fragment.append(option);
+  });
+
+  selectElement.append(fragment);
+}
+
+function getSelectedValues(selectElement) {
+  if (!selectElement) {
+    return [];
+  }
+
+  return Array.from(selectElement.selectedOptions)
+    .map((option) => option.value.trim())
+    .filter(Boolean);
+}
+
+function setupLogoutButtons() {
+  document.querySelectorAll("[data-logout-button]").forEach((button) => {
+    button.addEventListener("click", logout);
+  });
+}
+
 function setupLoginForm() {
   const form = document.querySelector("#login-form");
   const messageElement = document.querySelector("#form-message");
@@ -463,6 +523,7 @@ function setupCreateProjectForm() {
   const form = document.querySelector("#create-project-form");
   const messageElement = document.querySelector("#form-message");
   const assigneeSelect = document.querySelector("#assigned_to_email");
+  const watcherSelect = document.querySelector("#project_watcher_emails");
 
   if (!form) {
     return;
@@ -474,6 +535,9 @@ function setupCreateProjectForm() {
         setMessage(messageElement, error.message, true);
       });
   }
+  populateUserMultiSelect(watcherSelect).catch((error) => {
+    setMessage(messageElement, error.message, true);
+  });
 
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -491,6 +555,7 @@ function setupCreateProjectForm() {
       document_url: String(formData.get("document_url") ?? "").trim() || null,
       assigned_to_email:
         String(formData.get("assigned_to_email") ?? "").trim() || null,
+      watcher_emails: getSelectedValues(watcherSelect),
     };
 
     setMessage(messageElement, "Creating project...");
@@ -565,7 +630,10 @@ function setupDashboardProjects() {
         titleCell.append(projectLink);
 
         const assigneeCell = document.createElement("td");
-        assigneeCell.textContent = formatProjectMembers(project.assignees);
+        assigneeCell.textContent =
+          project.assigned_to_name ||
+          project.assigned_to_email ||
+          formatProjectMembers(project.assignees);
 
         row.append(titleCell, assigneeCell);
         tbody.append(row);
@@ -607,9 +675,14 @@ function renderProjectDetail(project) {
       ? createTextLink(documentUrl, documentName)
       : "No documents URL added."
   );
-  document.querySelector("#project-assignees").textContent = formatProjectMembers(
-    project.assignees
-  );
+  document.querySelector("#project-assignees").textContent =
+    project.assigned_to_name ||
+    project.assigned_to_email ||
+    formatProjectMembers(project.assignees);
+  const projectWatcherElement = document.querySelector("#project-watchers");
+  if (projectWatcherElement) {
+    projectWatcherElement.textContent = formatWatchers(project.watchers);
+  }
 }
 
 function renderTaskList(tasks) {
@@ -629,7 +702,7 @@ function renderTaskList(tasks) {
 
   const thead = document.createElement("thead");
   const headerRow = document.createElement("tr");
-  ["Task title", "Assignee"].forEach((label) => {
+  ["Task title", "Assignee", "Status"].forEach((label) => {
     const cell = document.createElement("th");
     cell.scope = "col";
     cell.textContent = label;
@@ -655,7 +728,10 @@ function renderTaskList(tasks) {
     assigneeCell.textContent =
       task.assigned_to_name || task.assigned_to_email || "Unassigned";
 
-    row.append(titleCell, assigneeCell);
+    const statusCell = document.createElement("td");
+    statusCell.textContent = task.status || "OPEN";
+
+    row.append(titleCell, assigneeCell, statusCell);
     tbody.append(row);
   });
 
@@ -714,9 +790,11 @@ function setupEditProjectPage() {
   }
 
   backLink.href = `/project?id=${projectId}`;
-  populateUserSelect(document.querySelector("#edit_assigned_to_email")).catch(
-    () => {}
-  );
+  const editAssigneeSelect = document.querySelector("#edit_assigned_to_email");
+  const editAssigneePromise = populateUserSelect(editAssigneeSelect, {
+    includeCurrentUser: true,
+  }).catch(() => {});
+  const editWatcherSelect = document.querySelector("#edit_project_watcher_emails");
 
   async function loadProjectForEdit() {
     try {
@@ -726,6 +804,14 @@ function setupEditProjectPage() {
         project.document_name || "";
       document.querySelector("#edit_document_url").value =
         project.document_url || project.documents || "";
+      await editAssigneePromise;
+      if (editAssigneeSelect && project.assigned_to_email) {
+        editAssigneeSelect.value = project.assigned_to_email;
+      }
+      await populateUserMultiSelect(
+        editWatcherSelect,
+        (project.watchers || []).map((watcher) => watcher.email)
+      );
     } catch (error) {
       setMessage(editMessage, error.message, true);
     }
@@ -743,6 +829,7 @@ function setupEditProjectPage() {
         document_url: String(formData.get("document_url") ?? "").trim() || null,
         assigned_to_email:
           String(formData.get("assigned_to_email") ?? "").trim() || null,
+        watcher_emails: getSelectedValues(editWatcherSelect),
       });
       setMessage(editMessage, data.detail || "Project updated successfully.");
       window.location.href = `/project?id=${projectId}`;
@@ -773,6 +860,12 @@ function setupCreateTaskPage() {
   populateUserSelect(document.querySelector("#task_assigned_to_email"), {
     includeCurrentUser: true,
   }).catch(() => {});
+  populateUserSelect(document.querySelector("#task_stakeholder_email"), {
+    includeCurrentUser: true,
+  }).catch(() => {});
+  populateUserMultiSelect(document.querySelector("#task_watcher_emails")).catch(
+    () => {}
+  );
 
   createTaskForm?.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -792,6 +885,11 @@ function setupCreateTaskPage() {
         documents: String(formData.get("documents") ?? "").trim() || null,
         assigned_to_email:
           String(formData.get("assigned_to_email") ?? "").trim() || null,
+        stakeholder_email:
+          String(formData.get("stakeholder_email") ?? "").trim() || null,
+        watcher_emails: getSelectedValues(
+          document.querySelector("#task_watcher_emails")
+        ),
       });
       createTaskForm.reset();
       setMessage(taskMessage, data.detail || "Task created successfully.");
@@ -809,6 +907,12 @@ function renderTaskDetail(task) {
     task.task_details || "No description added.";
   document.querySelector("#task-assignee").textContent =
     task.assigned_to_name || task.assigned_to_email || "Unassigned";
+  document.querySelector("#task-status").textContent = task.status || "OPEN";
+  document.querySelector("#task-stakeholder").textContent =
+    task.stakeholder_name || task.stakeholder_email || "No stakeholder";
+  document.querySelector("#task-watchers").textContent = formatWatchers(
+    task.watchers
+  );
   document.querySelector("#task-back-link").href = `/project?id=${task.project_id}`;
 
   const documentsElement = document.querySelector("#task-documents");
@@ -854,6 +958,12 @@ function setupTaskPage() {
   const taskTitle = document.querySelector("#task-title");
   const commentForm = document.querySelector("#task-comment-form");
   const messageElement = document.querySelector("#comment-message");
+  const taskActionMessage = document.querySelector("#task-action-message");
+  const taskStatusSelect = document.querySelector("#task_status");
+  const taskUpdateForm = document.querySelector("#task-update-form");
+  const taskAssigneeSelect = document.querySelector("#task_edit_assigned_to_email");
+  const taskStakeholderSelect = document.querySelector("#task_edit_stakeholder_email");
+  const taskWatcherSelect = document.querySelector("#task_edit_watcher_emails");
   const taskId = getQueryParam("id");
 
   if (!taskTitle) {
@@ -870,10 +980,82 @@ function setupTaskPage() {
       const task = await getAuthorizedJson(`/tasks/${taskId}`);
       renderTaskDetail(task);
       renderComments(task.comments || []);
+      if (taskStatusSelect) {
+        taskStatusSelect.value = task.status || "OPEN";
+      }
+      await populateUserSelect(taskAssigneeSelect, { includeCurrentUser: true });
+      await populateUserSelect(taskStakeholderSelect, { includeCurrentUser: true });
+      await populateUserMultiSelect(
+        taskWatcherSelect,
+        (task.watchers || []).map((watcher) => watcher.email)
+      );
+      if (taskAssigneeSelect && task.assigned_to_email) {
+        taskAssigneeSelect.value = task.assigned_to_email;
+      }
+      if (taskStakeholderSelect && task.stakeholder_email) {
+        taskStakeholderSelect.value = task.stakeholder_email;
+      }
     } catch (error) {
       setMessage(messageElement, error.message, true);
     }
   }
+
+  document.querySelector("#save-task-button")?.addEventListener("click", async () => {
+    setMessage(taskActionMessage, "Saving task details...");
+    try {
+      const data = await postAuthorizedJson(`/tasks/${taskId}/update`, {
+        assigned_to_email: taskAssigneeSelect?.value || "",
+        stakeholder_email: taskStakeholderSelect?.value || "",
+        watcher_emails: getSelectedValues(taskWatcherSelect),
+      });
+      setMessage(taskActionMessage, data.detail || "Task details saved.");
+      await loadTask();
+    } catch (error) {
+      setMessage(taskActionMessage, error.message, true);
+    }
+  });
+
+  taskUpdateForm?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    setMessage(taskActionMessage, "Updating status...");
+    try {
+      const data = await postAuthorizedJson(`/tasks/${taskId}/status`, {
+        status: String(taskStatusSelect?.value ?? "OPEN"),
+      });
+      setMessage(taskActionMessage, data.detail || "Task updated.");
+      await loadTask();
+    } catch (error) {
+      setMessage(taskActionMessage, error.message, true);
+    }
+  });
+
+  document
+    .querySelector("#request-close-button")
+    ?.addEventListener("click", async () => {
+      setMessage(taskActionMessage, "Requesting close...");
+      try {
+        const data = await postAuthorizedJson(`/tasks/${taskId}/status`, {
+          status: "CLOSE REQUESTED",
+        });
+        setMessage(taskActionMessage, data.detail || "Close requested.");
+        await loadTask();
+      } catch (error) {
+        setMessage(taskActionMessage, error.message, true);
+      }
+    });
+
+  document.querySelector("#close-task-button")?.addEventListener("click", async () => {
+    setMessage(taskActionMessage, "Closing task...");
+    try {
+      const data = await postAuthorizedJson(`/tasks/${taskId}/status`, {
+        status: "CLOSED",
+      });
+      setMessage(taskActionMessage, data.detail || "Task closed.");
+      await loadTask();
+    } catch (error) {
+      setMessage(taskActionMessage, error.message, true);
+    }
+  });
 
   commentForm?.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -914,3 +1096,4 @@ setupProjectPage();
 setupEditProjectPage();
 setupCreateTaskPage();
 setupTaskPage();
+setupLogoutButtons();

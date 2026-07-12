@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Project | NTT Workspace</title>
-    <link rel="stylesheet" href="/Css/styles.css?v=20260711-project-documents">
+    <link rel="stylesheet" href="/Css/styles.css?v=20260712-workflow">
   </head>
   <body class="app-body">
     <main class="workspace-shell">
@@ -17,6 +17,7 @@
           <a class="secondary-link" id="edit-project-link" href="/edit-project">Edit Project</a>
           <a class="button-link" id="create-task-link" href="/create-task">Create Task</a>
           <a class="secondary-link" href="/post-login">Back to Dashboard</a>
+          <button class="secondary-link" type="button" data-logout-button>Log out</button>
         </div>
       </header>
 
@@ -34,6 +35,10 @@
             <p class="eyebrow">Assignees</p>
             <p class="detail-copy" id="project-assignees"></p>
           </div>
+          <div>
+            <p class="eyebrow">Watchers</p>
+            <p class="detail-copy" id="project-watchers"></p>
+          </div>
         </div>
       </section>
 
@@ -46,6 +51,6 @@
 
     </main>
     <script src="/Js/config.js"></script>
-    <script src="/Js/app.js?v=20260712-performance"></script>
+    <script src="/Js/app.js?v=20260712-workflow"></script>
   </body>
 </html>

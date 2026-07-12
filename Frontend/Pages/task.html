@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Task | NTT Workspace</title>
-    <link rel="stylesheet" href="/Css/styles.css">
+    <link rel="stylesheet" href="/Css/styles.css?v=20260712-workflow">
   </head>
   <body class="app-body">
     <main class="workspace-shell">
@@ -13,7 +13,10 @@
           <p class="eyebrow" id="task-project-name">Project</p>
           <h1 id="task-title">Task</h1>
         </div>
-        <a class="secondary-link" id="task-back-link" href="/post-login">Back to Project</a>
+        <div class="header-actions">
+          <a class="secondary-link" id="task-back-link" href="/post-login">Back to Project</a>
+          <button class="secondary-link" type="button" data-logout-button>Log out</button>
+        </div>
       </header>
 
       <section class="workspace-panel wide-panel">
@@ -30,10 +33,62 @@
             <p class="eyebrow">Assignee</p>
             <p class="detail-copy" id="task-assignee"></p>
           </div>
+          <div>
+            <p class="eyebrow">Stakeholder</p>
+            <p class="detail-copy" id="task-stakeholder"></p>
+          </div>
+          <div>
+            <p class="eyebrow">Watchers</p>
+            <p class="detail-copy" id="task-watchers"></p>
+          </div>
+          <div>
+            <p class="eyebrow">Status</p>
+            <p class="detail-copy" id="task-status"></p>
+          </div>
         </div>
       </section>
 
       <section class="workspace-grid">
+        <section class="workspace-panel" aria-labelledby="task-actions-title">
+          <h2 id="task-actions-title">Task workflow</h2>
+          <form class="project-form" id="task-update-form" novalidate>
+            <div class="field-group">
+              <label for="task_edit_assigned_to_email">Task assignee</label>
+              <select id="task_edit_assigned_to_email" name="assigned_to_email">
+                <option value="">Unassigned</option>
+                <option value="" disabled>Loading users...</option>
+              </select>
+            </div>
+            <div class="field-group">
+              <label for="task_edit_stakeholder_email">Stakeholder</label>
+              <select id="task_edit_stakeholder_email" name="stakeholder_email">
+                <option value="">No stakeholder</option>
+                <option value="" disabled>Loading users...</option>
+              </select>
+            </div>
+            <div class="field-group">
+              <label for="task_edit_watcher_emails">Task watchers</label>
+              <select id="task_edit_watcher_emails" name="watcher_emails" multiple size="4">
+                <option value="" disabled>Loading users...</option>
+              </select>
+            </div>
+            <div class="field-group">
+              <label for="task_status">Status</label>
+              <select id="task_status" name="status">
+                <option value="OPEN">OPEN</option>
+                <option value="IN PROGRESS">IN PROGRESS</option>
+                <option value="CLOSE REQUESTED">CLOSE REQUESTED</option>
+                <option value="CLOSED">CLOSED</option>
+              </select>
+            </div>
+            <button type="button" class="secondary-action" id="save-task-button">Save Task Details</button>
+            <button type="submit">Update Status</button>
+            <button type="button" class="secondary-action" id="request-close-button">Request to close</button>
+            <button type="button" class="secondary-action" id="close-task-button">Close Task</button>
+            <p class="form-message" id="task-action-message" role="status" aria-live="polite"></p>
+          </form>
+        </section>
+
         <section class="workspace-panel" aria-labelledby="comment-title">
           <h2 id="comment-title">Add comment</h2>
           <form class="project-form" id="task-comment-form" novalidate>
@@ -57,6 +112,6 @@
       </section>
     </main>
     <script src="/Js/config.js"></script>
-    <script src="/Js/app.js?v=20260712-performance"></script>
+    <script src="/Js/app.js?v=20260712-workflow"></script>
   </body>
 </html>

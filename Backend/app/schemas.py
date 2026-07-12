@@ -21,6 +21,7 @@ class CreateProjectRequest(BaseModel):
     document_name: str | None = Field(default=None, max_length=160)
     document_url: str | None = Field(default=None, max_length=2000)
     assigned_to_email: str | None = Field(default=None, max_length=320)
+    watcher_emails: list[str] = Field(default_factory=list)
 
 
 class UpdateProjectRequest(BaseModel):
@@ -28,6 +29,7 @@ class UpdateProjectRequest(BaseModel):
     document_name: str | None = Field(default=None, max_length=160)
     document_url: str | None = Field(default=None, max_length=2000)
     assigned_to_email: str | None = Field(default=None, max_length=320)
+    watcher_emails: list[str] = Field(default_factory=list)
 
 
 class CreateTaskRequest(BaseModel):
@@ -35,6 +37,21 @@ class CreateTaskRequest(BaseModel):
     task_details: str | None = Field(default=None, max_length=1000)
     documents: str | None = Field(default=None, max_length=2000)
     assigned_to_email: str | None = Field(default=None, max_length=320)
+    stakeholder_email: str | None = Field(default=None, max_length=320)
+    watcher_emails: list[str] = Field(default_factory=list)
+
+
+class UpdateTaskRequest(BaseModel):
+    task_title: str | None = Field(default=None, max_length=160)
+    task_details: str | None = Field(default=None, max_length=1000)
+    documents: str | None = Field(default=None, max_length=2000)
+    assigned_to_email: str | None = Field(default=None, max_length=320)
+    stakeholder_email: str | None = Field(default=None, max_length=320)
+    watcher_emails: list[str] = Field(default_factory=list)
+
+
+class UpdateTaskStatusRequest(BaseModel):
+    status: str = Field(min_length=1, max_length=40)
 
 
 class CreateTaskCommentRequest(BaseModel):
@@ -53,6 +70,11 @@ class ProjectMemberResponse(BaseModel):
     role: str
 
 
+class WatcherResponse(BaseModel):
+    email: str | None = None
+    user_name: str | None = None
+
+
 class ProjectSummaryResponse(BaseModel):
     id: int
     project_name: str
@@ -61,7 +83,10 @@ class ProjectSummaryResponse(BaseModel):
     document_url: str | None = None
     documents: str | None = None
     status: str
+    assigned_to_email: str | None = None
+    assigned_to_name: str | None = None
     assignees: list[ProjectMemberResponse]
+    watchers: list[WatcherResponse] = Field(default_factory=list)
 
 
 class TaskSummaryResponse(BaseModel):
@@ -72,6 +97,9 @@ class TaskSummaryResponse(BaseModel):
     documents: str | None = None
     assigned_to_email: str | None = None
     assigned_to_name: str | None = None
+    stakeholder_email: str | None = None
+    stakeholder_name: str | None = None
+    watchers: list[WatcherResponse] = Field(default_factory=list)
     status: str
 
 

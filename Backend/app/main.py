@@ -6,26 +6,41 @@ from supabase import Client
 from app.cache import backend_cache
 from app.config import Settings, get_settings
 from app.constants import (
+    ACTIVE_STATUS,
     AUTH_UID_COLUMN,
     NORMAL_STATUS,
+    NOTIFICATION_LOG_TABLE,
     PROJECT_MEMBERS_TABLE,
+    PROJECT_ROLE_MEMBER,
+    PROJECT_ROLE_OWNER,
     PROJECTS_TABLE,
     REF_USER_NAME_COLUMN,
     TASK_COMMENTS_TABLE,
+    TASK_STATUS_CLOSED,
+    TASK_STATUS_CLOSE_REQUESTED,
+    TASK_STATUS_IN_PROGRESS,
+    TASK_STATUS_OPEN,
     TASKS_TABLE,
 )
 from app.dependencies import get_current_user
-from app.mappers import build_member_responses
+from app.mappers import build_member_responses, build_watcher_responses
 from app.repositories import (
     ensure_project_member,
     get_active_ref_users,
     get_project_by_id,
     get_project_members,
     get_project_members_for_projects,
+    get_project_watchers,
+    get_project_watchers_for_projects,
     get_ref_user,
+    get_ref_users_by_emails,
     get_ref_users_by_auth_uids,
     get_task_by_id,
+    get_task_watchers,
+    get_task_watchers_for_tasks,
     get_user_project_memberships,
+    replace_project_watchers,
+    replace_task_watchers,
     sync_ref_user_auth_uid,
     update_ref_user_auth_uid,
     update_ref_user_status,
@@ -47,9 +62,118 @@ from app.schemas import (
     TaskDetailResponse,
     TaskSummaryResponse,
     UpdateProjectRequest,
+    UpdateTaskRequest,
+    UpdateTaskStatusRequest,
 )
 from app.supabase_client import get_supabase_admin_client, get_supabase_client
 from app.utils import normalize_optional_text
+
+
+def normalize_email_list(emails: list[str]) -> list[str]:
+    return sorted({email.strip().lower() for email in emails if email and email.strip()})
+
+
+def require_active_ref_user(
+    supabase_admin: Client,
+    app_settings: Settings,
+    email: str,
+    field_name: str,
+) -> dict:
+    ref_user = get_ref_user(supabase_admin, app_settings, email.strip().lower())
+    if not ref_user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Selected {field_name} is not registered.",
+        )
+
+    current_status = str(
+        ref_user.get(app_settings.signup_allowed_users_status_column) or ""
+    ).upper()
+    if current_status != NORMAL_STATUS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Selected {field_name} is not active.",
+        )
+
+    if not ref_user.get(AUTH_UID_COLUMN):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Selected {field_name} must sign in once before assignment.",
+        )
+
+    return ref_user
+
+
+def resolve_active_user_ids(
+    supabase_admin: Client,
+    app_settings: Settings,
+    emails: list[str],
+    field_name: str,
+) -> list[str]:
+    normalized_emails = normalize_email_list(emails)
+    if not normalized_emails:
+        return []
+
+    ref_users = get_ref_users_by_emails(supabase_admin, app_settings, normalized_emails)
+    user_ids: list[str] = []
+    invalid_emails: list[str] = []
+    for email in normalized_emails:
+        ref_user = ref_users.get(email)
+        current_status = str(
+            (ref_user or {}).get(app_settings.signup_allowed_users_status_column) or ""
+        ).upper()
+        auth_uid = (ref_user or {}).get(AUTH_UID_COLUMN)
+        if current_status != NORMAL_STATUS or not auth_uid:
+            invalid_emails.append(email)
+            continue
+
+        user_ids.append(str(auth_uid))
+
+    if invalid_emails:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"These {field_name} users must be active and sign in once first: "
+                f"{', '.join(invalid_emails)}"
+            ),
+        )
+
+    return user_ids
+
+
+def queue_notification_log(
+    supabase_admin: Client,
+    recipients: list[dict],
+    subject: str,
+    body: str,
+    source_type: str,
+    source_id: int,
+    app_settings: Settings,
+) -> None:
+    rows = []
+    seen_user_ids: set[str] = set()
+    for recipient in recipients:
+        user_id = recipient.get(AUTH_UID_COLUMN)
+        if not user_id or str(user_id) in seen_user_ids:
+            continue
+
+        seen_user_ids.add(str(user_id))
+        rows.append(
+            {
+                "recipient_user_id": user_id,
+                "recipient_email": recipient.get(
+                    app_settings.signup_allowed_users_email_column
+                ),
+                "subject": subject,
+                "body": body,
+                "status": "PENDING",
+                "source_type": source_type,
+                "source_id": source_id,
+            }
+        )
+
+    if rows:
+        supabase_admin.table(NOTIFICATION_LOG_TABLE).insert(rows).execute()
 
 
 def create_app() -> FastAPI:
@@ -315,7 +439,10 @@ def create_app() -> FastAPI:
 
         project_response = (
             supabase_admin.table(PROJECTS_TABLE)
-            .select("id,project_name,description,document_name,document_url,documents,status")
+            .select(
+                "id,project_name,description,document_name,document_url,documents,"
+                "status,assigned_to"
+            )
             .in_("id", project_ids)
             .order("created_at", desc=True)
             .execute()
@@ -326,12 +453,27 @@ def create_app() -> FastAPI:
             supabase_admin,
             loaded_project_ids,
         )
+        watchers_by_project = get_project_watchers_for_projects(
+            supabase_admin,
+            loaded_project_ids,
+        )
         all_member_ids = [
             str(member["user_id"])
             for members in members_by_project.values()
             for member in members
             if member.get("user_id")
         ]
+        all_member_ids.extend(
+            str(watcher["user_id"])
+            for watchers in watchers_by_project.values()
+            for watcher in watchers
+            if watcher.get("user_id")
+        )
+        all_member_ids.extend(
+            str(project["assigned_to"])
+            for project in projects
+            if project.get("assigned_to")
+        )
 
         users_by_auth_uid = get_ref_users_by_auth_uids(
             supabase_admin,
@@ -348,8 +490,27 @@ def create_app() -> FastAPI:
                 document_url=project.get("document_url"),
                 documents=project.get("documents"),
                 status=project.get("status") or "ACTIVE",
+                assigned_to_email=(
+                    users_by_auth_uid.get(str(project.get("assigned_to")), {}).get(
+                        app_settings.signup_allowed_users_email_column
+                    )
+                    if project.get("assigned_to")
+                    else None
+                ),
+                assigned_to_name=(
+                    users_by_auth_uid.get(str(project.get("assigned_to")), {}).get(
+                        REF_USER_NAME_COLUMN
+                    )
+                    if project.get("assigned_to")
+                    else None
+                ),
                 assignees=build_member_responses(
                     members_by_project.get(int(project["id"]), []),
+                    users_by_auth_uid,
+                    app_settings,
+                ),
+                watchers=build_watcher_responses(
+                    watchers_by_project.get(int(project["id"]), []),
                     users_by_auth_uid,
                     app_settings,
                 ),
@@ -394,18 +555,34 @@ def create_app() -> FastAPI:
         task_response = (
             supabase_admin.table(TASKS_TABLE)
             .select(
-                "id,project_id,task_title,task_details,documents,assigned_to,status"
+                "id,project_id,task_title,task_details,documents,assigned_to,"
+                "stakeholder_id,status"
             )
             .eq("project_id", project_id)
             .order("created_at", desc=True)
             .execute()
         )
         tasks = getattr(task_response, "data", None) or []
+        task_ids = [int(task["id"]) for task in tasks]
+        project_watchers = get_project_watchers(supabase_admin, project_id)
+        task_watchers_by_task = get_task_watchers_for_tasks(supabase_admin, task_ids)
         user_ids = [
             str(member["user_id"]) for member in members if member.get("user_id")
         ]
         user_ids.extend(
+            str(watcher["user_id"]) for watcher in project_watchers if watcher.get("user_id")
+        )
+        user_ids.extend(
             str(task["assigned_to"]) for task in tasks if task.get("assigned_to")
+        )
+        user_ids.extend(
+            str(task["stakeholder_id"]) for task in tasks if task.get("stakeholder_id")
+        )
+        user_ids.extend(
+            str(watcher["user_id"])
+            for watchers in task_watchers_by_task.values()
+            for watcher in watchers
+            if watcher.get("user_id")
         )
         users_by_auth_uid = get_ref_users_by_auth_uids(
             supabase_admin,
@@ -421,7 +598,26 @@ def create_app() -> FastAPI:
             document_url=project.get("document_url"),
             documents=project.get("documents"),
             status=project.get("status") or "ACTIVE",
+            assigned_to_email=(
+                users_by_auth_uid.get(str(project.get("assigned_to")), {}).get(
+                    app_settings.signup_allowed_users_email_column
+                )
+                if project.get("assigned_to")
+                else None
+            ),
+            assigned_to_name=(
+                users_by_auth_uid.get(str(project.get("assigned_to")), {}).get(
+                    REF_USER_NAME_COLUMN
+                )
+                if project.get("assigned_to")
+                else None
+            ),
             assignees=build_member_responses(members, users_by_auth_uid, app_settings),
+            watchers=build_watcher_responses(
+                project_watchers,
+                users_by_auth_uid,
+                app_settings,
+            ),
             tasks=[
                 TaskSummaryResponse(
                     id=task["id"],
@@ -443,7 +639,26 @@ def create_app() -> FastAPI:
                         if task.get("assigned_to")
                         else None
                     ),
-                    status=task.get("status") or "TODO",
+                    stakeholder_email=(
+                        users_by_auth_uid.get(str(task.get("stakeholder_id")), {}).get(
+                            app_settings.signup_allowed_users_email_column
+                        )
+                        if task.get("stakeholder_id")
+                        else None
+                    ),
+                    stakeholder_name=(
+                        users_by_auth_uid.get(str(task.get("stakeholder_id")), {}).get(
+                            REF_USER_NAME_COLUMN
+                        )
+                        if task.get("stakeholder_id")
+                        else None
+                    ),
+                    watchers=build_watcher_responses(
+                        task_watchers_by_task.get(int(task["id"]), []),
+                        users_by_auth_uid,
+                        app_settings,
+                    ),
+                    status=task.get("status") or TASK_STATUS_OPEN,
                 )
                 for task in tasks
             ],
@@ -476,6 +691,18 @@ def create_app() -> FastAPI:
             "document_name": normalize_optional_text(payload.document_name),
             "document_url": normalize_optional_text(payload.document_url),
         }
+        assigned_to_email = normalize_optional_text(payload.assigned_to_email)
+        assigned_user_id = None
+        if assigned_to_email:
+            assigned_ref_user = require_active_ref_user(
+                supabase_admin,
+                app_settings,
+                assigned_to_email,
+                "project assignee",
+            )
+            assigned_user_id = assigned_ref_user[AUTH_UID_COLUMN]
+            update_payload["assigned_to"] = assigned_user_id
+
         (
             supabase_admin.table(PROJECTS_TABLE)
             .update(update_payload)
@@ -483,20 +710,7 @@ def create_app() -> FastAPI:
             .execute()
         )
 
-        assigned_to_email = normalize_optional_text(payload.assigned_to_email)
-        if assigned_to_email:
-            assigned_ref_user = get_ref_user(
-                supabase_admin,
-                app_settings,
-                assigned_to_email.lower(),
-            )
-            if not assigned_ref_user or not assigned_ref_user.get(AUTH_UID_COLUMN):
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Selected assignee must sign in once before assignment.",
-                )
-
-            assigned_user_id = assigned_ref_user[AUTH_UID_COLUMN]
+        if assigned_user_id:
             existing_members = get_project_members(supabase_admin, project_id)
             if not any(
                 str(member.get("user_id")) == str(assigned_user_id)
@@ -508,12 +722,35 @@ def create_app() -> FastAPI:
                         {
                             "project_id": project_id,
                             "user_id": assigned_user_id,
-                            "role": "MEMBER",
-                            "status": "ACTIVE",
+                            "role": PROJECT_ROLE_MEMBER,
+                            "status": ACTIVE_STATUS,
                         }
                     )
                     .execute()
                 )
+
+        watcher_user_ids = resolve_active_user_ids(
+            supabase_admin,
+            app_settings,
+            payload.watcher_emails,
+            "watcher",
+        )
+        replace_project_watchers(supabase_admin, project_id, watcher_user_ids)
+        queue_notification_log(
+            supabase_admin,
+            list(
+                get_ref_users_by_auth_uids(
+                    supabase_admin,
+                    app_settings,
+                    watcher_user_ids,
+                ).values()
+            ),
+            "Project updated",
+            f"Project #{project_id} was updated.",
+            "PROJECT",
+            project_id,
+            app_settings,
+        )
 
         backend_cache.clear()
         return MessageResponse(detail="Project updated successfully.")
@@ -564,39 +801,23 @@ def create_app() -> FastAPI:
             else None
         )
         assigned_ref_user = None
-        assigned_user_id = None
+        assigned_user_id = user_id
 
         if assigned_to_email:
-            assigned_ref_user = get_ref_user(
+            assigned_ref_user = require_active_ref_user(
                 supabase_admin,
                 app_settings,
                 assigned_to_email,
+                "project assignee",
             )
-            if not assigned_ref_user:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Selected assignee is not registered.",
-                )
-
-            assigned_status = str(
-                assigned_ref_user.get(app_settings.signup_allowed_users_status_column)
-                or ""
-            ).upper()
-            if assigned_status != NORMAL_STATUS:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Selected assignee is not active.",
-                )
-
             assigned_user_id = assigned_ref_user.get(AUTH_UID_COLUMN)
-            if not assigned_user_id:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=(
-                        "Selected assignee must sign in once before they can be "
-                        "assigned to a project."
-                    ),
-                )
+
+        watcher_user_ids = resolve_active_user_ids(
+            supabase_admin,
+            app_settings,
+            payload.watcher_emails,
+            "watcher",
+        )
 
         project_payload = {
             "project_name": payload.project_name.strip(),
@@ -604,6 +825,7 @@ def create_app() -> FastAPI:
             "document_name": normalize_optional_text(payload.document_name),
             "document_url": normalize_optional_text(payload.document_url),
             "created_by": user_id,
+            "assigned_to": assigned_user_id,
             "status": "ACTIVE",
         }
 
@@ -629,8 +851,8 @@ def create_app() -> FastAPI:
                 {
                     "project_id": project_id,
                     "user_id": user_id,
-                    "role": "OWNER",
-                    "status": "ACTIVE",
+                    "role": PROJECT_ROLE_OWNER,
+                    "status": ACTIVE_STATUS,
                 }
             ]
 
@@ -639,12 +861,13 @@ def create_app() -> FastAPI:
                     {
                         "project_id": project_id,
                         "user_id": assigned_user_id,
-                        "role": "MEMBER",
-                        "status": "ACTIVE",
+                        "role": PROJECT_ROLE_MEMBER,
+                        "status": ACTIVE_STATUS,
                     }
                 )
 
             supabase_admin.table(PROJECT_MEMBERS_TABLE).insert(member_rows).execute()
+            replace_project_watchers(supabase_admin, project_id, watcher_user_ids)
         except Exception as exc:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -676,20 +899,33 @@ def create_app() -> FastAPI:
         assigned_user_id = None
         assigned_to_email = normalize_optional_text(payload.assigned_to_email)
         if assigned_to_email:
-            assigned_ref_user = get_ref_user(
+            assigned_ref_user = require_active_ref_user(
                 supabase_admin,
                 app_settings,
                 assigned_to_email.lower(),
+                "task assignee",
             )
-            if not assigned_ref_user or not assigned_ref_user.get(AUTH_UID_COLUMN):
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Selected assignee must sign in once before assignment.",
-                )
-
             assigned_user_id = assigned_ref_user[AUTH_UID_COLUMN]
 
-        (
+        stakeholder_user_id = None
+        stakeholder_email = normalize_optional_text(payload.stakeholder_email)
+        if stakeholder_email:
+            stakeholder_ref_user = require_active_ref_user(
+                supabase_admin,
+                app_settings,
+                stakeholder_email.lower(),
+                "stakeholder",
+            )
+            stakeholder_user_id = stakeholder_ref_user[AUTH_UID_COLUMN]
+
+        watcher_user_ids = resolve_active_user_ids(
+            supabase_admin,
+            app_settings,
+            payload.watcher_emails,
+            "watcher",
+        )
+
+        task_response = (
             supabase_admin.table(TASKS_TABLE)
             .insert(
                 {
@@ -698,15 +934,205 @@ def create_app() -> FastAPI:
                     "task_details": normalize_optional_text(payload.task_details),
                     "documents": normalize_optional_text(payload.documents),
                     "assigned_to": assigned_user_id,
+                    "stakeholder_id": stakeholder_user_id,
                     "created_by": user_id,
-                    "status": "TODO",
+                    "status": TASK_STATUS_OPEN,
                 }
             )
             .execute()
         )
+        task_data = getattr(task_response, "data", None) or []
+        task_id = int(task_data[0]["id"]) if task_data else None
+        if task_id:
+            replace_task_watchers(supabase_admin, task_id, watcher_user_ids)
 
         backend_cache.clear()
         return MessageResponse(detail="Task created successfully.")
+
+    @app.post("/tasks/{task_id}/update", response_model=MessageResponse)
+    def update_task(
+        task_id: int,
+        payload: UpdateTaskRequest,
+        current_user: object = Depends(get_current_user),
+        supabase_admin: Client = Depends(get_supabase_admin_client),
+        app_settings: Settings = Depends(get_settings),
+    ) -> MessageResponse:
+        user_id = getattr(current_user, "id", None)
+        if not user_id:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Session expired. Please sign in again.",
+            )
+
+        task = get_task_by_id(supabase_admin, task_id)
+        project_id = int(task["project_id"])
+        ensure_project_member(supabase_admin, project_id, user_id)
+
+        update_payload = {}
+        if payload.task_title is not None:
+            update_payload["task_title"] = payload.task_title.strip()
+        if payload.task_details is not None:
+            update_payload["task_details"] = normalize_optional_text(
+                payload.task_details
+            )
+        if payload.documents is not None:
+            update_payload["documents"] = normalize_optional_text(payload.documents)
+
+        assigned_to_email = normalize_optional_text(payload.assigned_to_email)
+        if assigned_to_email:
+            assigned_ref_user = require_active_ref_user(
+                supabase_admin,
+                app_settings,
+                assigned_to_email.lower(),
+                "task assignee",
+            )
+            update_payload["assigned_to"] = assigned_ref_user[AUTH_UID_COLUMN]
+        elif payload.assigned_to_email == "":
+            update_payload["assigned_to"] = None
+
+        stakeholder_email = normalize_optional_text(payload.stakeholder_email)
+        if stakeholder_email:
+            stakeholder_ref_user = require_active_ref_user(
+                supabase_admin,
+                app_settings,
+                stakeholder_email.lower(),
+                "stakeholder",
+            )
+            update_payload["stakeholder_id"] = stakeholder_ref_user[AUTH_UID_COLUMN]
+        elif payload.stakeholder_email == "":
+            update_payload["stakeholder_id"] = None
+
+        if update_payload:
+            (
+                supabase_admin.table(TASKS_TABLE)
+                .update(update_payload)
+                .eq("id", task_id)
+                .execute()
+            )
+
+        watcher_user_ids = resolve_active_user_ids(
+            supabase_admin,
+            app_settings,
+            payload.watcher_emails,
+            "watcher",
+        )
+        replace_task_watchers(supabase_admin, task_id, watcher_user_ids)
+        queue_notification_log(
+            supabase_admin,
+            list(
+                get_ref_users_by_auth_uids(
+                    supabase_admin,
+                    app_settings,
+                    watcher_user_ids,
+                ).values()
+            ),
+            "Task updated",
+            f"Task #{task_id} was updated.",
+            "TASK",
+            task_id,
+            app_settings,
+        )
+
+        backend_cache.clear()
+        return MessageResponse(detail="Task updated successfully.")
+
+    @app.post("/tasks/{task_id}/status", response_model=MessageResponse)
+    def update_task_status(
+        task_id: int,
+        payload: UpdateTaskStatusRequest,
+        current_user: object = Depends(get_current_user),
+        supabase_admin: Client = Depends(get_supabase_admin_client),
+        app_settings: Settings = Depends(get_settings),
+    ) -> MessageResponse:
+        user_id = getattr(current_user, "id", None)
+        if not user_id:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Session expired. Please sign in again.",
+            )
+
+        task = get_task_by_id(supabase_admin, task_id)
+        project_id = int(task["project_id"])
+        ensure_project_member(supabase_admin, project_id, user_id)
+        requested_status = payload.status.strip().upper()
+        allowed_statuses = {
+            TASK_STATUS_OPEN,
+            TASK_STATUS_IN_PROGRESS,
+            TASK_STATUS_CLOSE_REQUESTED,
+            TASK_STATUS_CLOSED,
+        }
+        if requested_status not in allowed_statuses:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Unsupported task status.",
+            )
+
+        if requested_status in {
+            TASK_STATUS_IN_PROGRESS,
+            TASK_STATUS_CLOSE_REQUESTED,
+        } and str(task.get("assigned_to")) != str(user_id):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only the assignee can move this task to that status.",
+            )
+
+        if requested_status == TASK_STATUS_CLOSED and str(
+            task.get("stakeholder_id")
+        ) != str(user_id):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only the stakeholder can close this task.",
+            )
+
+        (
+            supabase_admin.table(TASKS_TABLE)
+            .update({"status": requested_status})
+            .eq("id", task_id)
+            .execute()
+        )
+
+        if requested_status == TASK_STATUS_CLOSE_REQUESTED and task.get(
+            "stakeholder_id"
+        ):
+            recipients = get_ref_users_by_auth_uids(
+                supabase_admin,
+                app_settings,
+                [str(task["stakeholder_id"])],
+            )
+            queue_notification_log(
+                supabase_admin,
+                list(recipients.values()),
+                "Task close requested",
+                f"Task #{task_id} is ready for stakeholder review.",
+                "TASK",
+                task_id,
+                app_settings,
+            )
+
+        task_watchers = get_task_watchers(supabase_admin, task_id)
+        watcher_user_ids = [
+            str(watcher["user_id"])
+            for watcher in task_watchers
+            if watcher.get("user_id")
+        ]
+        queue_notification_log(
+            supabase_admin,
+            list(
+                get_ref_users_by_auth_uids(
+                    supabase_admin,
+                    app_settings,
+                    watcher_user_ids,
+                ).values()
+            ),
+            "Task status updated",
+            f"Task #{task_id} status changed to {requested_status}.",
+            "TASK",
+            task_id,
+            app_settings,
+        )
+
+        backend_cache.clear()
+        return MessageResponse(detail="Task status updated successfully.")
 
     @app.get("/tasks/{task_id}", response_model=TaskDetailResponse)
     def get_task_detail(
@@ -740,9 +1166,15 @@ def create_app() -> FastAPI:
             .execute()
         )
         comments = getattr(comment_response, "data", None) or []
+        task_watchers = get_task_watchers(supabase_admin, task_id)
         user_ids = []
         if task.get("assigned_to"):
             user_ids.append(str(task["assigned_to"]))
+        if task.get("stakeholder_id"):
+            user_ids.append(str(task["stakeholder_id"]))
+        user_ids.extend(
+            str(watcher["user_id"]) for watcher in task_watchers if watcher.get("user_id")
+        )
         user_ids.extend(
             str(comment["commented_by"])
             for comment in comments
@@ -754,6 +1186,9 @@ def create_app() -> FastAPI:
             user_ids,
         )
         assigned_ref_user = users_by_auth_uid.get(str(task.get("assigned_to"))) or {}
+        stakeholder_ref_user = (
+            users_by_auth_uid.get(str(task.get("stakeholder_id"))) or {}
+        )
 
         response = TaskDetailResponse(
             id=task["id"],
@@ -766,7 +1201,16 @@ def create_app() -> FastAPI:
                 app_settings.signup_allowed_users_email_column
             ),
             assigned_to_name=assigned_ref_user.get(REF_USER_NAME_COLUMN),
-            status=task.get("status") or "TODO",
+            stakeholder_email=stakeholder_ref_user.get(
+                app_settings.signup_allowed_users_email_column
+            ),
+            stakeholder_name=stakeholder_ref_user.get(REF_USER_NAME_COLUMN),
+            watchers=build_watcher_responses(
+                task_watchers,
+                users_by_auth_uid,
+                app_settings,
+            ),
+            status=task.get("status") or TASK_STATUS_OPEN,
             comments=[
                 TaskCommentResponse(
                     id=comment["id"],
@@ -800,6 +1244,7 @@ def create_app() -> FastAPI:
         payload: CreateTaskCommentRequest,
         current_user: object = Depends(get_current_user),
         supabase_admin: Client = Depends(get_supabase_admin_client),
+        app_settings: Settings = Depends(get_settings),
     ) -> MessageResponse:
         user_id = getattr(current_user, "id", None)
         if not user_id:
@@ -821,6 +1266,27 @@ def create_app() -> FastAPI:
                 }
             )
             .execute()
+        )
+        task_watchers = get_task_watchers(supabase_admin, task_id)
+        watcher_user_ids = [
+            str(watcher["user_id"])
+            for watcher in task_watchers
+            if watcher.get("user_id")
+        ]
+        queue_notification_log(
+            supabase_admin,
+            list(
+                get_ref_users_by_auth_uids(
+                    supabase_admin,
+                    app_settings,
+                    watcher_user_ids,
+                ).values()
+            ),
+            "Task comment added",
+            f"A comment was added to task #{task_id}.",
+            "TASK",
+            task_id,
+            app_settings,
         )
 
         backend_cache.clear()

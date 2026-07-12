@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Edit Project | NTT Workspace</title>
-    <link rel="stylesheet" href="/Css/styles.css?v=20260711-project-documents">
+    <link rel="stylesheet" href="/Css/styles.css?v=20260712-workflow">
   </head>
   <body class="app-body">
     <main class="workspace-shell narrow-shell">
@@ -13,7 +13,10 @@
           <p class="eyebrow">Project setup</p>
           <h1>Edit project</h1>
         </div>
-        <a class="secondary-link" id="edit-project-back-link" href="/post-login">Back to Project</a>
+        <div class="header-actions">
+          <a class="secondary-link" id="edit-project-back-link" href="/post-login">Back to Project</a>
+          <button class="secondary-link" type="button" data-logout-button>Log out</button>
+        </div>
       </header>
 
       <section class="workspace-panel wide-panel" aria-labelledby="edit-project-title">
@@ -32,9 +35,15 @@
             <input id="edit_document_url" name="document_url" type="url" maxlength="2000">
           </div>
           <div class="field-group">
-            <label for="edit_assigned_to_email">Add assignee</label>
+            <label for="edit_assigned_to_email">Project assignee</label>
             <select id="edit_assigned_to_email" name="assigned_to_email">
-              <option value="">No new assignee</option>
+              <option value="">Keep current assignee</option>
+              <option value="" disabled>Loading users...</option>
+            </select>
+          </div>
+          <div class="field-group">
+            <label for="edit_project_watcher_emails">Project watchers</label>
+            <select id="edit_project_watcher_emails" name="watcher_emails" multiple size="4">
               <option value="" disabled>Loading users...</option>
             </select>
           </div>
@@ -44,6 +53,6 @@
       </section>
     </main>
     <script src="/Js/config.js"></script>
-    <script src="/Js/app.js?v=20260712-performance"></script>
+    <script src="/Js/app.js?v=20260712-workflow"></script>
   </body>
 </html>

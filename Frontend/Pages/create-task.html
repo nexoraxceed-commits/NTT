@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Create Task | NTT Workspace</title>
-    <link rel="stylesheet" href="/Css/styles.css?v=20260711-project-pages">
+    <link rel="stylesheet" href="/Css/styles.css?v=20260712-workflow">
   </head>
   <body class="app-body">
     <main class="workspace-shell narrow-shell">
@@ -13,7 +13,10 @@
           <p class="eyebrow">Project task</p>
           <h1>Create task</h1>
         </div>
-        <a class="secondary-link" id="create-task-back-link" href="/post-login">Back to Project</a>
+        <div class="header-actions">
+          <a class="secondary-link" id="create-task-back-link" href="/post-login">Back to Project</a>
+          <button class="secondary-link" type="button" data-logout-button>Log out</button>
+        </div>
       </header>
 
       <section class="workspace-panel wide-panel" aria-labelledby="create-task-title">
@@ -38,12 +41,25 @@
               <option value="" disabled>Loading users...</option>
             </select>
           </div>
+          <div class="field-group">
+            <label for="task_stakeholder_email">Stakeholder</label>
+            <select id="task_stakeholder_email" name="stakeholder_email">
+              <option value="">No stakeholder</option>
+              <option value="" disabled>Loading users...</option>
+            </select>
+          </div>
+          <div class="field-group">
+            <label for="task_watcher_emails">Task watchers</label>
+            <select id="task_watcher_emails" name="watcher_emails" multiple size="4">
+              <option value="" disabled>Loading users...</option>
+            </select>
+          </div>
           <button type="submit">Create Task</button>
           <p class="form-message" id="create-task-message" role="status" aria-live="polite"></p>
         </form>
       </section>
     </main>
     <script src="/Js/config.js"></script>
-    <script src="/Js/app.js?v=20260712-performance"></script>
+    <script src="/Js/app.js?v=20260712-workflow"></script>
   </body>
 </html>

@@ -280,7 +280,23 @@ button:hover {
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 0 14px;
+  color: var(--accent);
   background: #ffffff;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.secondary-action {
+  border: 1px solid var(--line);
+  color: var(--accent);
+  background: #ffffff;
+  box-shadow: none;
+}
+
+.secondary-action:hover,
+.secondary-link:hover {
+  color: #ffffff;
+  background: var(--accent-strong);
 }
 
 button:focus-visible,

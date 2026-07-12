@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Create Project | NTT Workspace</title>
-    <link rel="stylesheet" href="/Css/styles.css?v=20260711-project-documents">
+    <link rel="stylesheet" href="/Css/styles.css?v=20260712-workflow">
   </head>
   <body class="app-body">
     <main class="workspace-shell">
@@ -13,7 +13,10 @@
           <p class="eyebrow">Project setup</p>
           <h1>Create Project</h1>
         </div>
-        <a class="secondary-link" href="/post-login">Back</a>
+        <div class="header-actions">
+          <a class="secondary-link" href="/post-login">Back</a>
+          <button class="secondary-link" type="button" data-logout-button>Log out</button>
+        </div>
       </header>
 
       <section class="workspace-panel" aria-labelledby="create-project-title">
@@ -73,12 +76,19 @@
             </select>
           </div>
 
+          <div class="field-group">
+            <label for="project_watcher_emails">Project watchers</label>
+            <select id="project_watcher_emails" name="watcher_emails" multiple size="4">
+              <option value="" disabled>Loading users...</option>
+            </select>
+          </div>
+
           <button type="submit">Create Project</button>
           <p class="form-message" id="form-message" role="status" aria-live="polite"></p>
         </form>
       </section>
     </main>
     <script src="/Js/config.js"></script>
-    <script src="/Js/app.js?v=20260712-performance"></script>
+    <script src="/Js/app.js?v=20260712-workflow"></script>
   </body>
 </html>
