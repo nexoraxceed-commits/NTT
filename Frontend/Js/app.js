@@ -3,6 +3,7 @@ const sessionKey = "ntt_auth_session";
 const persistentSessionKey = "ntt_auth_persistent_session";
 const authActiveKey = "ntt_auth_active";
 const historyLogoutKey = "ntt_history_logout";
+let activeUsersPromise = null;
 const authPages = new Set([
   "/",
   "/index.html",
@@ -319,19 +320,32 @@ async function getAuthorizedJson(path) {
   return authorizedJson(path, { method: "GET" });
 }
 
+async function getActiveUsers() {
+  if (!activeUsersPromise) {
+    activeUsersPromise = getAuthorizedJson("/users").catch((error) => {
+      activeUsersPromise = null;
+      throw error;
+    });
+  }
+
+  return activeUsersPromise;
+}
+
 async function populateUserSelect(selectElement, options = {}) {
   if (!selectElement) {
     return;
   }
 
   const { includeCurrentUser = false } = options;
-  const users = await getAuthorizedJson("/users");
+  const users = await getActiveUsers();
   const session = getSession();
   let optionCount = 0;
 
-  selectElement.querySelectorAll("option[disabled]").forEach((option) => {
-    option.remove();
-  });
+  selectElement
+    .querySelectorAll("option[data-generated='true']")
+    .forEach((option) => option.remove());
+
+  const fragment = document.createDocumentFragment();
 
   users.forEach((user) => {
     if (!user.email || (!includeCurrentUser && user.email === session?.email)) {
@@ -341,7 +355,8 @@ async function populateUserSelect(selectElement, options = {}) {
     const option = document.createElement("option");
     option.value = user.email;
     option.textContent = formatAssignee(user);
-    selectElement.append(option);
+    option.dataset.generated = "true";
+    fragment.append(option);
     optionCount += 1;
   });
 
@@ -350,8 +365,11 @@ async function populateUserSelect(selectElement, options = {}) {
     option.value = "";
     option.disabled = true;
     option.textContent = "No other active users found";
-    selectElement.append(option);
+    option.dataset.generated = "true";
+    fragment.append(option);
   }
+
+  selectElement.append(fragment);
 }
 
 function setupLoginForm() {

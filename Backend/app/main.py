@@ -20,6 +20,7 @@ from app.repositories import (
     get_active_ref_users,
     get_project_by_id,
     get_project_members,
+    get_project_members_for_projects,
     get_ref_user,
     get_ref_users_by_auth_uids,
     get_task_by_id,
@@ -302,15 +303,17 @@ def create_app() -> FastAPI:
             .execute()
         )
         projects = getattr(project_response, "data", None) or []
-        members_by_project: dict[int, list[dict]] = {}
-        all_member_ids: list[str] = []
-
-        for project in projects:
-            members = get_project_members(supabase_admin, int(project["id"]))
-            members_by_project[int(project["id"])] = members
-            all_member_ids.extend(
-                str(member["user_id"]) for member in members if member.get("user_id")
-            )
+        loaded_project_ids = [int(project["id"]) for project in projects]
+        members_by_project = get_project_members_for_projects(
+            supabase_admin,
+            loaded_project_ids,
+        )
+        all_member_ids = [
+            str(member["user_id"])
+            for members in members_by_project.values()
+            for member in members
+            if member.get("user_id")
+        ]
 
         users_by_auth_uid = get_ref_users_by_auth_uids(
             supabase_admin,
@@ -350,9 +353,14 @@ def create_app() -> FastAPI:
                 detail="Session expired. Please sign in again.",
             )
 
-        ensure_project_member(supabase_admin, project_id, user_id)
-        project = get_project_by_id(supabase_admin, project_id)
         members = get_project_members(supabase_admin, project_id)
+        if not any(str(member.get("user_id")) == str(user_id) for member in members):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You do not have access to this project.",
+            )
+
+        project = get_project_by_id(supabase_admin, project_id)
 
         task_response = (
             supabase_admin.table(TASKS_TABLE)
@@ -581,32 +589,26 @@ def create_app() -> FastAPI:
             ) from exc
 
         try:
-            (
-                supabase_admin.table(PROJECT_MEMBERS_TABLE)
-                .insert(
+            member_rows = [
+                {
+                    "project_id": project_id,
+                    "user_id": user_id,
+                    "role": "OWNER",
+                    "status": "ACTIVE",
+                }
+            ]
+
+            if assigned_user_id and assigned_user_id != user_id:
+                member_rows.append(
                     {
                         "project_id": project_id,
-                        "user_id": user_id,
-                        "role": "OWNER",
+                        "user_id": assigned_user_id,
+                        "role": "MEMBER",
                         "status": "ACTIVE",
                     }
                 )
-                .execute()
-            )
 
-            if assigned_user_id and assigned_user_id != user_id:
-                (
-                    supabase_admin.table(PROJECT_MEMBERS_TABLE)
-                    .insert(
-                        {
-                            "project_id": project_id,
-                            "user_id": assigned_user_id,
-                            "role": "MEMBER",
-                            "status": "ACTIVE",
-                        }
-                    )
-                    .execute()
-                )
+            supabase_admin.table(PROJECT_MEMBERS_TABLE).insert(member_rows).execute()
         except Exception as exc:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

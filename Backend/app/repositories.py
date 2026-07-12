@@ -103,6 +103,35 @@ def get_project_members(
     return getattr(response, "data", None) or []
 
 
+def get_project_members_for_projects(
+    supabase: Client,
+    project_ids: list[int],
+) -> dict[int, list[dict]]:
+    if not project_ids:
+        return {}
+
+    response = (
+        supabase.table(PROJECT_MEMBERS_TABLE)
+        .select("project_id,user_id,role,status")
+        .in_("project_id", list(set(project_ids)))
+        .eq("status", "ACTIVE")
+        .execute()
+    )
+    members = getattr(response, "data", None) or []
+    members_by_project: dict[int, list[dict]] = {
+        int(project_id): [] for project_id in project_ids
+    }
+
+    for member in members:
+        project_id = member.get("project_id")
+        if project_id is None:
+            continue
+
+        members_by_project.setdefault(int(project_id), []).append(member)
+
+    return members_by_project
+
+
 def get_user_project_memberships(
     supabase: Client,
     user_id: str,
