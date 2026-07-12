@@ -218,9 +218,22 @@ function formatProjectMembers(members = []) {
     .join(", ");
 }
 
+function normalizeExternalUrl(url) {
+  const trimmedUrl = String(url ?? "").trim();
+  if (!trimmedUrl) {
+    return "";
+  }
+
+  if (/^[a-z][a-z\d+.-]*:/i.test(trimmedUrl)) {
+    return trimmedUrl;
+  }
+
+  return `https://${trimmedUrl}`;
+}
+
 function createTextLink(url, text) {
   const link = document.createElement("a");
-  link.href = url;
+  link.href = normalizeExternalUrl(url);
   link.textContent = text;
   link.target = "_blank";
   link.rel = "noopener noreferrer";
