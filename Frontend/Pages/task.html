@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Task | NTT Workspace</title>
-    <link rel="stylesheet" href="/Css/styles.css?v=20260713-manager-report">
+    <link rel="stylesheet" href="/Css/styles.css?v=20260713-buttons">
   </head>
   <body class="app-body">
     <main class="workspace-shell">
@@ -14,8 +14,8 @@
           <h1 id="task-title">Task</h1>
         </div>
         <div class="header-actions">
-          <a class="icon-link" id="task-back-link" href="/post-login" aria-label="Back to project">←</a>
-          <button class="secondary-link" type="button" data-logout-button>Log out</button>
+          <a class="btn btn-icon" id="task-back-link" href="/post-login" aria-label="Back to project" title="Back to project">&larr;</a>
+          <button class="btn btn-icon" type="button" data-logout-button aria-label="Log out" title="Log out">&#10138;</button>
         </div>
       </header>
 
@@ -60,9 +60,9 @@
         <section class="workspace-panel" aria-labelledby="task-actions-title">
           <h2 id="task-actions-title">Task workflow</h2>
           <div class="workflow-actions">
-            <button type="button" id="start-work-button">Start work</button>
-            <button type="button" class="secondary-action" id="request-close-button">Request to close</button>
-            <button type="button" class="secondary-action" id="close-task-button">Close Task</button>
+            <button class="btn btn-primary" type="button" id="start-work-button">Start work</button>
+            <button type="button" class="btn btn-secondary" id="request-close-button">Request to close</button>
+            <button type="button" class="btn btn-secondary" id="close-task-button">Close Task</button>
             <p class="form-message" id="task-action-message" role="status" aria-live="polite"></p>
           </div>
 
@@ -93,7 +93,7 @@
                 <label for="task_edit_end_date">End date</label>
                 <input id="task_edit_end_date" name="end_date" type="date">
               </div>
-              <button type="button" class="secondary-action" id="save-task-button">Save Task Details</button>
+              <button type="button" class="btn btn-secondary" id="save-task-button">Save Task Details</button>
             </form>
           </details>
 
@@ -112,7 +112,7 @@
                 <label for="work_note">Work note</label>
                 <textarea id="work_note" name="work_note" rows="4" maxlength="1000" required></textarea>
               </div>
-              <button type="submit" class="secondary-action">Add Work Log</button>
+              <button type="submit" class="btn btn-secondary">Add Work Log</button>
               <p class="form-message" id="work-log-message" role="status" aria-live="polite"></p>
             </form>
           </details>
@@ -129,15 +129,15 @@
               <label for="deliverable_url">Deliverable URL</label>
               <input id="deliverable_url" name="deliverable_url" type="url" maxlength="2000">
             </div>
-            <button type="submit">Add Comment</button>
+            <button class="btn btn-primary" type="submit">Add Comment</button>
             <p class="form-message" id="comment-message" role="status" aria-live="polite"></p>
           </form>
 
           <div class="comments-section" aria-labelledby="activity-title">
             <h3 id="activity-title">Activity</h3>
             <div class="tab-list" role="tablist" aria-label="Task activity">
-              <button type="button" class="tab-button is-active" data-activity-tab="comments">Comments</button>
-              <button type="button" class="tab-button" data-activity-tab="work-logs">Work Logs</button>
+              <button type="button" class="btn btn-secondary btn-sm tab-button is-active" data-activity-tab="comments">Comments</button>
+              <button type="button" class="btn btn-secondary btn-sm tab-button" data-activity-tab="work-logs">Work Logs</button>
             </div>
             <div class="comment-list scrollable-comments" id="comment-list" data-activity-panel="comments"></div>
             <div class="comment-list scrollable-comments is-hidden" id="work-log-list" data-activity-panel="work-logs"></div>

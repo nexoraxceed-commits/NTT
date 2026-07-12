@@ -222,133 +222,106 @@ textarea:focus {
   accent-color: var(--accent);
 }
 
+.btn,
 button {
-  min-height: 50px;
-  border: 0;
-  border-radius: 8px;
-  color: #ffffff;
-  background: var(--accent);
-  font: inherit;
-  font-weight: 800;
-  cursor: pointer;
-  transition:
-    background 160ms ease,
-    transform 160ms ease,
-    box-shadow 160ms ease;
-}
-
-.secondary-button {
-  border: 1px solid var(--line);
-  color: var(--accent);
-  background: #ffffff;
-  box-shadow: none;
-}
-
-.secondary-button:hover {
-  color: #ffffff;
-}
-
-button:hover {
-  background: var(--accent-strong);
-  box-shadow: 0 12px 24px rgba(11, 107, 87, 0.2);
-  transform: translateY(-1px);
-}
-
-.button-link {
   display: inline-flex;
-  min-height: 44px;
+  min-height: 48px;
   align-items: center;
   justify-content: center;
+  gap: 8px;
+  border: 1px solid transparent;
   border-radius: 8px;
   padding: 0 18px;
   color: #ffffff;
   background: var(--accent);
-  font-weight: 800;
-  text-decoration: none;
-}
-
-.button-link:hover {
-  color: #ffffff;
-  background: var(--accent-strong);
-  text-decoration: none;
-}
-
-.secondary-link {
-  display: inline-flex;
-  min-height: 40px;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 0 14px;
-  color: var(--accent);
-  background: #ffffff;
-  font-weight: 800;
-  text-decoration: none;
-}
-
-.icon-link {
-  display: inline-flex;
-  width: 44px;
-  min-width: 44px;
-  height: 44px;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  color: var(--accent);
-  background: #ffffff;
-  font-size: 1.25rem;
-  font-weight: 900;
-  line-height: 1;
-  text-decoration: none;
-}
-
-.icon-action {
-  display: inline-flex;
-  width: 52px;
-  min-width: 52px;
-  min-height: 52px;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  color: var(--accent);
-  background: #ffffff;
   box-shadow: none;
-  font-weight: 900;
+  font: inherit;
+  font-weight: 800;
   line-height: 1;
+  text-align: center;
   text-decoration: none;
+  cursor: pointer;
+  transition:
+    background 160ms ease,
+    border-color 160ms ease,
+    color 160ms ease,
+    transform 160ms ease,
+    box-shadow 160ms ease;
 }
 
-.icon-action:hover {
+.btn:hover,
+button:hover {
   color: #ffffff;
   background: var(--accent-strong);
+  box-shadow: 0 12px 24px rgba(11, 107, 87, 0.2);
   text-decoration: none;
+  transform: translateY(-1px);
+}
+
+.btn-primary,
+.button-link {
+  color: #ffffff;
+  background: var(--accent);
+}
+
+.btn-secondary,
+.secondary-button,
+.secondary-link,
+.secondary-action,
+.tab-button {
+  border-color: var(--line);
+  color: var(--accent);
+  background: #ffffff;
+}
+
+.btn-secondary:hover,
+.secondary-button:hover,
+.secondary-link:hover,
+.secondary-action:hover,
+.tab-button:hover {
+  border-color: var(--accent-strong);
+  color: #ffffff;
+  background: var(--accent-strong);
+}
+
+.btn-icon,
+.icon-link,
+.icon-action {
+  width: 48px;
+  min-width: 48px;
+  min-height: 48px;
+  padding: 0;
+  border-color: var(--line);
+  color: var(--accent);
+  background: #ffffff;
+  font-size: 1.2rem;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.btn-icon:hover,
+.icon-link:hover,
+.icon-action:hover {
+  border-color: var(--accent-strong);
+  color: #ffffff;
+  background: var(--accent-strong);
+}
+
+.btn-sm {
+  min-height: 40px;
+  padding: 0 14px;
+  font-size: 0.95rem;
+}
+
+.btn-icon.btn-sm {
+  width: 40px;
+  min-width: 40px;
+  padding: 0;
 }
 
 .icon-action[hidden],
 .is-hidden-control {
   display: none !important;
-}
-
-.icon-link:hover {
-  color: #ffffff;
-  background: var(--accent-strong);
-  text-decoration: none;
-}
-
-.secondary-action {
-  border: 1px solid var(--line);
-  color: var(--accent);
-  background: #ffffff;
-  box-shadow: none;
-}
-
-.secondary-action:hover,
-.secondary-link:hover {
-  color: #ffffff;
-  background: var(--accent-strong);
 }
 
 button:focus-visible,
@@ -511,7 +484,7 @@ a:focus-visible {
   font-weight: 800;
 }
 
-.header-actions button {
+.header-actions button:not(.btn-icon) {
   padding: 0 18px;
 }
 
@@ -830,6 +803,10 @@ a:focus-visible {
 
   .header-actions > * {
     width: 100%;
+  }
+
+  .header-actions > .btn-icon {
+    width: 48px;
   }
 }
 

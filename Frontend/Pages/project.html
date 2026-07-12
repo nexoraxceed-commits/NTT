@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Project | NTT Workspace</title>
-    <link rel="stylesheet" href="/Css/styles.css?v=20260713-manager-report">
+    <link rel="stylesheet" href="/Css/styles.css?v=20260713-buttons">
   </head>
   <body class="app-body">
     <main class="workspace-shell">
@@ -14,9 +14,9 @@
           <h1 id="project-title">Project</h1>
         </div>
         <div class="header-actions">
-          <a class="button-link" id="create-task-link" href="/create-task">Create Task</a>
-          <a class="icon-link" href="/post-login" aria-label="Back to dashboard">←</a>
-          <button class="secondary-link" type="button" data-logout-button>Log out</button>
+          <a class="btn btn-icon" id="create-task-link" href="/create-task" aria-label="Create task" title="Create task">+</a>
+          <a class="btn btn-icon" href="/post-login" aria-label="Back to dashboard" title="Back to dashboard">&larr;</a>
+          <button class="btn btn-icon" type="button" data-logout-button aria-label="Log out" title="Log out">&#10138;</button>
         </div>
       </header>
 
@@ -75,8 +75,8 @@
             <div class="checkbox-list" id="inline_project_watcher_emails"></div>
           </div>
           <div class="inline-actions">
-            <button type="submit">Save Project</button>
-            <button class="secondary-link" type="button" id="inline-project-cancel">Cancel</button>
+            <button class="btn btn-primary" type="submit">Save Project</button>
+            <button class="btn btn-secondary" type="button" id="inline-project-cancel">Cancel</button>
           </div>
           <p class="form-message" id="inline-project-message" role="status" aria-live="polite"></p>
         </form>

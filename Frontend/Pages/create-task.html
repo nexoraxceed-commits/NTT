@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Create Task | NTT Workspace</title>
-    <link rel="stylesheet" href="/Css/styles.css?v=20260713-manager-report">
+    <link rel="stylesheet" href="/Css/styles.css?v=20260713-buttons">
   </head>
   <body class="app-body">
     <main class="workspace-shell narrow-shell">
@@ -14,8 +14,8 @@
           <h1>Create task</h1>
         </div>
         <div class="header-actions">
-          <a class="icon-link" id="create-task-back-link" href="/post-login" aria-label="Back to project">←</a>
-          <button class="secondary-link" type="button" data-logout-button>Log out</button>
+          <a class="btn btn-icon" id="create-task-back-link" href="/post-login" aria-label="Back to project" title="Back to project">&larr;</a>
+          <button class="btn btn-icon" type="button" data-logout-button aria-label="Log out" title="Log out">&#10138;</button>
         </div>
       </header>
 
@@ -58,7 +58,7 @@
               <option value="" disabled>Loading users...</option>
             </select>
           </div>
-          <button type="submit">Create Task</button>
+          <button class="btn btn-primary" type="submit">Create Task</button>
           <p class="form-message" id="create-task-message" role="status" aria-live="polite"></p>
         </form>
       </section>
