@@ -1,7 +1,84 @@
 -- Performance indexes for the NTT task tracker.
--- Run this once in Supabase SQL Editor after the table migrations.
+-- Run this once in Supabase SQL Editor after the base app tables exist.
+-- This script also creates optional support tables used by newer features so
+-- indexes do not fail when the workflow migration was skipped.
 
 create extension if not exists pg_trgm;
+
+alter table public."PROJECTS"
+add column if not exists assigned_to uuid;
+
+alter table public."PROJECTS"
+add column if not exists stakeholder_id uuid;
+
+alter table public."PROJECTS"
+add column if not exists document_name text;
+
+alter table public."PROJECTS"
+add column if not exists document_url text;
+
+alter table public."TASKS"
+add column if not exists stakeholder_id uuid;
+
+alter table public."TASKS"
+add column if not exists start_date timestamptz;
+
+alter table public."TASKS"
+add column if not exists end_date date;
+
+create table if not exists public."PROJECT_WATCHERS" (
+  id bigserial primary key,
+  created_at timestamptz not null default now(),
+  project_id bigint not null references public."PROJECTS"(id) on delete cascade,
+  user_id uuid not null,
+  status text not null default 'ACTIVE',
+  unique(project_id, user_id)
+);
+
+create table if not exists public."TASK_WATCHERS" (
+  id bigserial primary key,
+  created_at timestamptz not null default now(),
+  task_id bigint not null references public."TASKS"(id) on delete cascade,
+  user_id uuid not null,
+  status text not null default 'ACTIVE',
+  unique(task_id, user_id)
+);
+
+create table if not exists public."TASK_WORK_LOGS" (
+  id bigserial primary key,
+  created_at timestamptz not null default now(),
+  task_id bigint not null references public."TASKS"(id) on delete cascade,
+  logged_by uuid not null,
+  work_date date not null default current_date,
+  hours numeric(5, 2),
+  work_note text not null
+);
+
+create table if not exists public."TASK_ACCESS_LOG" (
+  id bigserial primary key,
+  created_at timestamptz not null default now(),
+  task_id bigint not null references public."TASKS"(id) on delete cascade,
+  project_id bigint not null references public."PROJECTS"(id) on delete cascade,
+  actor_user_id uuid,
+  event_type text not null,
+  previous_status text,
+  new_status text,
+  previous_assignee_id uuid,
+  new_assignee_id uuid,
+  event_note text
+);
+
+create table if not exists public."NOTIFICATION_LOG" (
+  id bigserial primary key,
+  created_at timestamptz not null default now(),
+  recipient_user_id uuid not null,
+  recipient_email text,
+  subject text not null,
+  body text,
+  status text not null default 'PENDING',
+  source_type text not null,
+  source_id bigint not null
+);
 
 create index if not exists idx_ref_users_auth_uid
 on public."REF_USERS" (auth_uid);

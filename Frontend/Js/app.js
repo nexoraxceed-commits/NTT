@@ -576,10 +576,20 @@ function setupWorkspaceNavigation() {
     }
     return "dashboard";
   })();
+  const icons = {
+    dashboard:
+      '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5.5A1.5 1.5 0 0 1 5.5 4h4A1.5 1.5 0 0 1 11 5.5v4A1.5 1.5 0 0 1 9.5 11h-4A1.5 1.5 0 0 1 4 9.5v-4Zm9 0A1.5 1.5 0 0 1 14.5 4h4A1.5 1.5 0 0 1 20 5.5v4a1.5 1.5 0 0 1-1.5 1.5h-4A1.5 1.5 0 0 1 13 9.5v-4Zm-9 9A1.5 1.5 0 0 1 5.5 13h4a1.5 1.5 0 0 1 1.5 1.5v4A1.5 1.5 0 0 1 9.5 20h-4A1.5 1.5 0 0 1 4 18.5v-4Zm9 0a1.5 1.5 0 0 1 1.5-1.5h4a1.5 1.5 0 0 1 1.5 1.5v4a1.5 1.5 0 0 1-1.5 1.5h-4a1.5 1.5 0 0 1-1.5-1.5v-4Z"/></svg>',
+    projects:
+      '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6.5A2.5 2.5 0 0 1 6.5 4h4.1c.62 0 1.22.24 1.66.68l1.06 1.06c.16.17.39.26.62.26h3.56A2.5 2.5 0 0 1 20 8.5v8A2.5 2.5 0 0 1 17.5 19h-11A2.5 2.5 0 0 1 4 16.5v-10Zm2.5-.5a.5.5 0 0 0-.5.5v10a.5.5 0 0 0 .5.5h11a.5.5 0 0 0 .5-.5v-8a.5.5 0 0 0-.5-.5h-3.56c-.76 0-1.49-.3-2.03-.84L10.85 6.1A.36.36 0 0 0 10.6 6H6.5Z"/></svg>',
+    tasks:
+      '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.1 7.9 4.7 6.5 3.3 7.9l2.8 2.8 4.8-4.8-1.4-1.4-3.4 3.4ZM13 7h8v2h-8V7Zm-6.9 8.9-1.4-1.4-1.4 1.4 2.8 2.8 4.8-4.8-1.4-1.4-3.4 3.4ZM13 15h8v2h-8v-2Z"/></svg>',
+    logout:
+      '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h8a2 2 0 0 1 2 2v2h-2V6H5v12h8v-2h2v2a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Zm12.6 4.4L22.2 13l-4.6 4.6-1.4-1.4 2.2-2.2H10v-2h8.4l-2.2-2.2 1.4-1.4Z"/></svg>',
+  };
   const links = [
-    { href: "/post-login", label: "Dashboard", key: "dashboard", icon: "D" },
-    { href: "/projects", label: "Projects", key: "projects", icon: "P" },
-    { href: "/tasks", label: "Tasks", key: "tasks", icon: "T" },
+    { href: "/post-login", label: "Dashboard", key: "dashboard" },
+    { href: "/projects", label: "Projects", key: "projects" },
+    { href: "/tasks", label: "Tasks", key: "tasks" },
   ];
   const nav = document.createElement("nav");
   nav.className = "workspace-nav";
@@ -589,14 +599,16 @@ function setupWorkspaceNavigation() {
   trigger.className = "nav-trigger";
   trigger.type = "button";
   trigger.setAttribute("aria-label", "Open workspace navigation");
-  trigger.innerHTML = "<span aria-hidden='true'>N</span>";
+  trigger.innerHTML =
+    "<span class=\"hamburger-icon\" aria-hidden=\"true\"><span></span><span></span><span></span></span>";
 
   const panel = document.createElement("div");
   panel.className = "nav-panel";
 
   const brand = document.createElement("div");
   brand.className = "nav-brand";
-  brand.textContent = "N";
+  brand.innerHTML =
+    "<span class=\"nav-brand-mark\" aria-hidden=\"true\"><span></span><span></span><span></span></span><span>Nexora</span>";
 
   const list = document.createElement("div");
   list.className = "nav-links";
@@ -605,7 +617,7 @@ function setupWorkspaceNavigation() {
     const item = document.createElement("a");
     item.href = link.href;
     item.className = "nav-link";
-    item.innerHTML = `<span class="nav-link-icon" aria-hidden="true">${link.icon}</span><span>${link.label}</span>`;
+    item.innerHTML = `<span class="nav-link-icon">${icons[link.key]}</span><span>${link.label}</span>`;
     if (link.key === activeKey) {
       item.classList.add("is-active");
     }
@@ -616,7 +628,7 @@ function setupWorkspaceNavigation() {
   logoutButton.className = "nav-logout";
   logoutButton.type = "button";
   logoutButton.dataset.logoutButton = "true";
-  logoutButton.innerHTML = "<span class=\"nav-link-icon\" aria-hidden=\"true\">L</span><span>Log out</span>";
+  logoutButton.innerHTML = `<span class="nav-link-icon">${icons.logout}</span><span>Log out</span>`;
 
   panel.append(brand, list, logoutButton);
   nav.append(trigger, panel);
