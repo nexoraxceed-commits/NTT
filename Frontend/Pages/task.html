@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Task | NTT Workspace</title>
-    <link rel="stylesheet" href="/Css/styles.css?v=20260712-workflow-r2">
+    <link rel="stylesheet" href="/Css/styles.css?v=20260712-workflow-r3">
   </head>
   <body class="app-body">
     <main class="workspace-shell">
@@ -76,10 +76,10 @@
                 </select>
               </div>
               <div class="field-group">
-                <label for="task_edit_watcher_emails">Task watchers</label>
-                <select id="task_edit_watcher_emails" name="watcher_emails" multiple size="4">
-                  <option value="" disabled>Loading users...</option>
-                </select>
+                <span class="field-label">Task watchers</span>
+                <div class="checkbox-list" id="task_edit_watcher_emails" role="group" aria-label="Task watchers">
+                  <p class="empty-state">Loading users...</p>
+                </div>
               </div>
               <button type="button" class="secondary-action" id="save-task-button">Save Task Details</button>
             </form>
@@ -100,15 +100,15 @@
             <button type="submit">Add Comment</button>
             <p class="form-message" id="comment-message" role="status" aria-live="polite"></p>
           </form>
-        </section>
 
-        <section class="workspace-panel" aria-labelledby="comments-title">
-          <h2 id="comments-title">Comments</h2>
-          <div class="comment-list" id="comment-list"></div>
+          <div class="comments-section" aria-labelledby="comments-title">
+            <h3 id="comments-title">Comments</h3>
+            <div class="comment-list scrollable-comments" id="comment-list"></div>
+          </div>
         </section>
       </section>
     </main>
     <script src="/Js/config.js"></script>
-    <script src="/Js/app.js?v=20260712-workflow-r2"></script>
+    <script src="/Js/app.js?v=20260712-workflow-r3"></script>
   </body>
 </html>

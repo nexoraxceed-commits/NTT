@@ -150,6 +150,7 @@ h2 {
 }
 
 label,
+.field-label,
 .remember-row {
   color: var(--ink);
   font-size: 0.94rem;
@@ -417,6 +418,51 @@ a:focus-visible {
 
 .is-hidden {
   display: none !important;
+}
+
+.checkbox-list {
+  display: grid;
+  max-height: 180px;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px;
+  background: #fbfdfc;
+}
+
+.checkbox-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-radius: 6px;
+  padding: 10px;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.checkbox-option:hover {
+  background: rgba(11, 107, 87, 0.07);
+}
+
+.checkbox-option input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--accent);
+}
+
+.comments-section {
+  margin-top: 28px;
+}
+
+.comments-section h3 {
+  margin: 0;
+  font-size: 1.35rem;
+}
+
+.scrollable-comments {
+  max-height: 360px;
+  overflow-y: auto;
+  padding-right: 8px;
 }
 
 .item-grid {

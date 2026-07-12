@@ -416,6 +416,44 @@ async function populateUserMultiSelect(selectElement, selectedEmails = []) {
   selectElement.append(fragment);
 }
 
+async function populateUserCheckboxList(containerElement, selectedEmails = []) {
+  if (!containerElement) {
+    return;
+  }
+
+  const users = await getActiveUsers();
+  const selected = new Set(selectedEmails.filter(Boolean));
+  containerElement.innerHTML = "";
+
+  if (!users.length) {
+    renderEmptyState(containerElement, "No active users found.");
+    return;
+  }
+
+  const fragment = document.createDocumentFragment();
+  users.forEach((user) => {
+    if (!user.email) {
+      return;
+    }
+
+    const label = document.createElement("label");
+    label.className = "checkbox-option";
+
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.value = user.email;
+    input.checked = selected.has(user.email);
+
+    const text = document.createElement("span");
+    text.textContent = formatAssignee(user);
+
+    label.append(input, text);
+    fragment.append(label);
+  });
+
+  containerElement.append(fragment);
+}
+
 function getSelectedValues(selectElement) {
   if (!selectElement) {
     return [];
@@ -423,6 +461,16 @@ function getSelectedValues(selectElement) {
 
   return Array.from(selectElement.selectedOptions)
     .map((option) => option.value.trim())
+    .filter(Boolean);
+}
+
+function getCheckedValues(containerElement) {
+  if (!containerElement) {
+    return [];
+  }
+
+  return Array.from(containerElement.querySelectorAll("input:checked"))
+    .map((input) => input.value.trim())
     .filter(Boolean);
 }
 
@@ -1016,7 +1064,7 @@ function setupTaskPage() {
       renderComments(task.comments || []);
       await populateUserSelect(taskAssigneeSelect, { includeCurrentUser: true });
       await populateUserSelect(taskStakeholderSelect, { includeCurrentUser: true });
-      await populateUserMultiSelect(
+      await populateUserCheckboxList(
         taskWatcherSelect,
         (task.watchers || []).map((watcher) => watcher.email)
       );
@@ -1037,7 +1085,7 @@ function setupTaskPage() {
       const data = await postAuthorizedJson(`/tasks/${taskId}/update`, {
         assigned_to_email: taskAssigneeSelect?.value || "",
         stakeholder_email: taskStakeholderSelect?.value || "",
-        watcher_emails: getSelectedValues(taskWatcherSelect),
+        watcher_emails: getCheckedValues(taskWatcherSelect),
       });
       setMessage(taskActionMessage, data.detail || "Task details saved.");
       await loadTask();
