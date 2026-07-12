@@ -608,7 +608,7 @@ function setupWorkspaceNavigation() {
   const brand = document.createElement("div");
   brand.className = "nav-brand";
   brand.innerHTML =
-    "<span class=\"nav-brand-mark\" aria-hidden=\"true\"><span></span><span></span><span></span></span><span>Nexora</span>";
+    "<span class=\"nav-brand-mark\" aria-hidden=\"true\"><span></span><span></span><span></span></span>";
 
   const list = document.createElement("div");
   list.className = "nav-links";
@@ -632,7 +632,7 @@ function setupWorkspaceNavigation() {
 
   panel.append(brand, list, logoutButton);
   nav.append(trigger, panel);
-  document.body.prepend(nav);
+  shell.prepend(nav);
 }
 
 function setupLoginForm() {

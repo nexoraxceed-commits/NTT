@@ -388,7 +388,7 @@ a:focus-visible {
   border: 1px solid rgba(255, 255, 255, 0.88);
   border-radius: var(--radius-xl);
   padding: clamp(34px, 4vw, 58px);
-  padding-left: clamp(76px, 6vw, 104px);
+  padding-left: clamp(128px, 10vw, 158px);
   background: rgba(251, 252, 255, 0.96);
   box-shadow: 0 34px 90px rgba(68, 73, 110, 0.14);
 }
@@ -399,11 +399,11 @@ a:focus-visible {
 }
 
 .workspace-nav {
-  position: fixed;
+  position: absolute;
   z-index: 20;
-  top: max(48px, calc((100vh - (100vh - 48px)) / 2 + 44px));
-  bottom: 32px;
-  left: max(28px, calc((100vw - 1560px) / 2 + 44px));
+  top: clamp(34px, 4vw, 58px);
+  bottom: clamp(34px, 4vw, 58px);
+  left: clamp(34px, 4vw, 58px);
   width: 260px;
   pointer-events: none;
 }
