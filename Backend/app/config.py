@@ -18,6 +18,7 @@ class Settings:
     supabase_publishable_key: str
     supabase_secret_key: str | None
     frontend_origin: str
+    backend_cache_ttl_seconds: int
     password_reset_redirect_url: str
     signup_allowed_users_table: str
     signup_allowed_users_email_column: str
@@ -78,6 +79,17 @@ def _get_supabase_secret_key() -> str | None:
     )
 
 
+def _get_int_config_value(name: str, default: int) -> int:
+    raw_value = _get_config_value(name)
+    if raw_value is None:
+        return default
+
+    try:
+        return int(raw_value)
+    except ValueError as exc:
+        raise RuntimeError(f"Configuration value must be an integer: {name}") from exc
+
+
 @lru_cache
 def get_settings() -> Settings:
     return Settings(
@@ -86,6 +98,9 @@ def get_settings() -> Settings:
         supabase_secret_key=_get_supabase_secret_key(),
         frontend_origin=_get_config_value(
             "FRONTEND_ORIGIN", "http://localhost:8000"
+        ),
+        backend_cache_ttl_seconds=_get_int_config_value(
+            "BACKEND_CACHE_TTL_SECONDS", 60
         ),
         password_reset_redirect_url=_get_config_value(
             "PASSWORD_RESET_REDIRECT_URL",

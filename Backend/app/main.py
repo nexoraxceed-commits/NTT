@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from supabase import Client
 
+from app.cache import backend_cache
 from app.config import Settings, get_settings
 from app.constants import (
     AUTH_UID_COLUMN,
@@ -148,6 +149,7 @@ def create_app() -> FastAPI:
                 detail="Account created, but user status could not be updated.",
             ) from exc
 
+        backend_cache.clear()
         return MessageResponse(detail="Signup successful. You can now sign in.")
 
     @app.post("/auth/forgot-password", response_model=MessageResponse)
@@ -260,6 +262,11 @@ def create_app() -> FastAPI:
         supabase_admin: Client = Depends(get_supabase_admin_client),
         app_settings: Settings = Depends(get_settings),
     ) -> list[ProjectUserResponse]:
+        cache_key = "users:active"
+        cached_users = backend_cache.get(cache_key)
+        if cached_users is not None:
+            return [ProjectUserResponse(**user) for user in cached_users]
+
         try:
             users = get_active_ref_users(supabase_admin, app_settings)
         except Exception as exc:
@@ -268,7 +275,7 @@ def create_app() -> FastAPI:
                 detail="Could not load project users.",
             ) from exc
 
-        return [
+        response = [
             ProjectUserResponse(
                 email=user.get(app_settings.signup_allowed_users_email_column),
                 user_name=user.get(REF_USER_NAME_COLUMN),
@@ -276,6 +283,12 @@ def create_app() -> FastAPI:
             for user in users
             if user.get(app_settings.signup_allowed_users_email_column)
         ]
+        backend_cache.set(
+            cache_key,
+            [user.model_dump() for user in response],
+            app_settings.backend_cache_ttl_seconds,
+        )
+        return response
 
     @app.get("/projects", response_model=list[ProjectSummaryResponse])
     def list_projects(
@@ -289,6 +302,11 @@ def create_app() -> FastAPI:
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Session expired. Please sign in again.",
             )
+
+        cache_key = f"projects:list:{user_id}"
+        cached_projects = backend_cache.get(cache_key)
+        if cached_projects is not None:
+            return [ProjectSummaryResponse(**project) for project in cached_projects]
 
         memberships = get_user_project_memberships(supabase_admin, user_id)
         project_ids = [membership["project_id"] for membership in memberships]
@@ -321,7 +339,7 @@ def create_app() -> FastAPI:
             all_member_ids,
         )
 
-        return [
+        response = [
             ProjectSummaryResponse(
                 id=project["id"],
                 project_name=project["project_name"],
@@ -338,6 +356,12 @@ def create_app() -> FastAPI:
             )
             for project in projects
         ]
+        backend_cache.set(
+            cache_key,
+            [project.model_dump() for project in response],
+            app_settings.backend_cache_ttl_seconds,
+        )
+        return response
 
     @app.get("/projects/{project_id}", response_model=ProjectDetailResponse)
     def get_project_detail(
@@ -359,6 +383,11 @@ def create_app() -> FastAPI:
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="You do not have access to this project.",
             )
+
+        cache_key = f"projects:detail:{project_id}"
+        cached_project = backend_cache.get(cache_key)
+        if cached_project is not None:
+            return ProjectDetailResponse(**cached_project)
 
         project = get_project_by_id(supabase_admin, project_id)
 
@@ -384,7 +413,7 @@ def create_app() -> FastAPI:
             user_ids,
         )
 
-        return ProjectDetailResponse(
+        response = ProjectDetailResponse(
             id=project["id"],
             project_name=project["project_name"],
             description=project.get("description"),
@@ -419,6 +448,12 @@ def create_app() -> FastAPI:
                 for task in tasks
             ],
         )
+        backend_cache.set(
+            cache_key,
+            response.model_dump(),
+            app_settings.backend_cache_ttl_seconds,
+        )
+        return response
 
     @app.post("/projects/{project_id}/update", response_model=MessageResponse)
     def update_project(
@@ -480,6 +515,7 @@ def create_app() -> FastAPI:
                     .execute()
                 )
 
+        backend_cache.clear()
         return MessageResponse(detail="Project updated successfully.")
 
     @app.post("/projects", response_model=MessageResponse)
@@ -618,6 +654,7 @@ def create_app() -> FastAPI:
                 ),
             ) from exc
 
+        backend_cache.clear()
         return MessageResponse(detail="Project created successfully.")
 
     @app.post("/projects/{project_id}/tasks", response_model=MessageResponse)
@@ -668,6 +705,7 @@ def create_app() -> FastAPI:
             .execute()
         )
 
+        backend_cache.clear()
         return MessageResponse(detail="Task created successfully.")
 
     @app.get("/tasks/{task_id}", response_model=TaskDetailResponse)
@@ -687,6 +725,11 @@ def create_app() -> FastAPI:
         task = get_task_by_id(supabase_admin, task_id)
         project_id = int(task["project_id"])
         ensure_project_member(supabase_admin, project_id, user_id)
+        cache_key = f"tasks:detail:{task_id}"
+        cached_task = backend_cache.get(cache_key)
+        if cached_task is not None:
+            return TaskDetailResponse(**cached_task)
+
         project = get_project_by_id(supabase_admin, project_id)
 
         comment_response = (
@@ -712,7 +755,7 @@ def create_app() -> FastAPI:
         )
         assigned_ref_user = users_by_auth_uid.get(str(task.get("assigned_to"))) or {}
 
-        return TaskDetailResponse(
+        response = TaskDetailResponse(
             id=task["id"],
             project_id=project_id,
             project_name=project["project_name"],
@@ -744,6 +787,12 @@ def create_app() -> FastAPI:
                 for comment in comments
             ],
         )
+        backend_cache.set(
+            cache_key,
+            response.model_dump(),
+            app_settings.backend_cache_ttl_seconds,
+        )
+        return response
 
     @app.post("/tasks/{task_id}/comments", response_model=MessageResponse)
     def create_task_comment(
@@ -774,6 +823,7 @@ def create_app() -> FastAPI:
             .execute()
         )
 
+        backend_cache.clear()
         return MessageResponse(detail="Comment added successfully.")
 
     return app
