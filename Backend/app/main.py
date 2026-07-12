@@ -697,16 +697,27 @@ def create_app() -> FastAPI:
         if cached_project is not None:
             return ProjectDetailResponse(**cached_project)
 
-        task_response = (
-            supabase_admin.table(TASKS_TABLE)
-            .select(
-                "id,project_id,task_title,task_details,documents,assigned_to,"
-                "stakeholder_id,status,start_date,end_date"
+        try:
+            task_response = (
+                supabase_admin.table(TASKS_TABLE)
+                .select(
+                    "id,project_id,task_title,task_details,documents,assigned_to,"
+                    "stakeholder_id,status,start_date,end_date"
+                )
+                .eq("project_id", project_id)
+                .order("created_at", desc=True)
+                .execute()
             )
-            .eq("project_id", project_id)
-            .order("created_at", desc=True)
-            .execute()
-        )
+        except Exception:
+            task_response = (
+                supabase_admin.table(TASKS_TABLE)
+                .select(
+                    "id,project_id,task_title,task_details,documents,assigned_to,status"
+                )
+                .eq("project_id", project_id)
+                .order("created_at", desc=True)
+                .execute()
+            )
         tasks = getattr(task_response, "data", None) or []
         task_ids = [int(task["id"]) for task in tasks]
         task_watchers_by_task = get_task_watchers_for_tasks(supabase_admin, task_ids)

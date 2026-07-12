@@ -17,6 +17,17 @@ from app.constants import (
 )
 
 
+def is_optional_analytics_table_error(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return (
+        "task_work_logs" in message
+        or "task_access_log" in message
+        or "schema cache" in message
+        or "could not find" in message
+        or "does not exist" in message
+    )
+
+
 def get_ref_user(
     supabase: Client,
     app_settings: Settings,
@@ -282,16 +293,30 @@ def get_project_by_id(
     supabase: Client,
     project_id: int,
 ) -> dict:
-    response = (
-        supabase.table(PROJECTS_TABLE)
-        .select(
-            "id,created_at,project_name,description,document_name,document_url,"
-            "documents,created_by,status,assigned_to,stakeholder_id"
+    try:
+        response = (
+            supabase.table(PROJECTS_TABLE)
+            .select(
+                "id,created_at,project_name,description,document_name,document_url,"
+                "documents,created_by,status,assigned_to,stakeholder_id"
+            )
+            .eq("id", project_id)
+            .limit(1)
+            .execute()
         )
-        .eq("id", project_id)
-        .limit(1)
-        .execute()
-    )
+    except Exception as exc:
+        if not is_optional_analytics_table_error(exc):
+            raise
+        response = (
+            supabase.table(PROJECTS_TABLE)
+            .select(
+                "id,created_at,project_name,description,documents,created_by,status"
+            )
+            .eq("id", project_id)
+            .limit(1)
+            .execute()
+        )
+
     projects = getattr(response, "data", None) or []
     if not projects:
         raise HTTPException(
@@ -306,16 +331,31 @@ def get_task_by_id(
     supabase: Client,
     task_id: int,
 ) -> dict:
-    response = (
-        supabase.table(TASKS_TABLE)
-        .select(
-            "id,created_at,project_id,task_title,task_details,documents,"
-            "assigned_to,stakeholder_id,created_by,status,due_date,start_date,end_date"
+    try:
+        response = (
+            supabase.table(TASKS_TABLE)
+            .select(
+                "id,created_at,project_id,task_title,task_details,documents,"
+                "assigned_to,stakeholder_id,created_by,status,due_date,start_date,end_date"
+            )
+            .eq("id", task_id)
+            .limit(1)
+            .execute()
         )
-        .eq("id", task_id)
-        .limit(1)
-        .execute()
-    )
+    except Exception as exc:
+        if not is_optional_analytics_table_error(exc):
+            raise
+        response = (
+            supabase.table(TASKS_TABLE)
+            .select(
+                "id,created_at,project_id,task_title,task_details,documents,"
+                "assigned_to,created_by,status,due_date"
+            )
+            .eq("id", task_id)
+            .limit(1)
+            .execute()
+        )
+
     tasks = getattr(response, "data", None) or []
     if not tasks:
         raise HTTPException(
@@ -383,14 +423,20 @@ def get_task_work_logs(
     supabase: Client,
     task_id: int,
 ) -> list[dict]:
-    response = (
-        supabase.table(TASK_WORK_LOGS_TABLE)
-        .select("id,created_at,task_id,logged_by,work_date,hours,work_note")
-        .eq("task_id", task_id)
-        .order("work_date", desc=True)
-        .order("created_at", desc=True)
-        .execute()
-    )
+    try:
+        response = (
+            supabase.table(TASK_WORK_LOGS_TABLE)
+            .select("id,created_at,task_id,logged_by,work_date,hours,work_note")
+            .eq("task_id", task_id)
+            .order("work_date", desc=True)
+            .order("created_at", desc=True)
+            .execute()
+        )
+    except Exception as exc:
+        if is_optional_analytics_table_error(exc):
+            return []
+        raise
+
     return getattr(response, "data", None) or []
 
 
@@ -401,14 +447,20 @@ def get_task_work_logs_for_tasks(
     if not task_ids:
         return {}
 
-    response = (
-        supabase.table(TASK_WORK_LOGS_TABLE)
-        .select("id,created_at,task_id,logged_by,work_date,hours,work_note")
-        .in_("task_id", task_ids)
-        .order("work_date", desc=True)
-        .order("created_at", desc=True)
-        .execute()
-    )
+    try:
+        response = (
+            supabase.table(TASK_WORK_LOGS_TABLE)
+            .select("id,created_at,task_id,logged_by,work_date,hours,work_note")
+            .in_("task_id", task_ids)
+            .order("work_date", desc=True)
+            .order("created_at", desc=True)
+            .execute()
+        )
+    except Exception as exc:
+        if is_optional_analytics_table_error(exc):
+            return {}
+        raise
+
     logs_by_task: dict[int, list[dict]] = {}
     for work_log in getattr(response, "data", None) or []:
         task_id = work_log.get("task_id")
@@ -432,19 +484,24 @@ def insert_task_access_log(
     new_assignee_id: str | None = None,
     event_note: str | None = None,
 ) -> None:
-    supabase.table(TASK_ACCESS_LOG_TABLE).insert(
-        {
-            "task_id": task_id,
-            "project_id": project_id,
-            "actor_user_id": actor_user_id,
-            "event_type": event_type,
-            "previous_status": previous_status,
-            "new_status": new_status,
-            "previous_assignee_id": previous_assignee_id,
-            "new_assignee_id": new_assignee_id,
-            "event_note": event_note,
-        }
-    ).execute()
+    try:
+        supabase.table(TASK_ACCESS_LOG_TABLE).insert(
+            {
+                "task_id": task_id,
+                "project_id": project_id,
+                "actor_user_id": actor_user_id,
+                "event_type": event_type,
+                "previous_status": previous_status,
+                "new_status": new_status,
+                "previous_assignee_id": previous_assignee_id,
+                "new_assignee_id": new_assignee_id,
+                "event_note": event_note,
+            }
+        ).execute()
+    except Exception as exc:
+        if is_optional_analytics_table_error(exc):
+            return
+        raise
 
 
 def get_task_access_logs_for_tasks(
@@ -454,16 +511,22 @@ def get_task_access_logs_for_tasks(
     if not task_ids:
         return {}
 
-    response = (
-        supabase.table(TASK_ACCESS_LOG_TABLE)
-        .select(
-            "id,created_at,task_id,project_id,actor_user_id,event_type,event_note,"
-            "previous_status,new_status,previous_assignee_id,new_assignee_id"
+    try:
+        response = (
+            supabase.table(TASK_ACCESS_LOG_TABLE)
+            .select(
+                "id,created_at,task_id,project_id,actor_user_id,event_type,event_note,"
+                "previous_status,new_status,previous_assignee_id,new_assignee_id"
+            )
+            .in_("task_id", task_ids)
+            .order("created_at", desc=True)
+            .execute()
         )
-        .in_("task_id", task_ids)
-        .order("created_at", desc=True)
-        .execute()
-    )
+    except Exception as exc:
+        if is_optional_analytics_table_error(exc):
+            return {}
+        raise
+
     logs_by_task: dict[int, list[dict]] = {}
     for access_log in getattr(response, "data", None) or []:
         task_id = access_log.get("task_id")
@@ -475,7 +538,12 @@ def get_task_access_logs_for_tasks(
 
 
 def delete_task_access_logs(supabase: Client) -> None:
-    supabase.table(TASK_ACCESS_LOG_TABLE).delete().neq("id", 0).execute()
+    try:
+        supabase.table(TASK_ACCESS_LOG_TABLE).delete().neq("id", 0).execute()
+    except Exception as exc:
+        if is_optional_analytics_table_error(exc):
+            return
+        raise
 
 
 def update_ref_user_status(
