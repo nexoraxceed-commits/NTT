@@ -250,6 +250,92 @@ def build_task_access_log_responses(
     ]
 
 
+def get_user_email(
+    users_by_auth_uid: dict[str, dict],
+    user_id: object,
+    app_settings: Settings,
+) -> str | None:
+    if not user_id:
+        return None
+
+    return users_by_auth_uid.get(str(user_id), {}).get(
+        app_settings.signup_allowed_users_email_column
+    )
+
+
+def get_user_name(
+    users_by_auth_uid: dict[str, dict],
+    user_id: object,
+) -> str | None:
+    if not user_id:
+        return None
+
+    return users_by_auth_uid.get(str(user_id), {}).get(REF_USER_NAME_COLUMN)
+
+
+def build_task_summary_response(
+    task: dict,
+    task_watchers_by_task: dict[int, list[dict]],
+    task_work_logs_by_task: dict[int, list[dict]],
+    task_access_logs_by_task: dict[int, list[dict]],
+    users_by_auth_uid: dict[str, dict],
+    app_settings: Settings,
+) -> TaskSummaryResponse:
+    task_id = int(task["id"])
+
+    return TaskSummaryResponse(
+        id=task["id"],
+        project_id=task["project_id"],
+        task_title=task["task_title"],
+        task_details=task.get("task_details"),
+        documents=task.get("documents"),
+        assigned_to_email=get_user_email(
+            users_by_auth_uid,
+            task.get("assigned_to"),
+            app_settings,
+        ),
+        assigned_to_name=get_user_name(users_by_auth_uid, task.get("assigned_to")),
+        stakeholder_email=get_user_email(
+            users_by_auth_uid,
+            task.get("stakeholder_id"),
+            app_settings,
+        ),
+        stakeholder_name=get_user_name(users_by_auth_uid, task.get("stakeholder_id")),
+        start_date=task.get("start_date"),
+        end_date=task.get("end_date"),
+        watchers=build_watcher_responses(
+            task_watchers_by_task.get(task_id, []),
+            users_by_auth_uid,
+            app_settings,
+        ),
+        work_logs=[
+            TaskWorkLogResponse(
+                id=work_log["id"],
+                work_note=work_log.get("work_note") or "",
+                work_date=work_log.get("work_date"),
+                hours=work_log.get("hours"),
+                logged_by_email=get_user_email(
+                    users_by_auth_uid,
+                    work_log.get("logged_by"),
+                    app_settings,
+                ),
+                logged_by_name=get_user_name(
+                    users_by_auth_uid,
+                    work_log.get("logged_by"),
+                ),
+                created_at=work_log.get("created_at"),
+            )
+            for work_log in task_work_logs_by_task.get(task_id, [])
+        ],
+        access_logs=build_task_access_log_responses(
+            task_access_logs_by_task.get(task_id, []),
+            users_by_auth_uid,
+            app_settings,
+        ),
+        status=task.get("status") or TASK_STATUS_OPEN,
+    )
+
+
 def create_app() -> FastAPI:
     settings = get_settings()
 
@@ -266,7 +352,7 @@ def create_app() -> FastAPI:
         CORSMiddleware,
         allow_origins=[settings.frontend_origin],
         allow_credentials=True,
-        allow_methods=["GET", "POST", "OPTIONS"],
+        allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
         allow_headers=["Content-Type", "Authorization"],
     )
 
@@ -615,6 +701,187 @@ def create_app() -> FastAPI:
             app_settings.backend_cache_ttl_seconds,
         )
         return response
+
+    @app.get("/dashboard")
+    def get_dashboard_data(
+        current_user: object = Depends(get_current_user),
+        supabase_admin: Client = Depends(get_supabase_admin_client),
+        app_settings: Settings = Depends(get_settings),
+    ) -> dict:
+        user_id = getattr(current_user, "id", None)
+        if not user_id:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Session expired. Please sign in again.",
+            )
+
+        cache_key = f"dashboard:data:{user_id}"
+        cached_dashboard = backend_cache.get(cache_key)
+        if cached_dashboard is not None:
+            return cached_dashboard
+
+        project_response = (
+            supabase_admin.table(PROJECTS_TABLE)
+            .select(
+                "id,project_name,description,document_name,document_url,documents,"
+                "status,assigned_to,stakeholder_id"
+            )
+            .order("created_at", desc=True)
+            .execute()
+        )
+        projects = getattr(project_response, "data", None) or []
+        project_ids = [int(project["id"]) for project in projects]
+
+        members_by_project = get_project_members_for_projects(
+            supabase_admin,
+            project_ids,
+        )
+        project_watchers_by_project = get_project_watchers_for_projects(
+            supabase_admin,
+            project_ids,
+        )
+
+        tasks: list[dict] = []
+        if project_ids:
+            task_response = (
+                supabase_admin.table(TASKS_TABLE)
+                .select(
+                    "id,project_id,task_title,task_details,documents,assigned_to,"
+                    "stakeholder_id,status,start_date,end_date"
+                )
+                .in_("project_id", project_ids)
+                .order("created_at", desc=True)
+                .execute()
+            )
+            tasks = getattr(task_response, "data", None) or []
+
+        task_ids = [int(task["id"]) for task in tasks]
+        task_watchers_by_task = get_task_watchers_for_tasks(supabase_admin, task_ids)
+        task_work_logs_by_task = get_task_work_logs_for_tasks(supabase_admin, task_ids)
+        task_access_logs_by_task = get_task_access_logs_for_tasks(
+            supabase_admin,
+            task_ids,
+        )
+
+        user_ids: list[str] = []
+
+        def add_user_id(value: object) -> None:
+            if value:
+                user_ids.append(str(value))
+
+        for project in projects:
+            add_user_id(project.get("assigned_to"))
+            add_user_id(project.get("stakeholder_id"))
+        for members in members_by_project.values():
+            for member in members:
+                add_user_id(member.get("user_id"))
+        for watchers in project_watchers_by_project.values():
+            for watcher in watchers:
+                add_user_id(watcher.get("user_id"))
+        for task in tasks:
+            add_user_id(task.get("assigned_to"))
+            add_user_id(task.get("stakeholder_id"))
+        for watchers in task_watchers_by_task.values():
+            for watcher in watchers:
+                add_user_id(watcher.get("user_id"))
+        for work_logs in task_work_logs_by_task.values():
+            for work_log in work_logs:
+                add_user_id(work_log.get("logged_by"))
+        for access_logs in task_access_logs_by_task.values():
+            for access_log in access_logs:
+                add_user_id(access_log.get("actor_user_id"))
+                add_user_id(access_log.get("previous_assignee_id"))
+                add_user_id(access_log.get("new_assignee_id"))
+
+        users_by_auth_uid = get_ref_users_by_auth_uids(
+            supabase_admin,
+            app_settings,
+            user_ids,
+        )
+
+        project_responses = [
+            ProjectSummaryResponse(
+                id=project["id"],
+                project_name=project["project_name"],
+                description=project.get("description"),
+                document_name=project.get("document_name"),
+                document_url=project.get("document_url"),
+                documents=project.get("documents"),
+                status=project.get("status") or "ACTIVE",
+                assigned_to_email=get_user_email(
+                    users_by_auth_uid,
+                    project.get("assigned_to"),
+                    app_settings,
+                ),
+                assigned_to_name=get_user_name(
+                    users_by_auth_uid,
+                    project.get("assigned_to"),
+                ),
+                stakeholder_email=get_user_email(
+                    users_by_auth_uid,
+                    project.get("stakeholder_id"),
+                    app_settings,
+                ),
+                stakeholder_name=get_user_name(
+                    users_by_auth_uid,
+                    project.get("stakeholder_id"),
+                ),
+                assignees=build_member_responses(
+                    members_by_project.get(int(project["id"]), []),
+                    users_by_auth_uid,
+                    app_settings,
+                ),
+                watchers=build_watcher_responses(
+                    project_watchers_by_project.get(int(project["id"]), []),
+                    users_by_auth_uid,
+                    app_settings,
+                ),
+                can_edit=is_project_editor(
+                    project,
+                    project_watchers_by_project.get(int(project["id"]), []),
+                    user_id,
+                ),
+            )
+            for project in projects
+        ]
+
+        task_responses_by_project: dict[int, list[TaskSummaryResponse]] = {
+            project_id: [] for project_id in project_ids
+        }
+        for task in tasks:
+            task_response = build_task_summary_response(
+                task,
+                task_watchers_by_task,
+                task_work_logs_by_task,
+                task_access_logs_by_task,
+                users_by_auth_uid,
+                app_settings,
+            )
+            task_responses_by_project.setdefault(int(task["project_id"]), []).append(
+                task_response
+            )
+
+        details_by_project = {
+            project.id: ProjectDetailResponse(
+                **project.model_dump(),
+                tasks=task_responses_by_project.get(project.id, []),
+            )
+            for project in project_responses
+        }
+
+        dashboard = {
+            "projects": [project.model_dump() for project in project_responses],
+            "project_details": [
+                details_by_project[project.id].model_dump()
+                for project in project_responses
+            ],
+        }
+        backend_cache.set(
+            cache_key,
+            dashboard,
+            app_settings.backend_cache_ttl_seconds,
+        )
+        return dashboard
 
     @app.get("/projects/{project_id}", response_model=ProjectDetailResponse)
     def get_project_detail(

@@ -1,15 +1,24 @@
 :root {
   color-scheme: light;
-  --bg: #f6f8f5;
+  --bg: #ebe9f8;
+  --shell-bg: #fafbff;
+  --rail-bg: #ffffff;
   --surface: #ffffff;
+  --surface-soft: #f4f7fb;
   --ink: #17201d;
-  --muted: #5f6f68;
-  --line: #dbe4df;
-  --accent: #0b6b57;
-  --accent-strong: #084f41;
-  --accent-soft: #d9eee8;
-  --focus: #b45309;
-  --shadow: 0 24px 70px rgba(20, 35, 30, 0.14);
+  --muted: #66756f;
+  --quiet: #a9aec6;
+  --line: #e1e7e3;
+  --accent: #2f6f5d;
+  --accent-strong: #245846;
+  --accent-soft: #e7f6ed;
+  --lavender: #f0eeff;
+  --mint: #ebfaed;
+  --rose: #fceff6;
+  --warm: #fff9e8;
+  --focus: #5b6ee1;
+  --shadow: 0 24px 70px rgba(67, 76, 103, 0.13);
+  --soft-shadow: 0 18px 48px rgba(67, 76, 103, 0.09);
 }
 
 * {
@@ -25,8 +34,8 @@ body {
   margin: 0;
   color: var(--ink);
   background:
-    linear-gradient(115deg, rgba(11, 107, 87, 0.1), transparent 38%),
-    linear-gradient(315deg, rgba(180, 83, 9, 0.08), transparent 34%),
+    radial-gradient(circle at 12% 8%, rgba(91, 110, 225, 0.13), transparent 30%),
+    radial-gradient(circle at 88% 18%, rgba(47, 111, 93, 0.1), transparent 32%),
     var(--bg);
   font-family:
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
@@ -165,9 +174,9 @@ select,
 textarea {
   width: 100%;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 16px;
   color: var(--ink);
-  background: #fbfdfc;
+  background: rgba(251, 253, 252, 0.88);
   font: inherit;
   outline: none;
   transition:
@@ -207,7 +216,7 @@ select:focus,
 textarea:focus {
   border-color: var(--accent);
   background: #ffffff;
-  box-shadow: 0 0 0 4px rgba(11, 107, 87, 0.14);
+  box-shadow: 0 0 0 4px rgba(47, 111, 93, 0.14);
 }
 
 .remember-row {
@@ -230,7 +239,7 @@ button {
   justify-content: center;
   gap: 8px;
   border: 1px solid transparent;
-  border-radius: 8px;
+  border-radius: 18px;
   padding: 0 18px;
   color: #ffffff;
   background: var(--accent);
@@ -253,7 +262,7 @@ button {
 button:hover {
   color: #ffffff;
   background: var(--accent-strong);
-  box-shadow: 0 12px 24px rgba(11, 107, 87, 0.2);
+  box-shadow: 0 14px 30px rgba(47, 111, 93, 0.22);
   text-decoration: none;
   transform: translateY(-1px);
 }
@@ -271,7 +280,7 @@ button:hover {
 .tab-button {
   border-color: var(--line);
   color: var(--accent);
-  background: #ffffff;
+  background: rgba(255, 255, 255, 0.78);
 }
 
 .btn-secondary:hover,
@@ -287,13 +296,13 @@ button:hover {
 .btn-icon,
 .icon-link,
 .icon-action {
-  width: 48px;
-  min-width: 48px;
-  min-height: 48px;
+  width: 54px;
+  min-width: 54px;
+  min-height: 54px;
   padding: 0;
   border-color: var(--line);
   color: var(--accent);
-  background: #ffffff;
+  background: rgba(255, 255, 255, 0.78);
   font-size: 1.2rem;
   font-weight: 900;
   line-height: 1;
@@ -351,17 +360,67 @@ a:focus-visible {
 }
 
 .app-body {
-  background: var(--bg);
+  display: grid;
+  min-height: 100vh;
+  place-items: start center;
+  padding: 28px;
+  background:
+    linear-gradient(135deg, rgba(235, 233, 248, 0.92), rgba(246, 249, 246, 0.96)),
+    var(--bg);
 }
 
 .workspace-shell {
-  width: min(1120px, calc(100% - 32px));
+  position: relative;
+  width: min(1480px, 100%);
+  min-height: calc(100vh - 56px);
   margin: 0 auto;
-  padding: 40px 0;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.78);
+  border-radius: 28px;
+  padding: 48px 56px 56px 300px;
+  background:
+    linear-gradient(90deg, var(--rail-bg) 0 240px, transparent 240px),
+    linear-gradient(145deg, rgba(255, 255, 255, 0.94), rgba(249, 251, 255, 0.9));
+  box-shadow: 0 30px 90px rgba(68, 73, 110, 0.18);
+}
+
+.workspace-shell::before {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 240px;
+  border-right: 1px solid rgba(225, 231, 227, 0.78);
+  padding: 128px 34px 44px;
+  color: var(--quiet);
+  background: rgba(255, 255, 255, 0.72);
+  content: "Dashboard\A\A Projects\A\A Tasks\A\A Analytics\A\A Settings";
+  font-weight: 800;
+  line-height: 2.1;
+  white-space: pre-line;
+  pointer-events: none;
+}
+
+.workspace-shell::after {
+  position: absolute;
+  top: 42px;
+  left: 34px;
+  display: grid;
+  width: 48px;
+  height: 48px;
+  place-items: center;
+  border-radius: 50%;
+  color: #ffffff;
+  background: #5164df;
+  box-shadow: 0 16px 32px rgba(81, 100, 223, 0.24);
+  content: "N";
+  font-size: 1.2rem;
+  font-weight: 900;
+  pointer-events: none;
 }
 
 .narrow-shell {
-  width: min(760px, calc(100% - 32px));
+  width: min(1180px, 100%);
 }
 
 .workspace-header {
@@ -369,22 +428,31 @@ a:focus-visible {
   align-items: center;
   justify-content: space-between;
   gap: 24px;
-  margin-bottom: 28px;
+  margin-bottom: 32px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid rgba(225, 231, 227, 0.75);
+}
+
+.workspace-header > div:first-child {
+  min-width: 0;
 }
 
 .workspace-header h1 {
   max-width: none;
   margin-bottom: 0;
-  font-size: clamp(2.4rem, 6vw, 4.6rem);
+  font-size: clamp(3.2rem, 7vw, 6.2rem);
+  letter-spacing: 0;
+  overflow-wrap: anywhere;
 }
 
 .workspace-panel {
   max-width: 720px;
-  border: 1px solid rgba(219, 228, 223, 0.9);
-  border-radius: 8px;
-  padding: clamp(22px, 4vw, 32px);
-  background: rgba(255, 255, 255, 0.9);
-  box-shadow: var(--shadow);
+  border: 1px solid rgba(225, 231, 227, 0.95);
+  border-radius: 22px;
+  padding: clamp(22px, 4vw, 36px);
+  background: rgba(255, 255, 255, 0.84);
+  box-shadow: var(--soft-shadow);
+  backdrop-filter: blur(14px);
 }
 
 .wide-panel {
@@ -394,23 +462,24 @@ a:focus-visible {
 .workspace-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 24px;
+  gap: 28px;
   margin-bottom: 28px;
 }
 
 .analytics-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 16px;
-  margin-bottom: 24px;
+  gap: 20px;
+  margin-bottom: 28px;
 }
 
 .analytics-card {
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 18px;
-  background: #ffffff;
-  box-shadow: var(--shadow);
+  min-height: 120px;
+  border: 1px solid rgba(225, 231, 227, 0.92);
+  border-radius: 22px;
+  padding: 24px 26px;
+  background: rgba(255, 255, 255, 0.76);
+  box-shadow: var(--soft-shadow);
 }
 
 .analytics-card-wide {
@@ -419,18 +488,44 @@ a:focus-visible {
 
 .analytics-chart-card {
   grid-column: span 2;
+  min-height: 160px;
+}
+
+.analytics-card:nth-child(1) {
+  background: linear-gradient(145deg, #fffdf4, var(--surface));
+}
+
+.analytics-card:nth-child(2) {
+  background: linear-gradient(145deg, var(--lavender), var(--surface));
+}
+
+.analytics-card:nth-child(3) {
+  background: linear-gradient(145deg, #fff3ed, var(--surface));
+}
+
+.analytics-card:nth-child(4) {
+  background: linear-gradient(145deg, var(--mint), var(--surface));
+}
+
+.analytics-chart-card:nth-child(5) {
+  background: linear-gradient(145deg, #f4f5ff, var(--surface));
+}
+
+.analytics-chart-card:nth-child(6) {
+  background: linear-gradient(145deg, #edf9f1, var(--surface));
 }
 
 .analytics-card p {
   margin: 0;
   color: var(--muted);
+  font-size: 1rem;
 }
 
 .analytics-card strong {
   display: block;
-  margin-top: 8px;
+  margin-top: 10px;
   color: var(--ink);
-  font-size: 2rem;
+  font-size: 2.5rem;
   line-height: 1;
 }
 
@@ -458,10 +553,10 @@ a:focus-visible {
 }
 
 .bar-track {
-  height: 10px;
+  height: 12px;
   overflow: hidden;
   border-radius: 999px;
-  background: #e9f0ed;
+  background: rgba(47, 111, 93, 0.1);
 }
 
 .bar-fill {
@@ -557,9 +652,9 @@ a:focus-visible {
   max-height: 180px;
   overflow-y: auto;
   border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 8px;
-  background: #fbfdfc;
+  border-radius: 16px;
+  padding: 10px;
+  background: rgba(251, 253, 252, 0.92);
 }
 
 .checkbox-list.compact {
@@ -570,14 +665,14 @@ a:focus-visible {
   display: flex;
   align-items: center;
   gap: 10px;
-  border-radius: 6px;
+  border-radius: 14px;
   padding: 10px;
   color: var(--muted);
   font-weight: 600;
 }
 
 .checkbox-option:hover {
-  background: rgba(11, 107, 87, 0.07);
+  background: rgba(47, 111, 93, 0.08);
 }
 
 .checkbox-option input {
@@ -633,10 +728,10 @@ a:focus-visible {
   gap: 10px;
   min-height: 150px;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 20px;
   padding: 18px;
   color: var(--ink);
-  background: #ffffff;
+  background: rgba(255, 255, 255, 0.9);
   text-decoration: none;
   transition:
     border-color 160ms ease,
@@ -647,7 +742,7 @@ a:focus-visible {
 .item-card:hover {
   border-color: rgba(11, 107, 87, 0.45);
   color: var(--ink);
-  box-shadow: 0 16px 32px rgba(20, 35, 30, 0.1);
+  box-shadow: 0 18px 38px rgba(67, 76, 103, 0.12);
   text-decoration: none;
   transform: translateY(-1px);
 }
@@ -676,14 +771,15 @@ a:focus-visible {
 .detail-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 20px;
+  gap: 28px;
 }
 
 .data-table-wrap {
   overflow-x: auto;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: #ffffff;
+  border: 1px solid rgba(225, 231, 227, 0.95);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
 }
 
 .data-table {
@@ -694,7 +790,7 @@ a:focus-visible {
 
 .data-table th,
 .data-table td {
-  padding: 16px 18px;
+  padding: 18px 22px;
   border-bottom: 1px solid var(--line);
   text-align: left;
   vertical-align: top;
@@ -702,7 +798,7 @@ a:focus-visible {
 
 .data-table th {
   color: var(--accent);
-  background: #fbfdfc;
+  background: rgba(246, 249, 247, 0.88);
   font-size: 0.82rem;
   font-weight: 800;
   letter-spacing: 0;
@@ -711,10 +807,10 @@ a:focus-visible {
 
 .table-filter {
   width: 100%;
-  min-height: 34px;
+  min-height: 42px;
   margin-top: 10px;
-  border-radius: 6px;
-  padding: 6px 8px;
+  border-radius: 14px;
+  padding: 8px 12px;
   font-size: 0.9rem;
   text-transform: none;
 }
@@ -725,7 +821,7 @@ a:focus-visible {
 }
 
 .data-table tbody tr:hover {
-  background: rgba(11, 107, 87, 0.06);
+  background: rgba(47, 111, 93, 0.06);
 }
 
 .data-table tbody tr:last-child td {
@@ -742,12 +838,29 @@ a:focus-visible {
   display: grid;
   gap: 8px;
   border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 14px;
-  background: #fbfdfc;
+  border-radius: 18px;
+  padding: 16px;
+  background: rgba(255, 255, 255, 0.82);
 }
 
 @media (max-width: 780px) {
+  .app-body {
+    padding: 0;
+  }
+
+  .workspace-shell {
+    width: 100%;
+    min-height: 100vh;
+    border-radius: 0;
+    padding: 28px 18px;
+    background: rgba(250, 251, 255, 0.96);
+  }
+
+  .workspace-shell::before,
+  .workspace-shell::after {
+    display: none;
+  }
+
   .login-shell {
     grid-template-columns: 1fr;
     gap: 28px;

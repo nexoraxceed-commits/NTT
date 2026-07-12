@@ -1007,22 +1007,13 @@ function setupDashboardProjects() {
   async function loadProjects() {
     setMessage(messageElement, "Loading projects...");
     try {
-      const projects = await getAuthorizedJson("/projects");
+      const dashboardData = await getAuthorizedJson("/dashboard");
+      const projects = dashboardData.projects || [];
       dashboardProjects = projects;
-      const detailResults = await Promise.allSettled(
-        projects.map((project) => getAuthorizedJson(`/projects/${project.id}`))
-      );
-      dashboardDetails = detailResults
-        .filter((result) => result.status === "fulfilled")
-        .map((result) => result.value);
+      dashboardDetails = dashboardData.project_details || [];
       renderAnalytics(projects, dashboardDetails);
       renderProjectRows(projects);
-      setMessage(
-        messageElement,
-        detailResults.some((result) => result.status === "rejected")
-          ? "Some analytics could not be loaded."
-          : ""
-      );
+      setMessage(messageElement, "");
     } catch (error) {
       renderEmptyState(projectList, "Projects could not be loaded.");
       setMessage(messageElement, error.message, true);
