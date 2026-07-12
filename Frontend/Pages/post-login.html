@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>NTT Workspace</title>
-    <link rel="stylesheet" href="/Css/styles.css?v=20260712-productivity">
+    <link rel="stylesheet" href="/Css/styles.css?v=20260713-manager-report">
   </head>
   <body class="app-body">
     <main class="workspace-shell">
@@ -14,21 +14,31 @@
           <h1>Dashboard</h1>
         </div>
         <div class="header-actions">
-          <button class="secondary-link" type="button" id="download-analytics-button">Download Report</button>
-          <a class="button-link" href="/create-project">Create Project</a>
-          <button class="secondary-link" type="button" data-logout-button>Log out</button>
+          <button class="icon-action" type="button" id="download-analytics-button" aria-label="Download report" title="Download report">
+            <span aria-hidden="true">&#8595;</span>
+          </button>
+          <a class="icon-action" href="/create-project" aria-label="Create project" title="Create project">
+            <span aria-hidden="true">+</span>
+          </a>
+          <button class="icon-action" type="button" data-logout-button aria-label="Log out" title="Log out">
+            <span aria-hidden="true">&#10138;</span>
+          </button>
+          <button class="icon-action is-hidden-control" type="button" id="delete-access-log-button" aria-label="Delete access log" title="Delete access log" hidden>
+            <span aria-hidden="true">&times;</span>
+          </button>
         </div>
       </header>
       <section class="analytics-grid" id="dashboard-analytics"></section>
       <section class="workspace-panel wide-panel" aria-labelledby="projects-title">
         <div class="section-header">
           <h2 id="projects-title">Projects</h2>
+          <p class="panel-stat" id="project-count">0 projects</p>
           <p class="form-message" id="projects-message" role="status" aria-live="polite"></p>
         </div>
         <div id="project-list"></div>
       </section>
     </main>
     <script src="/Js/config.js"></script>
-    <script src="/Js/app.js?v=20260712-productivity"></script>
+    <script src="/Js/app.js?v=20260713-manager-report"></script>
   </body>
 </html>

@@ -102,6 +102,31 @@ class ProjectSummaryResponse(BaseModel):
     can_edit: bool = False
 
 
+class TaskWorkLogResponse(BaseModel):
+    id: int
+    work_note: str
+    work_date: str | None = None
+    hours: float | None = None
+    logged_by_email: str | None = None
+    logged_by_name: str | None = None
+    created_at: str | None = None
+
+
+class TaskAccessLogResponse(BaseModel):
+    id: int
+    event_type: str
+    event_note: str | None = None
+    previous_status: str | None = None
+    new_status: str | None = None
+    previous_assignee_email: str | None = None
+    previous_assignee_name: str | None = None
+    new_assignee_email: str | None = None
+    new_assignee_name: str | None = None
+    actor_email: str | None = None
+    actor_name: str | None = None
+    created_at: str | None = None
+
+
 class TaskSummaryResponse(BaseModel):
     id: int
     project_id: int
@@ -115,6 +140,8 @@ class TaskSummaryResponse(BaseModel):
     start_date: str | None = None
     end_date: str | None = None
     watchers: list[WatcherResponse] = Field(default_factory=list)
+    work_logs: list[TaskWorkLogResponse] = Field(default_factory=list)
+    access_logs: list[TaskAccessLogResponse] = Field(default_factory=list)
     status: str
 
 
@@ -124,16 +151,6 @@ class TaskCommentResponse(BaseModel):
     deliverable_url: str | None = None
     commented_by_email: str | None = None
     commented_by_name: str | None = None
-    created_at: str | None = None
-
-
-class TaskWorkLogResponse(BaseModel):
-    id: int
-    work_note: str
-    work_date: str | None = None
-    hours: float | None = None
-    logged_by_email: str | None = None
-    logged_by_name: str | None = None
     created_at: str | None = None
 
 

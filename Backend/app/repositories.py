@@ -10,6 +10,7 @@ from app.constants import (
     PROJECT_WATCHERS_TABLE,
     PROJECTS_TABLE,
     REF_USER_NAME_COLUMN,
+    TASK_ACCESS_LOG_TABLE,
     TASK_WATCHERS_TABLE,
     TASK_WORK_LOGS_TABLE,
     TASKS_TABLE,
@@ -391,6 +392,90 @@ def get_task_work_logs(
         .execute()
     )
     return getattr(response, "data", None) or []
+
+
+def get_task_work_logs_for_tasks(
+    supabase: Client,
+    task_ids: list[int],
+) -> dict[int, list[dict]]:
+    if not task_ids:
+        return {}
+
+    response = (
+        supabase.table(TASK_WORK_LOGS_TABLE)
+        .select("id,created_at,task_id,logged_by,work_date,hours,work_note")
+        .in_("task_id", task_ids)
+        .order("work_date", desc=True)
+        .order("created_at", desc=True)
+        .execute()
+    )
+    logs_by_task: dict[int, list[dict]] = {}
+    for work_log in getattr(response, "data", None) or []:
+        task_id = work_log.get("task_id")
+        if task_id is None:
+            continue
+        logs_by_task.setdefault(int(task_id), []).append(work_log)
+
+    return logs_by_task
+
+
+def insert_task_access_log(
+    supabase: Client,
+    *,
+    task_id: int,
+    project_id: int,
+    actor_user_id: str | None,
+    event_type: str,
+    previous_status: str | None = None,
+    new_status: str | None = None,
+    previous_assignee_id: str | None = None,
+    new_assignee_id: str | None = None,
+    event_note: str | None = None,
+) -> None:
+    supabase.table(TASK_ACCESS_LOG_TABLE).insert(
+        {
+            "task_id": task_id,
+            "project_id": project_id,
+            "actor_user_id": actor_user_id,
+            "event_type": event_type,
+            "previous_status": previous_status,
+            "new_status": new_status,
+            "previous_assignee_id": previous_assignee_id,
+            "new_assignee_id": new_assignee_id,
+            "event_note": event_note,
+        }
+    ).execute()
+
+
+def get_task_access_logs_for_tasks(
+    supabase: Client,
+    task_ids: list[int],
+) -> dict[int, list[dict]]:
+    if not task_ids:
+        return {}
+
+    response = (
+        supabase.table(TASK_ACCESS_LOG_TABLE)
+        .select(
+            "id,created_at,task_id,project_id,actor_user_id,event_type,event_note,"
+            "previous_status,new_status,previous_assignee_id,new_assignee_id"
+        )
+        .in_("task_id", task_ids)
+        .order("created_at", desc=True)
+        .execute()
+    )
+    logs_by_task: dict[int, list[dict]] = {}
+    for access_log in getattr(response, "data", None) or []:
+        task_id = access_log.get("task_id")
+        if task_id is None:
+            continue
+        logs_by_task.setdefault(int(task_id), []).append(access_log)
+
+    return logs_by_task
+
+
+def delete_task_access_logs(supabase: Client) -> None:
+    supabase.table(TASK_ACCESS_LOG_TABLE).delete().neq("id", 0).execute()
 
 
 def update_ref_user_status(

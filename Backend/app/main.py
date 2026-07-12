@@ -28,6 +28,7 @@ from app.constants import (
 from app.dependencies import get_current_user
 from app.mappers import build_member_responses, build_watcher_responses
 from app.repositories import (
+    delete_task_access_logs,
     ensure_project_member,
     get_active_ref_users,
     get_project_by_id,
@@ -38,12 +39,15 @@ from app.repositories import (
     get_ref_user,
     get_ref_users_by_emails,
     get_ref_users_by_auth_uids,
+    get_task_access_logs_for_tasks,
     get_task_by_id,
     get_task_watchers,
     get_task_watchers_for_tasks,
     get_task_work_logs,
+    get_task_work_logs_for_tasks,
     get_user_project_memberships,
     get_user_project_watchlist,
+    insert_task_access_log,
     replace_project_watchers,
     replace_task_watchers,
     sync_ref_user_auth_uid,
@@ -64,6 +68,7 @@ from app.schemas import (
     ProjectSummaryResponse,
     ProjectUserResponse,
     SignupRequest,
+    TaskAccessLogResponse,
     TaskCommentResponse,
     TaskDetailResponse,
     TaskSummaryResponse,
@@ -216,6 +221,42 @@ def has_project_access(
         )
         or is_project_editor(project, watchers, user_id)
     )
+
+
+def build_task_access_log_responses(
+    access_logs: list[dict],
+    users_by_auth_uid: dict[str, dict],
+    app_settings: Settings,
+) -> list[TaskAccessLogResponse]:
+    return [
+        TaskAccessLogResponse(
+            id=access_log["id"],
+            event_type=access_log.get("event_type") or "",
+            event_note=access_log.get("event_note"),
+            previous_status=access_log.get("previous_status"),
+            new_status=access_log.get("new_status"),
+            previous_assignee_email=users_by_auth_uid.get(
+                str(access_log.get("previous_assignee_id")), {}
+            ).get(app_settings.signup_allowed_users_email_column),
+            previous_assignee_name=users_by_auth_uid.get(
+                str(access_log.get("previous_assignee_id")), {}
+            ).get(REF_USER_NAME_COLUMN),
+            new_assignee_email=users_by_auth_uid.get(
+                str(access_log.get("new_assignee_id")), {}
+            ).get(app_settings.signup_allowed_users_email_column),
+            new_assignee_name=users_by_auth_uid.get(
+                str(access_log.get("new_assignee_id")), {}
+            ).get(REF_USER_NAME_COLUMN),
+            actor_email=users_by_auth_uid.get(
+                str(access_log.get("actor_user_id")), {}
+            ).get(app_settings.signup_allowed_users_email_column),
+            actor_name=users_by_auth_uid.get(str(access_log.get("actor_user_id")), {}).get(
+                REF_USER_NAME_COLUMN
+            ),
+            created_at=access_log.get("created_at"),
+        )
+        for access_log in access_logs
+    ]
 
 
 def create_app() -> FastAPI:
@@ -669,6 +710,11 @@ def create_app() -> FastAPI:
         tasks = getattr(task_response, "data", None) or []
         task_ids = [int(task["id"]) for task in tasks]
         task_watchers_by_task = get_task_watchers_for_tasks(supabase_admin, task_ids)
+        task_work_logs_by_task = get_task_work_logs_for_tasks(supabase_admin, task_ids)
+        task_access_logs_by_task = get_task_access_logs_for_tasks(
+            supabase_admin,
+            task_ids,
+        )
         user_ids = [
             str(member["user_id"]) for member in members if member.get("user_id")
         ]
@@ -688,6 +734,23 @@ def create_app() -> FastAPI:
             for watchers in task_watchers_by_task.values()
             for watcher in watchers
             if watcher.get("user_id")
+        )
+        user_ids.extend(
+            str(work_log["logged_by"])
+            for work_logs in task_work_logs_by_task.values()
+            for work_log in work_logs
+            if work_log.get("logged_by")
+        )
+        user_ids.extend(
+            str(access_log[user_id_key])
+            for access_logs in task_access_logs_by_task.values()
+            for access_log in access_logs
+            for user_id_key in (
+                "actor_user_id",
+                "previous_assignee_id",
+                "new_assignee_id",
+            )
+            if access_log.get(user_id_key)
         )
         users_by_auth_uid = get_ref_users_by_auth_uids(
             supabase_admin,
@@ -777,6 +840,27 @@ def create_app() -> FastAPI:
                     end_date=task.get("end_date"),
                     watchers=build_watcher_responses(
                         task_watchers_by_task.get(int(task["id"]), []),
+                        users_by_auth_uid,
+                        app_settings,
+                    ),
+                    work_logs=[
+                        TaskWorkLogResponse(
+                            id=work_log["id"],
+                            work_note=work_log.get("work_note") or "",
+                            work_date=work_log.get("work_date"),
+                            hours=work_log.get("hours"),
+                            logged_by_email=users_by_auth_uid.get(
+                                str(work_log.get("logged_by")), {}
+                            ).get(app_settings.signup_allowed_users_email_column),
+                            logged_by_name=users_by_auth_uid.get(
+                                str(work_log.get("logged_by")), {}
+                            ).get(REF_USER_NAME_COLUMN),
+                            created_at=work_log.get("created_at"),
+                        )
+                        for work_log in task_work_logs_by_task.get(int(task["id"]), [])
+                    ],
+                    access_logs=build_task_access_log_responses(
+                        task_access_logs_by_task.get(int(task["id"]), []),
                         users_by_auth_uid,
                         app_settings,
                     ),
@@ -1104,6 +1188,16 @@ def create_app() -> FastAPI:
         task_id = int(task_data[0]["id"]) if task_data else None
         if task_id:
             replace_task_watchers(supabase_admin, task_id, watcher_user_ids)
+            insert_task_access_log(
+                supabase_admin,
+                task_id=task_id,
+                project_id=project_id,
+                actor_user_id=str(user_id),
+                event_type="TASK_CREATED",
+                new_status=TASK_STATUS_OPEN,
+                new_assignee_id=str(assigned_user_id) if assigned_user_id else None,
+                event_note="Task was created.",
+            )
 
         backend_cache.clear()
         return MessageResponse(detail="Task created successfully.")
@@ -1170,6 +1264,34 @@ def create_app() -> FastAPI:
                 .eq("id", task_id)
                 .execute()
             )
+            if "assigned_to" in update_payload and str(task.get("assigned_to") or "") != str(
+                update_payload.get("assigned_to") or ""
+            ):
+                insert_task_access_log(
+                    supabase_admin,
+                    task_id=task_id,
+                    project_id=project_id,
+                    actor_user_id=str(user_id),
+                    event_type="TASK_ASSIGNEE_CHANGED",
+                    previous_assignee_id=(
+                        str(task.get("assigned_to")) if task.get("assigned_to") else None
+                    ),
+                    new_assignee_id=(
+                        str(update_payload.get("assigned_to"))
+                        if update_payload.get("assigned_to")
+                        else None
+                    ),
+                    event_note="Task assignee changed.",
+                )
+            if "end_date" in update_payload:
+                insert_task_access_log(
+                    supabase_admin,
+                    task_id=task_id,
+                    project_id=project_id,
+                    actor_user_id=str(user_id),
+                    event_type="TASK_DUE_DATE_CHANGED",
+                    event_note=f"Task end date changed to {update_payload['end_date']}.",
+                )
 
         watcher_user_ids = resolve_active_user_ids(
             supabase_admin,
@@ -1250,6 +1372,30 @@ def create_app() -> FastAPI:
             status_payload["start_date"] = datetime.now(timezone.utc).isoformat()
 
         supabase_admin.table(TASKS_TABLE).update(status_payload).eq("id", task_id).execute()
+        event_type_by_status = {
+            TASK_STATUS_IN_PROGRESS: "TASK_WORK_STARTED",
+            TASK_STATUS_CLOSE_REQUESTED: "TASK_CLOSE_REQUESTED",
+            TASK_STATUS_CLOSED: "TASK_CLOSED",
+        }
+        insert_task_access_log(
+            supabase_admin,
+            task_id=task_id,
+            project_id=project_id,
+            actor_user_id=str(user_id),
+            event_type=event_type_by_status.get(
+                requested_status,
+                "TASK_STATUS_CHANGED",
+            ),
+            previous_status=task.get("status"),
+            new_status=requested_status,
+            previous_assignee_id=(
+                str(task.get("assigned_to")) if task.get("assigned_to") else None
+            ),
+            new_assignee_id=(
+                str(task.get("assigned_to")) if task.get("assigned_to") else None
+            ),
+            event_note=f"Task status changed to {requested_status}.",
+        )
 
         if requested_status == TASK_STATUS_CLOSE_REQUESTED and task.get(
             "stakeholder_id"
@@ -1327,6 +1473,10 @@ def create_app() -> FastAPI:
         )
         comments = getattr(comment_response, "data", None) or []
         work_logs = get_task_work_logs(supabase_admin, task_id)
+        access_logs = get_task_access_logs_for_tasks(supabase_admin, [task_id]).get(
+            task_id,
+            [],
+        )
         task_watchers = get_task_watchers(supabase_admin, task_id)
         user_ids = []
         if task.get("assigned_to"):
@@ -1345,6 +1495,16 @@ def create_app() -> FastAPI:
             str(work_log["logged_by"])
             for work_log in work_logs
             if work_log.get("logged_by")
+        )
+        user_ids.extend(
+            str(access_log[user_id_key])
+            for access_log in access_logs
+            for user_id_key in (
+                "actor_user_id",
+                "previous_assignee_id",
+                "new_assignee_id",
+            )
+            if access_log.get(user_id_key)
         )
         users_by_auth_uid = get_ref_users_by_auth_uids(
             supabase_admin,
@@ -1418,6 +1578,11 @@ def create_app() -> FastAPI:
                 )
                 for work_log in work_logs
             ],
+            access_logs=build_task_access_log_responses(
+                access_logs,
+                users_by_auth_uid,
+                app_settings,
+            ),
         )
         backend_cache.set(
             cache_key,
@@ -1454,6 +1619,22 @@ def create_app() -> FastAPI:
                 }
             )
             .execute()
+        )
+        insert_task_access_log(
+            supabase_admin,
+            task_id=task_id,
+            project_id=int(task["project_id"]),
+            actor_user_id=str(user_id),
+            event_type="TASK_COMMENT_ADDED",
+            previous_status=task.get("status"),
+            new_status=task.get("status"),
+            previous_assignee_id=(
+                str(task.get("assigned_to")) if task.get("assigned_to") else None
+            ),
+            new_assignee_id=(
+                str(task.get("assigned_to")) if task.get("assigned_to") else None
+            ),
+            event_note="Comment added.",
         )
         task_watchers = get_task_watchers(supabase_admin, task_id)
         watcher_user_ids = [
@@ -1510,9 +1691,41 @@ def create_app() -> FastAPI:
                 "work_note": payload.work_note.strip(),
             }
         ).execute()
+        insert_task_access_log(
+            supabase_admin,
+            task_id=task_id,
+            project_id=int(task["project_id"]),
+            actor_user_id=str(user_id),
+            event_type="TASK_WORK_LOGGED",
+            previous_status=task.get("status"),
+            new_status=task.get("status"),
+            previous_assignee_id=(
+                str(task.get("assigned_to")) if task.get("assigned_to") else None
+            ),
+            new_assignee_id=(
+                str(task.get("assigned_to")) if task.get("assigned_to") else None
+            ),
+            event_note=f"{payload.hours or 0} hours logged for {work_date}.",
+        )
 
         backend_cache.clear()
         return MessageResponse(detail="Work log added successfully.")
+
+    @app.delete("/access-logs", response_model=MessageResponse)
+    def delete_access_logs(
+        current_user: object = Depends(get_current_user),
+        supabase_admin: Client = Depends(get_supabase_admin_client),
+    ) -> MessageResponse:
+        user_id = getattr(current_user, "id", None)
+        if not user_id:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Session expired. Please sign in again.",
+            )
+
+        delete_task_access_logs(supabase_admin)
+        backend_cache.clear()
+        return MessageResponse(detail="Task access log deleted successfully.")
 
     return app
 

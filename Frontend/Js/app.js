@@ -212,6 +212,36 @@ function formatAssignee(user) {
   return user.user_name || user.email || "Unassigned";
 }
 
+function getTaskAssigneeList(task) {
+  const candidates = Array.isArray(task.assignees) && task.assignees.length
+    ? task.assignees
+    : [task];
+  const assignees = candidates
+    .map((assignee) => ({
+      name:
+        assignee.assigned_to_name ||
+        assignee.name ||
+        assignee.user_name ||
+        assignee.assigned_to_email ||
+        assignee.email ||
+        null,
+      email: assignee.assigned_to_email || assignee.email || null,
+    }))
+    .filter((assignee) => assignee.name || assignee.email);
+
+  if (!assignees.length) {
+    return [{ name: "Unassigned", email: null }];
+  }
+
+  return assignees;
+}
+
+function formatTaskAssignees(task) {
+  return getTaskAssigneeList(task)
+    .map((assignee) => assignee.name || assignee.email)
+    .join(", ");
+}
+
 function formatProjectMembers(members = []) {
   if (!members.length) {
     return "No assignees";
@@ -674,11 +704,94 @@ function setupDashboardProjects() {
   const refreshButton = document.querySelector("#refresh-projects-button");
   const analyticsElement = document.querySelector("#dashboard-analytics");
   const downloadButton = document.querySelector("#download-analytics-button");
+  const deleteAccessLogButton = document.querySelector("#delete-access-log-button");
+  const projectCountElement = document.querySelector("#project-count");
   let dashboardProjects = [];
   let dashboardDetails = [];
 
   if (!projectList) {
     return;
+  }
+
+  function getTaskAssignees(task) {
+    return getTaskAssigneeList(task);
+  }
+
+  function getTaskAssigneeLabel(task) {
+    return formatTaskAssignees(task);
+  }
+
+  function getProjectAssignees(project) {
+    const projectMembers = Array.isArray(project.assignees)
+      ? project.assignees.filter((member) => member.status !== "INACTIVE")
+      : [];
+    const candidates = projectMembers.length ? projectMembers : [project];
+    const assignees = candidates
+      .map((assignee) => ({
+        name:
+          assignee.assigned_to_name ||
+          assignee.name ||
+          assignee.user_name ||
+          assignee.assigned_to_email ||
+          assignee.email ||
+          null,
+        email: assignee.assigned_to_email || assignee.email || null,
+      }))
+      .filter((assignee) => assignee.name || assignee.email);
+
+    if (!assignees.length) {
+      return [{ name: "Unassigned", email: null }];
+    }
+
+    return assignees;
+  }
+
+  function getProjectAssigneeLabel(project) {
+    return getProjectAssignees(project)
+      .map((assignee) => assignee.name || assignee.email)
+      .join(", ");
+  }
+
+  function incrementMetric(metricMap, label, amount = 1) {
+    metricMap.set(label, (metricMap.get(label) || 0) + amount);
+  }
+
+  function isInCurrentWeek(dateValue) {
+    if (!dateValue) {
+      return false;
+    }
+    const date = new Date(dateValue);
+    if (Number.isNaN(date.getTime())) {
+      return false;
+    }
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const weekStart = new Date(today);
+    weekStart.setDate(today.getDate() - today.getDay());
+    const weekEnd = new Date(weekStart);
+    weekEnd.setDate(weekStart.getDate() + 7);
+    return date >= weekStart && date < weekEnd;
+  }
+
+  function appendBarRow(container, label, value, maxValue, suffix = "") {
+    const row = document.createElement("div");
+    row.className = "bar-row";
+
+    const labelElement = document.createElement("span");
+    labelElement.textContent = label;
+
+    const track = document.createElement("span");
+    track.className = "bar-track";
+    const fill = document.createElement("span");
+    fill.className = "bar-fill";
+    fill.style.width = `${Math.max((value / maxValue) * 100, 8)}%`;
+    track.append(fill);
+
+    const valueElement = document.createElement("span");
+    valueElement.textContent = `${value}${suffix}`;
+
+    row.append(labelElement, track, valueElement);
+    container.append(row);
   }
 
   function renderAnalytics(projects, details) {
@@ -705,14 +818,27 @@ function setupDashboardProjects() {
 
     const workload = new Map();
     tasks.forEach((task) => {
-      const assignee = task.assigned_to_name || task.assigned_to_email || "Unassigned";
-      workload.set(assignee, (workload.get(assignee) || 0) + 1);
+      getTaskAssignees(task).forEach((assignee) => {
+        incrementMetric(workload, assignee.name || assignee.email || "Unassigned");
+      });
     });
     const maxWorkload = Math.max(...workload.values(), 1);
 
+    const weeklyHours = new Map();
+    tasks.forEach((task) => {
+      (task.work_logs || []).forEach((workLog) => {
+        if (!isInCurrentWeek(workLog.work_date)) {
+          return;
+        }
+        const loggedBy =
+          workLog.logged_by_name || workLog.logged_by_email || "Unknown";
+        incrementMetric(weeklyHours, loggedBy, Number(workLog.hours || 0));
+      });
+    });
+    const maxWeeklyHours = Math.max(...weeklyHours.values(), 1);
+
     analyticsElement.innerHTML = "";
     [
-      ["Projects", projects.length],
       ["Open tasks", openTasks],
       ["In progress", inProgressTasks],
       ["Overdue", overdueTasks],
@@ -725,26 +851,60 @@ function setupDashboardProjects() {
     });
 
     const workloadCard = document.createElement("article");
-    workloadCard.className = "analytics-card";
+    workloadCard.className = "analytics-card analytics-chart-card";
     const title = document.createElement("p");
     title.textContent = "Tasks by assignee";
     const bars = document.createElement("div");
     bars.className = "bar-list";
-    Array.from(workload.entries())
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 5)
-      .forEach(([name, count]) => {
-        const row = document.createElement("div");
-        row.className = "bar-row";
-        row.innerHTML = `<span>${name}</span><span class="bar-track"><span class="bar-fill" style="width:${Math.max((count / maxWorkload) * 100, 8)}%"></span></span><span>${count}</span>`;
-        bars.append(row);
-      });
+    const workloadEntries = Array.from(workload.entries()).sort(
+      (a, b) => b[1] - a[1]
+    );
+    if (!workloadEntries.length) {
+      const emptyState = document.createElement("span");
+      emptyState.className = "empty-state compact";
+      emptyState.textContent = "No assigned tasks yet.";
+      bars.append(emptyState);
+    }
+    workloadEntries.slice(0, 8).forEach(([name, count]) => {
+      appendBarRow(bars, name, count, maxWorkload);
+    });
     workloadCard.append(title, bars);
     analyticsElement.append(workloadCard);
+
+    const weeklyHoursCard = document.createElement("article");
+    weeklyHoursCard.className = "analytics-card analytics-chart-card";
+    const weeklyHoursTitle = document.createElement("p");
+    weeklyHoursTitle.textContent = "Work log by assignee";
+    const weeklyHoursBars = document.createElement("div");
+    weeklyHoursBars.className = "bar-list";
+    const weeklyHourEntries = Array.from(weeklyHours.entries()).sort(
+      (a, b) => b[1] - a[1]
+    );
+    if (!weeklyHourEntries.length) {
+      const emptyState = document.createElement("span");
+      emptyState.className = "empty-state compact";
+      emptyState.textContent = "No work hours logged this week.";
+      weeklyHoursBars.append(emptyState);
+    }
+    weeklyHourEntries.slice(0, 8).forEach(([name, hours]) => {
+      appendBarRow(
+        weeklyHoursBars,
+        name,
+        Number(hours.toFixed(2)),
+        maxWeeklyHours,
+        "h"
+      );
+    });
+    weeklyHoursCard.append(weeklyHoursTitle, weeklyHoursBars);
+    analyticsElement.append(weeklyHoursCard);
   }
 
   function renderProjectRows(projects, activeFilters = {}) {
     projectList.innerHTML = "";
+    if (projectCountElement) {
+      const count = dashboardProjects.length;
+      projectCountElement.textContent = `${count} project${count === 1 ? "" : "s"}`;
+    }
 
     if (!projects.length) {
       renderEmptyState(projectList, "No projects found.");
@@ -753,8 +913,10 @@ function setupDashboardProjects() {
 
     const assignees = Array.from(
       new Set(
-        dashboardProjects.map(
-          (project) => project.assigned_to_name || project.assigned_to_email || "Unassigned"
+        dashboardProjects.flatMap((project) =>
+          getProjectAssignees(project).map(
+            (assignee) => assignee.name || assignee.email || "Unassigned"
+          )
         )
       )
     ).sort();
@@ -816,8 +978,7 @@ function setupDashboardProjects() {
       titleCell.append(projectLink);
 
       const assigneeCell = document.createElement("td");
-      assigneeCell.textContent =
-        project.assigned_to_name || project.assigned_to_email || "Unassigned";
+      assigneeCell.textContent = getProjectAssigneeLabel(project);
 
       const stakeholderCell = document.createElement("td");
       stakeholderCell.textContent =
@@ -840,12 +1001,13 @@ function setupDashboardProjects() {
           ])
         );
         const filtered = dashboardProjects.filter((project) => {
-          const assignee =
-            project.assigned_to_name || project.assigned_to_email || "Unassigned";
+          const assignees = getProjectAssignees(project).map(
+            (assignee) => assignee.name || assignee.email || "Unassigned"
+          );
           const stakeholder =
             project.stakeholder_name || project.stakeholder_email || "No stakeholder";
           return (
-            (!activeFilters.assignee || assignee === activeFilters.assignee) &&
+            (!activeFilters.assignee || assignees.includes(activeFilters.assignee)) &&
             (!activeFilters.stakeholder || stakeholder === activeFilters.stakeholder)
           );
         });
@@ -859,12 +1021,20 @@ function setupDashboardProjects() {
     try {
       const projects = await getAuthorizedJson("/projects");
       dashboardProjects = projects;
-      dashboardDetails = await Promise.all(
+      const detailResults = await Promise.allSettled(
         projects.map((project) => getAuthorizedJson(`/projects/${project.id}`))
       );
+      dashboardDetails = detailResults
+        .filter((result) => result.status === "fulfilled")
+        .map((result) => result.value);
       renderAnalytics(projects, dashboardDetails);
       renderProjectRows(projects);
-      setMessage(messageElement, "");
+      setMessage(
+        messageElement,
+        detailResults.some((result) => result.status === "rejected")
+          ? "Some analytics could not be loaded."
+          : ""
+      );
     } catch (error) {
       renderEmptyState(projectList, "Projects could not be loaded.");
       setMessage(messageElement, error.message, true);
@@ -872,20 +1042,76 @@ function setupDashboardProjects() {
   }
 
   downloadButton?.addEventListener("click", () => {
-    const taskRows = dashboardDetails.flatMap((project) =>
-      (project.tasks || []).map((task) => [
+    const tasks = dashboardDetails.flatMap((project) =>
+      (project.tasks || []).map((task) => ({ ...task, project }))
+    );
+    const workLogRows = tasks.flatMap(({ project, ...task }) =>
+      (task.work_logs || []).map((workLog) => [
+        workLog.work_date || "",
         project.project_name,
-        project.assigned_to_name || project.assigned_to_email || "",
-        project.stakeholder_name || project.stakeholder_email || "",
         task.task_title,
-        task.assigned_to_name || task.assigned_to_email || "",
-        task.stakeholder_name || task.stakeholder_email || "",
-        task.status || "",
-        task.start_date || "",
-        task.end_date || "",
+        workLog.logged_by_name || workLog.logged_by_email || "",
+        workLog.hours ?? "",
+        workLog.work_note || "",
+        workLog.created_at || "",
       ])
     );
-    downloadCsv("ntt-analytics-report.csv", [
+    const accessLogRows = tasks.flatMap(({ project, ...task }) =>
+      (task.access_logs || []).map((accessLog) => [
+        accessLog.created_at || "",
+        project.project_name,
+        task.task_title,
+        accessLog.event_type || "",
+        accessLog.actor_name || accessLog.actor_email || "",
+        accessLog.previous_status || "",
+        accessLog.new_status || "",
+        accessLog.previous_assignee_name ||
+          accessLog.previous_assignee_email ||
+          "",
+        accessLog.new_assignee_name || accessLog.new_assignee_email || "",
+        accessLog.event_note || "",
+      ])
+    );
+    const overdueTasks = tasks.filter(({ status, end_date }) => {
+      if (!end_date || status === "CLOSED") {
+        return false;
+      }
+      const endDate = new Date(end_date);
+      endDate.setHours(0, 0, 0, 0);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      return endDate < today;
+    });
+    const weeklyHours = workLogRows
+      .filter((row) => isInCurrentWeek(row[0]))
+      .reduce((total, row) => total + Number(row[4] || 0), 0);
+    const reportRows = [
+      ["NTT Analytics Report"],
+      ["Generated At", new Date().toISOString()],
+      [],
+      ["Executive Summary"],
+      ["Projects", dashboardProjects.length],
+      ["Tasks", tasks.length],
+      ["Open Tasks", tasks.filter((task) => task.status === "OPEN").length],
+      [
+        "In Progress Tasks",
+        tasks.filter((task) => task.status === "IN PROGRESS").length,
+      ],
+      ["Overdue Tasks", overdueTasks.length],
+      ["Closed Tasks", tasks.filter((task) => task.status === "CLOSED").length],
+      ["Work Hours Logged This Week", Number(weeklyHours.toFixed(2))],
+      [],
+      ["Project Register"],
+      ["Project", "Description", "Assignee", "Stakeholder", "Status"],
+      ...dashboardProjects.map((project) => [
+        project.project_name,
+        project.description || "",
+        getProjectAssigneeLabel(project),
+        project.stakeholder_name || project.stakeholder_email || "",
+        project.status || "",
+      ]),
+      [],
+      ["Task Register"],
       [
         "Project",
         "Project Assignee",
@@ -897,8 +1123,50 @@ function setupDashboardProjects() {
         "Start Date",
         "End Date",
       ],
-      ...taskRows,
-    ]);
+      ...tasks.map(({ project, ...task }) => [
+        project.project_name,
+        getProjectAssigneeLabel(project),
+        project.stakeholder_name || project.stakeholder_email || "",
+        task.task_title,
+        getTaskAssigneeLabel(task),
+        task.stakeholder_name || task.stakeholder_email || "",
+        task.status || "",
+        task.start_date || "",
+        task.end_date || "",
+      ]),
+      [],
+      ["Work Log Register"],
+      ["Work Date", "Project", "Task", "Logged By", "Hours", "Note", "Created At"],
+      ...workLogRows,
+      [],
+      ["Access Log"],
+      [
+        "Event At",
+        "Project",
+        "Task",
+        "Event",
+        "Actor",
+        "Previous Status",
+        "New Status",
+        "Previous Assignee",
+        "New Assignee",
+        "Note",
+      ],
+      ...accessLogRows,
+    ];
+    downloadCsv("ntt-manager-report.csv", reportRows);
+  });
+
+  deleteAccessLogButton?.addEventListener("click", async () => {
+    if (!window.confirm("Delete all task access logs?")) {
+      return;
+    }
+    try {
+      await authorizedJson("/access-logs", { method: "DELETE" });
+      await loadProjects();
+    } catch (error) {
+      setMessage(messageElement, error.message, true);
+    }
   });
 
   refreshButton?.addEventListener("click", loadProjects);
@@ -964,7 +1232,11 @@ function renderTaskList(tasks) {
   const headerRow = document.createElement("tr");
   const assignees = Array.from(
     new Set(
-      tasks.map((task) => task.assigned_to_name || task.assigned_to_email || "Unassigned")
+      tasks.flatMap((task) =>
+        getTaskAssigneeList(task).map(
+          (assignee) => assignee.name || assignee.email || "Unassigned"
+        )
+      )
     )
   ).sort();
   const statuses = Array.from(new Set(tasks.map((task) => task.status || "OPEN"))).sort();
@@ -1026,8 +1298,7 @@ function renderTaskList(tasks) {
     titleCell.append(taskLink);
 
     const assigneeCell = document.createElement("td");
-    assigneeCell.textContent =
-      task.assigned_to_name || task.assigned_to_email || "Unassigned";
+    assigneeCell.textContent = formatTaskAssignees(task);
 
     const statusCell = document.createElement("td");
     statusCell.textContent = task.status || "OPEN";
@@ -1051,12 +1322,14 @@ function renderTaskList(tasks) {
       );
       const filteredTasks = tasks.filter((task) => {
         const title = String(task.task_title || "").toLowerCase();
-        const assignee = task.assigned_to_name || task.assigned_to_email || "Unassigned";
+        const assignees = getTaskAssigneeList(task).map(
+          (assignee) => assignee.name || assignee.email || "Unassigned"
+        );
         const status = task.status || "OPEN";
         return (
           (!activeFilters.title ||
             title.includes(activeFilters.title.toLowerCase())) &&
-          (!activeFilters.assignee || assignee === activeFilters.assignee) &&
+          (!activeFilters.assignee || assignees.includes(activeFilters.assignee)) &&
           (!activeFilters.status || status === activeFilters.status)
         );
       });
