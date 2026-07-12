@@ -924,6 +924,41 @@ function renderTaskDetail(task) {
   );
 }
 
+function setTaskWorkflowVisibility(task) {
+  const session = getSession();
+  const currentEmail = String(session?.email || "").toLowerCase();
+  const assignedEmail = String(task.assigned_to_email || "").toLowerCase();
+  const stakeholderEmail = String(task.stakeholder_email || "").toLowerCase();
+  const status = task.status || "OPEN";
+  const isAssignee = Boolean(currentEmail && currentEmail === assignedEmail);
+  const isStakeholder = Boolean(currentEmail && currentEmail === stakeholderEmail);
+
+  const startWorkButton = document.querySelector("#start-work-button");
+  const requestCloseButton = document.querySelector("#request-close-button");
+  const closeTaskButton = document.querySelector("#close-task-button");
+
+  if (startWorkButton) {
+    startWorkButton.classList.toggle(
+      "is-hidden",
+      !isAssignee || status !== "OPEN"
+    );
+  }
+
+  if (requestCloseButton) {
+    requestCloseButton.classList.toggle(
+      "is-hidden",
+      !isAssignee || status === "CLOSED" || status === "CLOSE REQUESTED"
+    );
+  }
+
+  if (closeTaskButton) {
+    closeTaskButton.classList.toggle(
+      "is-hidden",
+      !isStakeholder || status !== "CLOSE REQUESTED"
+    );
+  }
+}
+
 function renderComments(comments) {
   const commentList = document.querySelector("#comment-list");
   commentList.innerHTML = "";
@@ -959,8 +994,6 @@ function setupTaskPage() {
   const commentForm = document.querySelector("#task-comment-form");
   const messageElement = document.querySelector("#comment-message");
   const taskActionMessage = document.querySelector("#task-action-message");
-  const taskStatusSelect = document.querySelector("#task_status");
-  const taskUpdateForm = document.querySelector("#task-update-form");
   const taskAssigneeSelect = document.querySelector("#task_edit_assigned_to_email");
   const taskStakeholderSelect = document.querySelector("#task_edit_stakeholder_email");
   const taskWatcherSelect = document.querySelector("#task_edit_watcher_emails");
@@ -979,10 +1012,8 @@ function setupTaskPage() {
     try {
       const task = await getAuthorizedJson(`/tasks/${taskId}`);
       renderTaskDetail(task);
+      setTaskWorkflowVisibility(task);
       renderComments(task.comments || []);
-      if (taskStatusSelect) {
-        taskStatusSelect.value = task.status || "OPEN";
-      }
       await populateUserSelect(taskAssigneeSelect, { includeCurrentUser: true });
       await populateUserSelect(taskStakeholderSelect, { includeCurrentUser: true });
       await populateUserMultiSelect(
@@ -1015,12 +1046,11 @@ function setupTaskPage() {
     }
   });
 
-  taskUpdateForm?.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    setMessage(taskActionMessage, "Updating status...");
+  document.querySelector("#start-work-button")?.addEventListener("click", async () => {
+    setMessage(taskActionMessage, "Starting work...");
     try {
       const data = await postAuthorizedJson(`/tasks/${taskId}/status`, {
-        status: String(taskStatusSelect?.value ?? "OPEN"),
+        status: "IN PROGRESS",
       });
       setMessage(taskActionMessage, data.detail || "Task updated.");
       await loadTask();

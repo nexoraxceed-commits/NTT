@@ -399,6 +399,26 @@ a:focus-visible {
   margin-top: 24px;
 }
 
+.workflow-actions {
+  display: grid;
+  gap: 12px;
+  margin-top: 20px;
+}
+
+.task-edit-details {
+  margin-top: 22px;
+}
+
+.task-edit-details summary {
+  color: var(--accent);
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.is-hidden {
+  display: none !important;
+}
+
 .item-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));

@@ -11,6 +11,9 @@ alter table public."TASKS"
 add column if not exists stakeholder_id uuid;
 
 alter table public."TASKS"
+drop constraint if exists tasks_status_check;
+
+alter table public."TASKS"
 alter column status set default 'OPEN';
 
 update public."PROJECTS" p
@@ -23,7 +26,12 @@ where p.assigned_to is null
 
 update public."TASKS"
 set status = 'OPEN'
-where status is null or status = 'TODO';
+where status is null
+   or status not in ('OPEN', 'IN PROGRESS', 'CLOSE REQUESTED', 'CLOSED');
+
+alter table public."TASKS"
+add constraint tasks_status_check
+check (status in ('OPEN', 'IN PROGRESS', 'CLOSE REQUESTED', 'CLOSED'));
 
 create table if not exists public."PROJECT_WATCHERS" (
   id bigserial primary key,

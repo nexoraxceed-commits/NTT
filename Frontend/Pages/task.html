@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Task | NTT Workspace</title>
-    <link rel="stylesheet" href="/Css/styles.css?v=20260712-workflow">
+    <link rel="stylesheet" href="/Css/styles.css?v=20260712-workflow-r2">
   </head>
   <body class="app-body">
     <main class="workspace-shell">
@@ -51,42 +51,39 @@
       <section class="workspace-grid">
         <section class="workspace-panel" aria-labelledby="task-actions-title">
           <h2 id="task-actions-title">Task workflow</h2>
-          <form class="project-form" id="task-update-form" novalidate>
-            <div class="field-group">
-              <label for="task_edit_assigned_to_email">Task assignee</label>
-              <select id="task_edit_assigned_to_email" name="assigned_to_email">
-                <option value="">Unassigned</option>
-                <option value="" disabled>Loading users...</option>
-              </select>
-            </div>
-            <div class="field-group">
-              <label for="task_edit_stakeholder_email">Stakeholder</label>
-              <select id="task_edit_stakeholder_email" name="stakeholder_email">
-                <option value="">No stakeholder</option>
-                <option value="" disabled>Loading users...</option>
-              </select>
-            </div>
-            <div class="field-group">
-              <label for="task_edit_watcher_emails">Task watchers</label>
-              <select id="task_edit_watcher_emails" name="watcher_emails" multiple size="4">
-                <option value="" disabled>Loading users...</option>
-              </select>
-            </div>
-            <div class="field-group">
-              <label for="task_status">Status</label>
-              <select id="task_status" name="status">
-                <option value="OPEN">OPEN</option>
-                <option value="IN PROGRESS">IN PROGRESS</option>
-                <option value="CLOSE REQUESTED">CLOSE REQUESTED</option>
-                <option value="CLOSED">CLOSED</option>
-              </select>
-            </div>
-            <button type="button" class="secondary-action" id="save-task-button">Save Task Details</button>
-            <button type="submit">Update Status</button>
+          <div class="workflow-actions">
+            <button type="button" id="start-work-button">Start work</button>
             <button type="button" class="secondary-action" id="request-close-button">Request to close</button>
             <button type="button" class="secondary-action" id="close-task-button">Close Task</button>
             <p class="form-message" id="task-action-message" role="status" aria-live="polite"></p>
-          </form>
+          </div>
+
+          <details class="task-edit-details">
+            <summary>Edit task details</summary>
+            <form class="project-form" id="task-update-form" novalidate>
+              <div class="field-group">
+                <label for="task_edit_assigned_to_email">Task assignee</label>
+                <select id="task_edit_assigned_to_email" name="assigned_to_email">
+                  <option value="">Unassigned</option>
+                  <option value="" disabled>Loading users...</option>
+                </select>
+              </div>
+              <div class="field-group">
+                <label for="task_edit_stakeholder_email">Stakeholder</label>
+                <select id="task_edit_stakeholder_email" name="stakeholder_email">
+                  <option value="">No stakeholder</option>
+                  <option value="" disabled>Loading users...</option>
+                </select>
+              </div>
+              <div class="field-group">
+                <label for="task_edit_watcher_emails">Task watchers</label>
+                <select id="task_edit_watcher_emails" name="watcher_emails" multiple size="4">
+                  <option value="" disabled>Loading users...</option>
+                </select>
+              </div>
+              <button type="button" class="secondary-action" id="save-task-button">Save Task Details</button>
+            </form>
+          </details>
         </section>
 
         <section class="workspace-panel" aria-labelledby="comment-title">
@@ -112,6 +109,6 @@
       </section>
     </main>
     <script src="/Js/config.js"></script>
-    <script src="/Js/app.js?v=20260712-workflow"></script>
+    <script src="/Js/app.js?v=20260712-workflow-r2"></script>
   </body>
 </html>
