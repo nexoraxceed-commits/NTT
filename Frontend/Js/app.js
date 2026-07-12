@@ -1,5 +1,6 @@
 const apiBaseUrl = window.NTT_CONFIG?.apiBaseUrl ?? "http://localhost:8000";
 const sessionKey = "ntt_auth_session";
+const persistentSessionKey = "ntt_auth_persistent_session";
 const authActiveKey = "ntt_auth_active";
 const historyLogoutKey = "ntt_history_logout";
 const authPages = new Set([
@@ -44,14 +45,23 @@ function normalizePath(pathname) {
 
 function getSession() {
   const rawSession = window.sessionStorage.getItem(sessionKey);
-  if (!rawSession) {
-    return null;
-  }
+  const rawPersistentSession = window.localStorage.getItem(persistentSessionKey);
 
   try {
-    return JSON.parse(rawSession);
+    if (rawSession) {
+      return JSON.parse(rawSession);
+    }
+
+    if (rawPersistentSession) {
+      const session = JSON.parse(rawPersistentSession);
+      window.sessionStorage.setItem(sessionKey, rawPersistentSession);
+      return session;
+    }
+
+    return null;
   } catch (_error) {
     window.sessionStorage.removeItem(sessionKey);
+    window.localStorage.removeItem(persistentSessionKey);
     return null;
   }
 }
@@ -61,22 +71,22 @@ function isAuthActive() {
 }
 
 function saveSession(data) {
-  window.sessionStorage.removeItem(historyLogoutKey);
-  window.localStorage.removeItem(historyLogoutKey);
+  clearHistoryLogout();
   window.localStorage.setItem(authActiveKey, "true");
-  window.sessionStorage.setItem(
-    sessionKey,
-    JSON.stringify({
-      accessToken: data.access_token,
-      refreshToken: data.refresh_token,
-      userId: data.user_id,
-      email: data.email,
-    })
-  );
+  const session = JSON.stringify({
+    accessToken: data.access_token,
+    refreshToken: data.refresh_token,
+    userId: data.user_id,
+    email: data.email,
+  });
+
+  window.sessionStorage.setItem(sessionKey, session);
+  window.localStorage.setItem(persistentSessionKey, session);
 }
 
 function clearSession() {
   window.sessionStorage.removeItem(sessionKey);
+  window.localStorage.removeItem(persistentSessionKey);
   window.localStorage.removeItem(authActiveKey);
 }
 
@@ -86,6 +96,11 @@ function markHistoryLogout() {
 
 function wasLoggedOutByHistory() {
   return window.sessionStorage.getItem(historyLogoutKey) === "true";
+}
+
+function clearHistoryLogout() {
+  window.sessionStorage.removeItem(historyLogoutKey);
+  window.localStorage.removeItem(historyLogoutKey);
 }
 
 function redirectToSignedOut() {
@@ -106,8 +121,8 @@ function guardPageAccess(event) {
   const session = getSession();
   const cameFromHistory = isBackForwardNavigation(event);
 
-  if (authPages.has(path) && (session?.accessToken || isAuthActive())) {
-    if (cameFromHistory) {
+  if (authPages.has(path) && session?.accessToken) {
+    if (cameFromHistory && path !== "/") {
       clearSession();
       markHistoryLogout();
       redirectToSignedOut();
@@ -118,7 +133,18 @@ function guardPageAccess(event) {
     return;
   }
 
+  if (authPages.has(path) && isAuthActive()) {
+    clearSession();
+    clearHistoryLogout();
+    return;
+  }
+
   if (dashboardPages.has(path) && wasLoggedOutByHistory()) {
+    if (session?.accessToken) {
+      clearHistoryLogout();
+      return;
+    }
+
     clearSession();
     redirectToSignedOut();
     return;
@@ -180,6 +206,8 @@ function createTextLink(url, text) {
   const link = document.createElement("a");
   link.href = url;
   link.textContent = text;
+  link.target = "_blank";
+  link.rel = "noopener noreferrer";
   return link;
 }
 
@@ -312,7 +340,7 @@ function setupLoginForm() {
     try {
       const data = await postJson("/auth/login", getFormValues(form));
       saveSession(data);
-      window.location.href = "/post-login";
+      window.location.replace("/post-login");
     } catch (error) {
       setMessage(messageElement, error.message, true);
     }
