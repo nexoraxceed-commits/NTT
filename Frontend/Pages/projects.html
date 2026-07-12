@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Projects | NTT Workspace</title>
+    <link rel="stylesheet" href="/Css/styles.css?v=20260713-workspace-tabs">
+  </head>
+  <body class="app-body">
+    <main class="workspace-shell">
+      <header class="workspace-header">
+        <div>
+          <p class="eyebrow">NTT Workspace</p>
+          <h1>Projects</h1>
+        </div>
+        <div class="header-actions">
+          <a class="btn btn-icon" href="/create-project" aria-label="Create project" title="Create project">
+            <span aria-hidden="true">+</span>
+          </a>
+        </div>
+      </header>
+
+      <section class="workspace-panel wide-panel" aria-labelledby="projects-title">
+        <div class="section-header">
+          <h2 id="projects-title">Project list</h2>
+          <p class="panel-stat" id="project-count">0 projects</p>
+          <p class="form-message" id="projects-message" role="status" aria-live="polite"></p>
+        </div>
+        <div id="project-list"></div>
+      </section>
+    </main>
+    <script src="/Js/config.js"></script>
+    <script src="/Js/app.js?v=20260713-workspace-tabs"></script>
+  </body>
+</html>

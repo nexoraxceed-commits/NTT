@@ -3,8 +3,8 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>NTT Workspace</title>
-    <link rel="stylesheet" href="/Css/styles.css?v=20260713-board-remodel">
+    <title>Dashboard | NTT Workspace</title>
+    <link rel="stylesheet" href="/Css/styles.css?v=20260713-workspace-tabs">
   </head>
   <body class="app-body">
     <main class="workspace-shell">
@@ -17,28 +17,15 @@
           <button class="btn btn-icon" type="button" id="download-analytics-button" aria-label="Download report" title="Download report">
             <span aria-hidden="true">&#8595;</span>
           </button>
-          <a class="btn btn-icon" href="/create-project" aria-label="Create project" title="Create project">
-            <span aria-hidden="true">+</span>
-          </a>
-          <button class="btn btn-icon" type="button" data-logout-button aria-label="Log out" title="Log out">
-            <span aria-hidden="true">&#10138;</span>
-          </button>
           <button class="btn btn-icon is-hidden-control" type="button" id="delete-access-log-button" aria-label="Delete access log" title="Delete access log" hidden>
             <span aria-hidden="true">&times;</span>
           </button>
         </div>
       </header>
       <section class="analytics-grid" id="dashboard-analytics"></section>
-      <section class="workspace-panel wide-panel" aria-labelledby="projects-title">
-        <div class="section-header">
-          <h2 id="projects-title">Projects</h2>
-          <p class="panel-stat" id="project-count">0 projects</p>
-          <p class="form-message" id="projects-message" role="status" aria-live="polite"></p>
-        </div>
-        <div id="project-list"></div>
-      </section>
+      <p class="form-message" id="dashboard-message" role="status" aria-live="polite"></p>
     </main>
     <script src="/Js/config.js"></script>
-    <script src="/Js/app.js?v=20260713-dashboard-fast"></script>
+    <script src="/Js/app.js?v=20260713-workspace-tabs"></script>
   </body>
 </html>

@@ -374,49 +374,130 @@ a:focus-visible {
   width: min(1480px, 100%);
   min-height: calc(100vh - 56px);
   margin: 0 auto;
-  overflow: hidden;
+  overflow: visible;
   border: 1px solid rgba(255, 255, 255, 0.78);
   border-radius: 28px;
-  padding: 48px 56px 56px 300px;
+  padding: 56px;
   background:
-    linear-gradient(90deg, var(--rail-bg) 0 240px, transparent 240px),
     linear-gradient(145deg, rgba(255, 255, 255, 0.94), rgba(249, 251, 255, 0.9));
   box-shadow: 0 30px 90px rgba(68, 73, 110, 0.18);
 }
 
-.workspace-shell::before {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 0;
-  width: 240px;
-  border-right: 1px solid rgba(225, 231, 227, 0.78);
-  padding: 128px 34px 44px;
-  color: var(--quiet);
-  background: rgba(255, 255, 255, 0.72);
-  content: "Dashboard\A\A Projects\A\A Tasks\A\A Analytics\A\A Settings";
-  font-weight: 800;
-  line-height: 2.1;
-  white-space: pre-line;
+.workspace-shell::before,
+.workspace-shell::after {
+  display: none;
+}
+
+.workspace-nav {
+  position: fixed;
+  z-index: 20;
+  top: 44px;
+  bottom: 44px;
+  left: 24px;
+  width: 252px;
   pointer-events: none;
 }
 
-.workspace-shell::after {
+.nav-trigger {
   position: absolute;
-  top: 42px;
-  left: 34px;
+  z-index: 2;
+  top: 34px;
+  left: 0;
   display: grid;
-  width: 48px;
-  height: 48px;
+  width: 56px;
+  height: 56px;
+  min-height: 56px;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  padding: 0;
+  color: #ffffff;
+  background: #5b62df;
+  box-shadow: 0 18px 42px rgba(91, 98, 223, 0.24);
+  pointer-events: auto;
+}
+
+.nav-panel {
+  display: flex;
+  position: absolute;
+  z-index: 1;
+  inset: 0 auto 0 0;
+  flex-direction: column;
+  width: 236px;
+  border: 1px solid rgba(225, 231, 227, 0.86);
+  border-radius: 26px;
+  padding: 34px 26px 28px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 26px 70px rgba(68, 73, 110, 0.18);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(-210px);
+  transition:
+    opacity 180ms ease,
+    transform 180ms ease;
+}
+
+.workspace-nav:hover .nav-panel,
+.workspace-nav:focus-within .nav-panel {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateX(0);
+}
+
+.workspace-nav:hover .nav-trigger,
+.workspace-nav:focus-within .nav-trigger {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.nav-brand {
+  display: grid;
+  width: 56px;
+  height: 56px;
   place-items: center;
   border-radius: 50%;
   color: #ffffff;
-  background: #5164df;
-  box-shadow: 0 16px 32px rgba(81, 100, 223, 0.24);
-  content: "N";
-  font-size: 1.2rem;
+  background: #5b62df;
+  box-shadow: 0 18px 42px rgba(91, 98, 223, 0.24);
+  font-size: 1.25rem;
   font-weight: 900;
-  pointer-events: none;
+}
+
+.nav-links {
+  display: grid;
+  gap: 22px;
+  margin-top: 56px;
+}
+
+.nav-link,
+.nav-logout {
+  justify-content: flex-start;
+  width: 100%;
+  min-height: 42px;
+  border: 0;
+  border-radius: 14px;
+  padding: 0;
+  color: var(--quiet);
+  background: transparent;
+  box-shadow: none;
+  font-size: 1rem;
+  font-weight: 900;
+  text-align: left;
+}
+
+.nav-link:hover,
+.nav-link.is-active,
+.nav-logout:hover {
+  color: var(--accent);
+  background: transparent;
+  box-shadow: none;
+  text-decoration: none;
+  transform: none;
+}
+
+.nav-logout {
+  margin-top: auto;
+  cursor: pointer;
 }
 
 .narrow-shell {
@@ -852,13 +933,31 @@ a:focus-visible {
     width: 100%;
     min-height: 100vh;
     border-radius: 0;
-    padding: 28px 18px;
+    padding: 86px 18px 28px;
     background: rgba(250, 251, 255, 0.96);
   }
 
   .workspace-shell::before,
   .workspace-shell::after {
     display: none;
+  }
+
+  .workspace-nav {
+    top: 16px;
+    bottom: auto;
+    left: 16px;
+    width: calc(100% - 32px);
+    height: 60px;
+  }
+
+  .nav-trigger {
+    top: 0;
+  }
+
+  .nav-panel {
+    width: min(260px, 100%);
+    min-height: 360px;
+    transform: translateX(-110%);
   }
 
   .login-shell {

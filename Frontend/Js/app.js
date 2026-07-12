@@ -19,6 +19,12 @@ const dashboardPages = new Set([
   "/post-login",
   "/post-login.html",
   "/Pages/post-login.html",
+  "/projects",
+  "/projects.html",
+  "/Pages/projects.html",
+  "/tasks",
+  "/tasks.html",
+  "/Pages/tasks.html",
   "/create-project",
   "/create-project.html",
   "/Pages/create-project.html",
@@ -542,6 +548,71 @@ function setupLogoutButtons() {
   });
 }
 
+function setupWorkspaceNavigation() {
+  const shell = document.querySelector(".workspace-shell");
+
+  if (!shell || document.querySelector(".workspace-nav")) {
+    return;
+  }
+
+  const path = normalizePath(window.location.pathname);
+  const navPath = path.replace(/^\/Pages/, "").replace(/\.html$/, "");
+  const activeKey = (() => {
+    if (["/projects", "/project", "/create-project", "/edit-project"].includes(navPath)) {
+      return "projects";
+    }
+    if (["/tasks", "/task", "/create-task"].includes(navPath)) {
+      return "tasks";
+    }
+    return "dashboard";
+  })();
+  const links = [
+    { href: "/post-login", label: "Dashboard", key: "dashboard" },
+    { href: "/projects", label: "Projects", key: "projects" },
+    { href: "/tasks", label: "Tasks", key: "tasks" },
+  ];
+  const nav = document.createElement("nav");
+  nav.className = "workspace-nav";
+  nav.setAttribute("aria-label", "Workspace navigation");
+
+  const trigger = document.createElement("button");
+  trigger.className = "nav-trigger";
+  trigger.type = "button";
+  trigger.setAttribute("aria-label", "Open workspace navigation");
+  trigger.innerHTML = "<span aria-hidden='true'>N</span>";
+
+  const panel = document.createElement("div");
+  panel.className = "nav-panel";
+
+  const brand = document.createElement("div");
+  brand.className = "nav-brand";
+  brand.textContent = "N";
+
+  const list = document.createElement("div");
+  list.className = "nav-links";
+
+  links.forEach((link) => {
+    const item = document.createElement("a");
+    item.href = link.href;
+    item.textContent = link.label;
+    item.className = "nav-link";
+    if (link.key === activeKey) {
+      item.classList.add("is-active");
+    }
+    list.append(item);
+  });
+
+  const logoutButton = document.createElement("button");
+  logoutButton.className = "nav-logout";
+  logoutButton.type = "button";
+  logoutButton.dataset.logoutButton = "true";
+  logoutButton.textContent = "Log out";
+
+  panel.append(brand, list, logoutButton);
+  nav.append(trigger, panel);
+  document.body.prepend(nav);
+}
+
 function setupLoginForm() {
   const form = document.querySelector("#login-form");
   const messageElement = document.querySelector("#form-message");
@@ -700,7 +771,11 @@ function renderEmptyState(container, text) {
 
 function setupDashboardProjects() {
   const projectList = document.querySelector("#project-list");
-  const messageElement = document.querySelector("#projects-message");
+  const taskList = document.querySelector("#all-task-list");
+  const messageElement =
+    document.querySelector("#dashboard-message") ||
+    document.querySelector("#projects-message") ||
+    document.querySelector("#tasks-message");
   const refreshButton = document.querySelector("#refresh-projects-button");
   const analyticsElement = document.querySelector("#dashboard-analytics");
   const downloadButton = document.querySelector("#download-analytics-button");
@@ -709,7 +784,7 @@ function setupDashboardProjects() {
   let dashboardProjects = [];
   let dashboardDetails = [];
 
-  if (!projectList) {
+  if (!projectList && !taskList && !analyticsElement && !downloadButton) {
     return;
   }
 
@@ -888,15 +963,14 @@ function setupDashboardProjects() {
   }
 
   function renderProjectRows(projects, activeFilters = {}) {
+    if (!projectList) {
+      return;
+    }
+
     projectList.innerHTML = "";
     if (projectCountElement) {
       const count = dashboardProjects.length;
       projectCountElement.textContent = `${count} project${count === 1 ? "" : "s"}`;
-    }
-
-    if (!projects.length) {
-      renderEmptyState(projectList, "No projects found.");
-      return;
     }
 
     const assignees = Array.from(
@@ -953,6 +1027,15 @@ function setupDashboardProjects() {
 
     const tbody = document.createElement("tbody");
 
+    if (!projects.length) {
+      const row = document.createElement("tr");
+      const cell = document.createElement("td");
+      cell.colSpan = 3;
+      cell.textContent = "No projects found.";
+      row.append(cell);
+      tbody.append(row);
+    }
+
     projects.forEach((project) => {
       const row = document.createElement("tr");
       row.addEventListener("click", () => {
@@ -1004,18 +1087,180 @@ function setupDashboardProjects() {
     });
   }
 
+  function renderGlobalTaskRows(tasks, activeFilters = {}) {
+    if (!taskList) {
+      return;
+    }
+
+    taskList.innerHTML = "";
+    const sourceTasks = dashboardDetails.flatMap((project) =>
+      (project.tasks || []).map((task) => ({
+        ...task,
+        project_name: project.project_name,
+      }))
+    );
+    const filterSourceTasks = sourceTasks.length ? sourceTasks : tasks;
+
+    if (!tasks.length && !filterSourceTasks.length) {
+      renderEmptyState(taskList, "No tasks found.");
+      return;
+    }
+
+    const projects = Array.from(
+      new Set(filterSourceTasks.map((task) => task.project_name || "No project"))
+    ).sort();
+    const assignees = Array.from(
+      new Set(
+        filterSourceTasks.flatMap((task) =>
+          getTaskAssignees(task).map(
+            (assignee) => assignee.name || assignee.email || "Unassigned"
+          )
+        )
+      )
+    ).sort();
+    const statuses = Array.from(
+      new Set(filterSourceTasks.map((task) => task.status || "OPEN"))
+    ).sort();
+
+    const tableWrap = document.createElement("div");
+    tableWrap.className = "data-table-wrap";
+
+    const table = document.createElement("table");
+    table.className = "data-table";
+
+    const thead = document.createElement("thead");
+    const headerRow = document.createElement("tr");
+    [
+      { label: "Task title", filter: "title", type: "search" },
+      { label: "Project", filter: "project", options: projects },
+      { label: "Assignee", filter: "assignee", options: assignees },
+      { label: "Status", filter: "status", options: statuses },
+      { label: "End date" },
+    ].forEach((column) => {
+      const cell = document.createElement("th");
+      cell.scope = "col";
+      cell.textContent = column.label;
+      if (column.type === "search") {
+        const input = document.createElement("input");
+        input.className = "table-filter";
+        input.type = "search";
+        input.placeholder = "Search title";
+        input.dataset.globalTaskFilter = column.filter;
+        input.value = activeFilters[column.filter] || "";
+        cell.append(input);
+      } else if (column.filter) {
+        const select = document.createElement("select");
+        select.className = "table-filter";
+        select.dataset.globalTaskFilter = column.filter;
+        select.innerHTML = `<option value="">All</option>`;
+        column.options.forEach((optionValue) => {
+          const option = document.createElement("option");
+          option.value = optionValue;
+          option.textContent = optionValue;
+          option.selected = activeFilters[column.filter] === optionValue;
+          select.append(option);
+        });
+        cell.append(select);
+      }
+      headerRow.append(cell);
+    });
+    thead.append(headerRow);
+
+    const tbody = document.createElement("tbody");
+
+    if (!tasks.length) {
+      const row = document.createElement("tr");
+      const cell = document.createElement("td");
+      cell.colSpan = 5;
+      cell.textContent = "No tasks found.";
+      row.append(cell);
+      tbody.append(row);
+    }
+
+    tasks.forEach((task) => {
+      const row = document.createElement("tr");
+      row.addEventListener("click", () => {
+        window.location.href = `/task?id=${task.id}`;
+      });
+
+      const titleCell = document.createElement("td");
+      const taskLink = document.createElement("a");
+      taskLink.href = `/task?id=${task.id}`;
+      taskLink.textContent = task.task_title;
+      titleCell.append(taskLink);
+
+      const projectCell = document.createElement("td");
+      projectCell.textContent = task.project_name || "No project";
+
+      const assigneeCell = document.createElement("td");
+      assigneeCell.textContent = getTaskAssigneeLabel(task);
+
+      const statusCell = document.createElement("td");
+      statusCell.textContent = task.status || "OPEN";
+
+      const endDateCell = document.createElement("td");
+      endDateCell.textContent = formatDisplayDate(task.end_date);
+
+      row.append(titleCell, projectCell, assigneeCell, statusCell, endDateCell);
+      tbody.append(row);
+    });
+
+    table.append(thead, tbody);
+    tableWrap.append(table);
+    taskList.append(tableWrap);
+
+    table.querySelectorAll("[data-global-task-filter]").forEach((filter) => {
+      filter.addEventListener("input", () => {
+        const nextFilters = Object.fromEntries(
+          Array.from(table.querySelectorAll("[data-global-task-filter]")).map(
+            (control) => [control.dataset.globalTaskFilter, control.value]
+          )
+        );
+        const filtered = sourceTasks.filter((task) => {
+          const title = String(task.task_title || "").toLowerCase();
+          const projectName = task.project_name || "No project";
+          const taskAssignees = getTaskAssignees(task).map(
+            (assignee) => assignee.name || assignee.email || "Unassigned"
+          );
+          const status = task.status || "OPEN";
+          return (
+            (!nextFilters.title ||
+              title.includes(nextFilters.title.toLowerCase())) &&
+            (!nextFilters.project || projectName === nextFilters.project) &&
+            (!nextFilters.assignee ||
+              taskAssignees.includes(nextFilters.assignee)) &&
+            (!nextFilters.status || status === nextFilters.status)
+          );
+        });
+        renderGlobalTaskRows(filtered, nextFilters);
+      });
+    });
+  }
+
   async function loadProjects() {
-    setMessage(messageElement, "Loading projects...");
+    setMessage(messageElement, "Loading workspace data...");
     try {
       const dashboardData = await getAuthorizedJson("/dashboard");
       const projects = dashboardData.projects || [];
       dashboardProjects = projects;
       dashboardDetails = dashboardData.project_details || [];
+      const tasks = dashboardDetails.flatMap((project) =>
+        (project.tasks || []).map((task) => ({
+          ...task,
+          project_name: project.project_name,
+        }))
+      );
       renderAnalytics(projects, dashboardDetails);
       renderProjectRows(projects);
+      renderGlobalTaskRows(tasks);
       setMessage(messageElement, "");
     } catch (error) {
-      renderEmptyState(projectList, "Projects could not be loaded.");
+      if (projectList) {
+        renderEmptyState(projectList, "Projects could not be loaded.");
+      }
+      if (taskList) {
+        renderEmptyState(taskList, "Tasks could not be loaded.");
+      }
       setMessage(messageElement, error.message, true);
     }
   }
@@ -1879,4 +2124,5 @@ setupProjectPage();
 setupEditProjectPage();
 setupCreateTaskPage();
 setupTaskPage();
+setupWorkspaceNavigation();
 setupLogoutButtons();
