@@ -564,6 +564,10 @@ function setupWorkspaceNavigation() {
   if (!shell || document.querySelector(".workspace-nav")) {
     return;
   }
+  const header = shell.querySelector(".workspace-header");
+  const titleBlock = header?.querySelector(":scope > div:first-child");
+  const actions = header?.querySelector(":scope > .header-actions");
+  const eyebrow = titleBlock?.querySelector(".eyebrow");
 
   const path = normalizePath(window.location.pathname);
   const navPath = path.replace(/^\/Pages/, "").replace(/\.html$/, "");
@@ -627,6 +631,31 @@ function setupWorkspaceNavigation() {
 
   panel.append(list, logoutButton);
   nav.append(trigger, panel);
+
+  if (header && titleBlock) {
+    const topbar = document.createElement("div");
+    topbar.className = "workspace-topbar";
+
+    const brand = document.createElement("div");
+    brand.className = "workspace-brand-lockup";
+
+    const brandText = document.createElement("p");
+    brandText.className = "workspace-brand-text";
+    brandText.textContent = eyebrow?.textContent?.trim() || "Nexora";
+    eyebrow?.remove();
+
+    titleBlock.classList.add("workspace-title-block");
+    brand.append(nav, brandText);
+    topbar.append(brand);
+
+    if (actions) {
+      topbar.append(actions);
+    }
+
+    header.prepend(topbar);
+    return;
+  }
+
   shell.prepend(nav);
 }
 
