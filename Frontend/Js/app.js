@@ -603,6 +603,7 @@ function setupWorkspaceNavigation() {
   trigger.className = "nav-trigger";
   trigger.type = "button";
   trigger.setAttribute("aria-label", "Open workspace navigation");
+  trigger.setAttribute("aria-expanded", "false");
   trigger.innerHTML =
     "<span class=\"hamburger-icon\" aria-hidden=\"true\"><span></span><span></span><span></span></span>";
 
@@ -631,6 +632,28 @@ function setupWorkspaceNavigation() {
 
   panel.append(list, logoutButton);
   nav.append(trigger, panel);
+
+  const closeNavigation = () => {
+    nav.classList.remove("is-open");
+    trigger.setAttribute("aria-expanded", "false");
+  };
+
+  trigger.addEventListener("click", (event) => {
+    event.stopPropagation();
+    const isOpen = nav.classList.toggle("is-open");
+    trigger.setAttribute("aria-expanded", String(isOpen));
+  });
+
+  nav.addEventListener("click", (event) => {
+    event.stopPropagation();
+  });
+
+  document.addEventListener("click", closeNavigation);
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      closeNavigation();
+    }
+  });
 
   if (header && titleBlock) {
     const topbar = document.createElement("div");

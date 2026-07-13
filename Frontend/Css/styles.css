@@ -385,6 +385,22 @@ a:focus-visible {
   pointer-events: auto;
 }
 
+.workspace-nav::after {
+  position: absolute;
+  top: 46px;
+  left: 0;
+  display: none;
+  width: 248px;
+  height: 12px;
+  content: "";
+}
+
+.workspace-nav:hover::after,
+.workspace-nav:focus-within::after,
+.workspace-nav.is-open::after {
+  display: block;
+}
+
 .nav-trigger {
   position: relative;
   z-index: 2;
@@ -418,7 +434,7 @@ a:focus-visible {
   display: flex;
   position: absolute;
   z-index: 1;
-  top: calc(100% + 12px);
+  top: calc(100% + 8px);
   left: 0;
   flex-direction: column;
   width: 248px;
@@ -437,7 +453,8 @@ a:focus-visible {
 }
 
 .workspace-nav:hover .nav-panel,
-.workspace-nav:focus-within .nav-panel {
+.workspace-nav:focus-within .nav-panel,
+.workspace-nav.is-open .nav-panel {
   opacity: 1;
   pointer-events: auto;
   transform: translateY(0);
