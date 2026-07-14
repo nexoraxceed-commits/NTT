@@ -25,6 +25,9 @@ const dashboardPages = new Set([
   "/tasks",
   "/tasks.html",
   "/Pages/tasks.html",
+  "/notifications",
+  "/notifications.html",
+  "/Pages/notifications.html",
   "/create-project",
   "/create-project.html",
   "/Pages/create-project.html",
@@ -200,6 +203,26 @@ function setMessage(messageElement, text, isError = false) {
 
   messageElement.textContent = text;
   messageElement.classList.toggle("is-error", isError);
+}
+
+function setText(selector, text) {
+  const element = document.querySelector(selector);
+  if (!element) {
+    return null;
+  }
+
+  element.textContent = text;
+  return element;
+}
+
+function setHref(selector, href) {
+  const element = document.querySelector(selector);
+  if (!element) {
+    return null;
+  }
+
+  element.href = href;
+  return element;
 }
 
 function getQueryParam(name) {
@@ -578,6 +601,9 @@ function setupWorkspaceNavigation() {
     if (["/tasks", "/task", "/create-task"].includes(navPath)) {
       return "tasks";
     }
+    if (["/notifications"].includes(navPath)) {
+      return "notifications";
+    }
     return "dashboard";
   })();
   const icons = {
@@ -587,6 +613,8 @@ function setupWorkspaceNavigation() {
       '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6.5A2.5 2.5 0 0 1 6.5 4h4.1c.62 0 1.22.24 1.66.68l1.06 1.06c.16.17.39.26.62.26h3.56A2.5 2.5 0 0 1 20 8.5v8A2.5 2.5 0 0 1 17.5 19h-11A2.5 2.5 0 0 1 4 16.5v-10Zm2.5-.5a.5.5 0 0 0-.5.5v10a.5.5 0 0 0 .5.5h11a.5.5 0 0 0 .5-.5v-8a.5.5 0 0 0-.5-.5h-3.56c-.76 0-1.49-.3-2.03-.84L10.85 6.1A.36.36 0 0 0 10.6 6H6.5Z"/></svg>',
     tasks:
       '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.1 7.9 4.7 6.5 3.3 7.9l2.8 2.8 4.8-4.8-1.4-1.4-3.4 3.4ZM13 7h8v2h-8V7Zm-6.9 8.9-1.4-1.4-1.4 1.4 2.8 2.8 4.8-4.8-1.4-1.4-3.4 3.4ZM13 15h8v2h-8v-2Z"/></svg>',
+    notifications:
+      '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 22a2.4 2.4 0 0 0 2.3-1.7H9.7A2.4 2.4 0 0 0 12 22Zm7-6.2V11a7 7 0 0 0-5-6.7V3a2 2 0 0 0-4 0v1.3A7 7 0 0 0 5 11v4.8L3.5 18v1h17v-1L19 15.8ZM7 17l.9-1.3V11a4.1 4.1 0 0 1 8.2 0v4.7L17 17H7Z"/></svg>',
     logout:
       '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h8a2 2 0 0 1 2 2v2h-2V6H5v12h8v-2h2v2a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Zm12.6 4.4L22.2 13l-4.6 4.6-1.4-1.4 2.2-2.2H10v-2h8.4l-2.2-2.2 1.4-1.4Z"/></svg>',
   };
@@ -594,6 +622,7 @@ function setupWorkspaceNavigation() {
     { href: "/post-login", label: "Dashboard", key: "dashboard" },
     { href: "/projects", label: "Projects", key: "projects" },
     { href: "/tasks", label: "Tasks", key: "tasks" },
+    { href: "/notifications", label: "Notifications", key: "notifications" },
   ];
   const nav = document.createElement("nav");
   nav.className = "workspace-nav";
@@ -620,6 +649,9 @@ function setupWorkspaceNavigation() {
     item.innerHTML = `<span class="nav-link-icon">${icons[link.key]}</span><span>${link.label}</span>`;
     if (link.key === activeKey) {
       item.classList.add("is-active");
+    }
+    if (link.key === "notifications") {
+      item.dataset.notificationNavLink = "true";
     }
     list.append(item);
   });
@@ -676,10 +708,32 @@ function setupWorkspaceNavigation() {
     }
 
     header.prepend(topbar);
+    updateNotificationBadge();
     return;
   }
 
   shell.prepend(nav);
+  updateNotificationBadge();
+}
+
+async function updateNotificationBadge() {
+  const notificationLink = document.querySelector("[data-notification-nav-link]");
+  if (!notificationLink || !getSession()?.accessToken) {
+    return;
+  }
+
+  try {
+    const data = await getAuthorizedJson("/notifications/unread-count");
+    notificationLink.querySelector(".nav-badge")?.remove();
+    if (data.unread_count > 0) {
+      const badge = document.createElement("span");
+      badge.className = "nav-badge";
+      badge.textContent = data.unread_count > 99 ? "99+" : String(data.unread_count);
+      notificationLink.append(badge);
+    }
+  } catch (_error) {
+    notificationLink.querySelector(".nav-badge")?.remove();
+  }
 }
 
 function setupLoginForm() {
@@ -1883,29 +1937,37 @@ function setupCreateTaskPage() {
 }
 
 function renderTaskDetail(task) {
-  document.querySelector("#task-title").textContent = task.task_title;
-  document.querySelector("#task-project-name").textContent = task.project_name;
-  document.querySelector("#task-description").textContent =
-    task.task_details || "No description added.";
-  document.querySelector("#task-assignee").textContent =
-    task.assigned_to_name || task.assigned_to_email || "Unassigned";
+  setText("#task-title", task.task_title || "Task");
+  setText("#task-project-name", task.project_name || "Project");
+  setText("#task-description", task.task_details || "No description added.");
+  setText(
+    "#task-assignee",
+    task.assigned_to_name || task.assigned_to_email || "Unassigned"
+  );
+
   const taskStatusElement = document.querySelector("#task-status");
-  taskStatusElement.innerHTML = "";
-  taskStatusElement.append(createStatusBadge(task.status));
-  document.querySelector("#task-start-date").textContent = formatDisplayDate(
-    task.start_date
+  if (taskStatusElement) {
+    taskStatusElement.innerHTML = "";
+    taskStatusElement.append(createStatusBadge(task.status));
+  }
+
+  setText("#task-start-date", formatDisplayDate(task.start_date));
+  setText("#task-end-date", formatDisplayDate(task.end_date));
+  setText(
+    "#task-stakeholder",
+    task.stakeholder_name || task.stakeholder_email || "No stakeholder"
   );
-  document.querySelector("#task-end-date").textContent = formatDisplayDate(
-    task.end_date
+  setText(
+    "#task-watchers",
+    formatWatchers(task.watchers)
   );
-  document.querySelector("#task-stakeholder").textContent =
-    task.stakeholder_name || task.stakeholder_email || "No stakeholder";
-  document.querySelector("#task-watchers").textContent = formatWatchers(
-    task.watchers
-  );
-  document.querySelector("#task-back-link").href = `/project?id=${task.project_id}`;
+  setHref("#task-back-link", `/project?id=${task.project_id}`);
 
   const documentsElement = document.querySelector("#task-documents");
+  if (!documentsElement) {
+    return;
+  }
+
   documentsElement.innerHTML = "";
   documentsElement.append(
     task.documents
@@ -1951,6 +2013,10 @@ function setTaskWorkflowVisibility(task) {
 
 function renderComments(comments) {
   const commentList = document.querySelector("#comment-list");
+  if (!commentList) {
+    return;
+  }
+
   commentList.innerHTML = "";
 
   if (!comments.length) {
@@ -1958,9 +2024,26 @@ function renderComments(comments) {
     return;
   }
 
+  const repliesByParent = new Map();
+  const rootComments = [];
   comments.forEach((comment) => {
+    const parentId = comment.parent_comment_id;
+    if (parentId) {
+      const replies = repliesByParent.get(parentId) || [];
+      replies.push(comment);
+      repliesByParent.set(parentId, replies);
+      return;
+    }
+
+    rootComments.push(comment);
+  });
+
+  function createCommentCard(comment, isReply = false) {
     const card = document.createElement("article");
     card.className = "comment-card";
+    if (isReply) {
+      card.classList.add("is-reply");
+    }
 
     const author = document.createElement("p");
     author.className = "meta-text";
@@ -1975,7 +2058,35 @@ function renderComments(comments) {
       card.append(url);
     }
 
-    commentList.append(card);
+    const actions = document.createElement("div");
+    actions.className = "comment-actions";
+    const replyButton = document.createElement("button");
+    replyButton.className = "link-button";
+    replyButton.type = "button";
+    replyButton.dataset.replyCommentId = comment.id;
+    replyButton.dataset.replyCommentAuthor = author.textContent;
+    replyButton.textContent = "Reply";
+    actions.append(replyButton);
+    card.append(actions);
+
+    return card;
+  }
+
+  function appendCommentThread(comment, container, isReply = false) {
+    const card = createCommentCard(comment, isReply);
+    container.append(card);
+
+    const replies = repliesByParent.get(comment.id) || [];
+    if (replies.length) {
+      const replyList = document.createElement("div");
+      replyList.className = "comment-replies";
+      replies.forEach((reply) => appendCommentThread(reply, replyList, true));
+      container.append(replyList);
+    }
+  }
+
+  rootComments.forEach((comment) => {
+    appendCommentThread(comment, commentList);
   });
 }
 
@@ -2024,6 +2135,99 @@ function setupActivityTabs() {
   });
 }
 
+function getNotificationTarget(notification) {
+  if (notification.target_url) {
+    return notification.target_url;
+  }
+
+  const sourceType = String(notification.source_type || "").toUpperCase();
+  if (sourceType === "TASK") {
+    return `/task?id=${notification.source_id}`;
+  }
+  if (sourceType === "PROJECT") {
+    return `/project?id=${notification.source_id}`;
+  }
+
+  return "/post-login";
+}
+
+function renderNotifications(notifications) {
+  const list = document.querySelector("#notification-list");
+  if (!list) {
+    return;
+  }
+
+  list.innerHTML = "";
+  if (!notifications.length) {
+    renderEmptyState(list, "No notifications yet.");
+    return;
+  }
+
+  notifications.forEach((notification) => {
+    const item = document.createElement("button");
+    item.className = "notification-item";
+    item.type = "button";
+    item.dataset.notificationId = notification.id;
+    item.dataset.targetUrl = getNotificationTarget(notification);
+    if (String(notification.status || "").toUpperCase() !== "READ") {
+      item.classList.add("is-unread");
+    }
+
+    const title = document.createElement("span");
+    title.className = "notification-title";
+    title.textContent = notification.subject || "Notification";
+
+    const body = document.createElement("span");
+    body.className = "notification-body";
+    body.textContent = notification.body || "";
+
+    const meta = document.createElement("span");
+    meta.className = "notification-meta";
+    meta.textContent = formatDisplayDate(notification.created_at);
+
+    item.append(title, body, meta);
+    list.append(item);
+  });
+}
+
+function setupNotificationsPage() {
+  const list = document.querySelector("#notification-list");
+  const messageElement = document.querySelector("#notification-message");
+  if (!list) {
+    return;
+  }
+
+  list.addEventListener("click", async (event) => {
+    const item = event.target.closest("[data-notification-id]");
+    if (!item) {
+      return;
+    }
+
+    const notificationId = item.dataset.notificationId;
+    const targetUrl = item.dataset.targetUrl || "/post-login";
+    try {
+      await postAuthorizedJson(`/notifications/${notificationId}/read`, {});
+      await updateNotificationBadge();
+    } catch (_error) {
+      // Navigation is still useful even if the read marker fails.
+    }
+
+    window.location.href = targetUrl;
+  });
+
+  (async () => {
+    setMessage(messageElement, "Loading notifications...");
+    try {
+      const notifications = await getAuthorizedJson("/notifications");
+      renderNotifications(notifications);
+      setMessage(messageElement, "");
+    } catch (error) {
+      setMessage(messageElement, error.message, true);
+      renderEmptyState(list, "Notifications could not be loaded.");
+    }
+  })();
+}
+
 function setupTaskPage() {
   const taskTitle = document.querySelector("#task-title");
   const commentForm = document.querySelector("#task-comment-form");
@@ -2031,6 +2235,11 @@ function setupTaskPage() {
   const messageElement = document.querySelector("#comment-message");
   const workLogMessage = document.querySelector("#work-log-message");
   const taskActionMessage = document.querySelector("#task-action-message");
+  const commentList = document.querySelector("#comment-list");
+  const parentCommentInput = document.querySelector("#parent_comment_id");
+  const replyContext = document.querySelector("#reply-context");
+  const replyTarget = document.querySelector("#reply-target");
+  const cancelReplyButton = document.querySelector("#cancel-reply-button");
   const taskAssigneeSelect = document.querySelector("#task_edit_assigned_to_email");
   const taskStakeholderSelect = document.querySelector("#task_edit_stakeholder_email");
   const taskWatcherSelect = document.querySelector("#task_edit_watcher_emails");
@@ -2044,6 +2253,27 @@ function setupTaskPage() {
   if (!taskId) {
     setMessage(messageElement, "Task id is missing.", true);
     return;
+  }
+
+  function clearReplyTarget() {
+    if (parentCommentInput) {
+      parentCommentInput.value = "";
+    }
+    if (replyTarget) {
+      replyTarget.textContent = "";
+    }
+    replyContext?.classList.add("is-hidden");
+  }
+
+  function setReplyTarget(commentId, authorName) {
+    if (parentCommentInput) {
+      parentCommentInput.value = commentId;
+    }
+    if (replyTarget) {
+      replyTarget.textContent = authorName || "comment";
+    }
+    replyContext?.classList.remove("is-hidden");
+    document.querySelector("#comment_text")?.focus();
   }
 
   async function loadTask() {
@@ -2130,6 +2360,20 @@ function setupTaskPage() {
     }
   });
 
+  commentList?.addEventListener("click", (event) => {
+    const replyButton = event.target.closest("[data-reply-comment-id]");
+    if (!replyButton) {
+      return;
+    }
+
+    setReplyTarget(
+      replyButton.dataset.replyCommentId,
+      replyButton.dataset.replyCommentAuthor
+    );
+  });
+
+  cancelReplyButton?.addEventListener("click", clearReplyTarget);
+
   commentForm?.addEventListener("submit", async (event) => {
     event.preventDefault();
 
@@ -2146,8 +2390,12 @@ function setupTaskPage() {
         comment_text: String(formData.get("comment_text") ?? "").trim(),
         deliverable_url:
           String(formData.get("deliverable_url") ?? "").trim() || null,
+        parent_comment_id: parentCommentInput?.value
+          ? Number(parentCommentInput.value)
+          : null,
       });
       commentForm.reset();
+      clearReplyTarget();
       setMessage(messageElement, data.detail || "Comment added successfully.");
       await loadTask();
     } catch (error) {
@@ -2197,5 +2445,6 @@ setupProjectPage();
 setupEditProjectPage();
 setupCreateTaskPage();
 setupTaskPage();
+setupNotificationsPage();
 setupWorkspaceNavigation();
 setupLogoutButtons();

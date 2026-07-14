@@ -5,6 +5,8 @@ from app.config import Settings
 from app.constants import (
     ACTIVE_STATUS,
     AUTH_UID_COLUMN,
+    NOTIFICATION_LOG_TABLE,
+    NOTIFICATION_STATUS_READ,
     NORMAL_STATUS,
     PROJECT_MEMBERS_TABLE,
     PROJECT_WATCHERS_TABLE,
@@ -22,6 +24,10 @@ def is_optional_analytics_table_error(exc: Exception) -> bool:
     return (
         "task_work_logs" in message
         or "task_access_log" in message
+        or "notification_log" in message
+        or "parent_comment_id" in message
+        or "target_url" in message
+        or "read_at" in message
         or "schema cache" in message
         or "could not find" in message
         or "does not exist" in message
@@ -544,6 +550,73 @@ def delete_task_access_logs(supabase: Client) -> None:
         if is_optional_analytics_table_error(exc):
             return
         raise
+
+
+def get_notifications_for_user(
+    supabase: Client,
+    user_id: str,
+) -> list[dict]:
+    try:
+        response = (
+            supabase.table(NOTIFICATION_LOG_TABLE)
+            .select(
+                "id,created_at,recipient_user_id,recipient_email,subject,body,"
+                "status,source_type,source_id,target_url,read_at"
+            )
+            .eq("recipient_user_id", user_id)
+            .order("created_at", desc=True)
+            .limit(100)
+            .execute()
+        )
+    except Exception as exc:
+        if is_optional_analytics_table_error(exc):
+            return []
+        raise
+
+    return getattr(response, "data", None) or []
+
+
+def count_unread_notifications_for_user(
+    supabase: Client,
+    user_id: str,
+) -> int:
+    try:
+        response = (
+            supabase.table(NOTIFICATION_LOG_TABLE)
+            .select("id")
+            .eq("recipient_user_id", user_id)
+            .neq("status", NOTIFICATION_STATUS_READ)
+            .execute()
+        )
+    except Exception as exc:
+        if is_optional_analytics_table_error(exc):
+            return 0
+        raise
+
+    return len(getattr(response, "data", None) or [])
+
+
+def mark_notification_read(
+    supabase: Client,
+    notification_id: int,
+    user_id: str,
+    read_at: str,
+) -> dict | None:
+    try:
+        response = (
+            supabase.table(NOTIFICATION_LOG_TABLE)
+            .update({"status": NOTIFICATION_STATUS_READ, "read_at": read_at})
+            .eq("id", notification_id)
+            .eq("recipient_user_id", user_id)
+            .execute()
+        )
+    except Exception as exc:
+        if is_optional_analytics_table_error(exc):
+            return None
+        raise
+
+    notifications = getattr(response, "data", None) or []
+    return notifications[0] if notifications else None
 
 
 def update_ref_user_status(

@@ -10,6 +10,8 @@
 /projects.html /Pages/projects.html 200
 /tasks /Pages/tasks.html 200
 /tasks.html /Pages/tasks.html 200
+/notifications /Pages/notifications.html 200
+/notifications.html /Pages/notifications.html 200
 /create-project /Pages/create-project.html 200
 /create-project.html /Pages/create-project.html 200
 /edit-project /Pages/edit-project.html 200

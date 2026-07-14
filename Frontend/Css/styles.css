@@ -512,6 +512,19 @@ a:focus-visible {
   fill: currentColor;
 }
 
+.nav-badge {
+  display: inline-grid;
+  min-width: 22px;
+  height: 22px;
+  margin-left: auto;
+  place-items: center;
+  border-radius: 999px;
+  color: #ffffff;
+  background: #a43a2a;
+  font-size: 0.72rem;
+  font-weight: 900;
+}
+
 .nav-link.is-active .nav-link-icon,
 .nav-link:hover .nav-link-icon,
 .nav-logout:hover .nav-link-icon {
@@ -993,6 +1006,100 @@ a:focus-visible {
   border-radius: var(--radius-md);
   padding: 16px;
   background: rgba(255, 255, 255, 0.82);
+}
+
+.comment-card.is-reply {
+  border-left: 4px solid rgba(91, 98, 223, 0.28);
+  background: rgba(248, 249, 255, 0.9);
+}
+
+.comment-replies {
+  display: grid;
+  gap: 12px;
+  margin-left: 22px;
+  padding-left: 18px;
+  border-left: 1px solid rgba(225, 231, 227, 0.95);
+}
+
+.comment-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.link-button {
+  border: 0;
+  padding: 0;
+  color: var(--accent);
+  background: transparent;
+  font: inherit;
+  font-size: 0.92rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.link-button:hover {
+  text-decoration: underline;
+}
+
+.reply-context {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  border: 1px solid rgba(91, 98, 223, 0.18);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+  color: var(--accent);
+  background: rgba(91, 98, 223, 0.07);
+  font-weight: 800;
+}
+
+.notification-list {
+  display: grid;
+  gap: 12px;
+}
+
+.notification-item {
+  display: grid;
+  gap: 6px;
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  padding: 18px 20px;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.86);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background 160ms ease,
+    border-color 160ms ease,
+    transform 160ms ease;
+}
+
+.notification-item:hover {
+  border-color: rgba(91, 98, 223, 0.24);
+  background: #ffffff;
+  transform: translateY(-1px);
+}
+
+.notification-item.is-unread {
+  border-color: rgba(91, 98, 223, 0.24);
+  background: linear-gradient(90deg, rgba(91, 98, 223, 0.12), #ffffff 42%);
+}
+
+.notification-title {
+  color: var(--accent);
+  font-weight: 900;
+}
+
+.notification-body,
+.notification-meta {
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.notification-meta {
+  font-size: 0.88rem;
 }
 
 .status-badge {

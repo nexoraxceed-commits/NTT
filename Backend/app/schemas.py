@@ -61,6 +61,7 @@ class UpdateTaskStatusRequest(BaseModel):
 class CreateTaskCommentRequest(BaseModel):
     comment_text: str = Field(min_length=1, max_length=1000)
     deliverable_url: str | None = Field(default=None, max_length=2000)
+    parent_comment_id: int | None = None
 
 
 class CreateTaskWorkLogRequest(BaseModel):
@@ -147,6 +148,7 @@ class TaskSummaryResponse(BaseModel):
 
 class TaskCommentResponse(BaseModel):
     id: int
+    parent_comment_id: int | None = None
     comment_text: str | None = None
     deliverable_url: str | None = None
     commented_by_email: str | None = None
@@ -178,3 +180,18 @@ class ErrorResponse(BaseModel):
 
 class MessageResponse(BaseModel):
     detail: str
+
+
+class NotificationResponse(BaseModel):
+    id: int
+    subject: str
+    body: str | None = None
+    status: str
+    source_type: str
+    source_id: int
+    target_url: str | None = None
+    created_at: str | None = None
+
+
+class NotificationCountResponse(BaseModel):
+    unread_count: int

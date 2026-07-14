@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Task | Nexora</title>
-    <link rel="stylesheet" href="/Css/styles.css?v=20260713-menu-stable">
+    <link rel="stylesheet" href="/Css/styles.css?v=20260714-notifications">
   </head>
   <body class="app-body">
     <main class="workspace-shell">
@@ -120,6 +120,11 @@
         <section class="workspace-panel" aria-labelledby="comment-title">
           <h2 id="comment-title">Add comment</h2>
           <form class="project-form" id="task-comment-form" novalidate>
+            <input id="parent_comment_id" name="parent_comment_id" type="hidden">
+            <div class="reply-context is-hidden" id="reply-context">
+              <span>Replying to <strong id="reply-target"></strong></span>
+              <button class="btn btn-secondary btn-sm" type="button" id="cancel-reply-button">Cancel</button>
+            </div>
             <div class="field-group">
               <label for="comment_text">Comment</label>
               <textarea id="comment_text" name="comment_text" rows="4" maxlength="1000" required></textarea>
@@ -145,6 +150,6 @@
       </section>
     </main>
     <script src="/Js/config.js"></script>
-    <script src="/Js/app.js?v=20260713-menu-stable"></script>
+    <script src="/Js/app.js?v=20260714-notifications"></script>
   </body>
 </html>
