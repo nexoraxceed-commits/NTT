@@ -362,6 +362,87 @@ def build_task_access_log_responses(
     ]
 
 
+def parse_event_datetime(value: object) -> datetime | None:
+    if not value:
+        return None
+
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def build_task_access_log_description(access_log: dict | None) -> str | None:
+    if not access_log:
+        return None
+
+    event_note = normalize_optional_text(access_log.get("event_note"))
+    if event_note:
+        return event_note
+
+    previous_status = normalize_optional_text(access_log.get("previous_status"))
+    new_status = normalize_optional_text(access_log.get("new_status"))
+    if previous_status and new_status and previous_status != new_status:
+        return f"Status changed from {previous_status} to {new_status}."
+
+    previous_assignee = normalize_optional_text(access_log.get("previous_assignee_id"))
+    new_assignee = normalize_optional_text(access_log.get("new_assignee_id"))
+    if previous_assignee != new_assignee:
+        return "Task assignee changed."
+
+    event_type = normalize_optional_text(access_log.get("event_type"))
+    if event_type:
+        return f"{event_type.replace('_', ' ').title()}."
+
+    return None
+
+
+def find_nearest_task_access_log(
+    notification: dict,
+    access_logs: list[dict],
+) -> dict | None:
+    if not access_logs:
+        return None
+
+    notification_created_at = parse_event_datetime(notification.get("created_at"))
+    if notification_created_at is None:
+        return access_logs[0]
+
+    return min(
+        access_logs,
+        key=lambda access_log: abs(
+            (
+                parse_event_datetime(access_log.get("created_at"))
+                or notification_created_at
+            )
+            - notification_created_at
+        ).total_seconds(),
+    )
+
+
+def build_notification_description(
+    notification: dict,
+    task_access_logs_by_task: dict[int, list[dict]],
+) -> str | None:
+    source_type = str(notification.get("source_type") or "").upper()
+    if source_type == "TASK" and notification.get("source_id") is not None:
+        try:
+            task_id = int(notification["source_id"])
+        except (TypeError, ValueError):
+            task_id = None
+
+        if task_id is not None:
+            access_log = find_nearest_task_access_log(
+                notification,
+                task_access_logs_by_task.get(task_id, []),
+            )
+            access_log_description = build_task_access_log_description(access_log)
+            if access_log_description:
+                return access_log_description
+
+    return normalize_optional_text(notification.get("body"))
+
+
 def get_user_email(
     users_by_auth_uid: dict[str, dict],
     user_id: object,
@@ -699,11 +780,25 @@ def create_app() -> FastAPI:
             )
 
         notifications = get_notifications_for_user(supabase_admin, str(user_id))
+        task_notification_ids = [
+            int(notification["source_id"])
+            for notification in notifications
+            if str(notification.get("source_type") or "").upper() == "TASK"
+            and notification.get("source_id") is not None
+        ]
+        task_access_logs_by_task = get_task_access_logs_for_tasks(
+            supabase_admin,
+            task_notification_ids,
+        )
         return [
             NotificationResponse(
                 id=notification["id"],
                 subject=notification.get("subject") or "",
                 body=notification.get("body"),
+                description=build_notification_description(
+                    notification,
+                    task_access_logs_by_task,
+                ),
                 status=notification.get("status") or NOTIFICATION_STATUS_UNREAD,
                 source_type=notification.get("source_type") or "",
                 source_id=notification.get("source_id") or 0,

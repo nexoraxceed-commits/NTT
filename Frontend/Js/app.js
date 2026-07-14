@@ -241,6 +241,241 @@ function formatAssignee(user) {
   return user.user_name || user.email || "Unassigned";
 }
 
+function getMentionDisplayName(user) {
+  return String(user?.user_name || user?.email || "User").trim();
+}
+
+function getMentionEmailLocalPart(user) {
+  return String(user?.email || "").split("@")[0].trim();
+}
+
+function getMentionToken(user) {
+  const hasDisplayName = Boolean(String(user?.user_name || "").trim());
+  const displayName = getMentionDisplayName(user);
+  const emailLocalPart = getMentionEmailLocalPart(user);
+  const source = hasDisplayName ? displayName : emailLocalPart;
+  const compactToken = source.replace(/[^A-Za-z0-9._-]/g, "");
+
+  return compactToken || emailLocalPart.replace(/[^A-Za-z0-9._-]/g, "");
+}
+
+function getMentionContext(textarea) {
+  if (!textarea || textarea.selectionStart !== textarea.selectionEnd) {
+    return null;
+  }
+
+  const caretPosition = textarea.selectionStart;
+  const beforeCaret = textarea.value.slice(0, caretPosition);
+  const match = beforeCaret.match(/(^|[\s([{])@([A-Za-z0-9._-]{0,50})$/);
+
+  if (!match) {
+    return null;
+  }
+
+  return {
+    start: caretPosition - match[2].length - 1,
+    end: caretPosition,
+    query: match[2].toLowerCase(),
+  };
+}
+
+function filterMentionUsers(users, query) {
+  const normalizedQuery = String(query || "").toLowerCase();
+
+  return users
+    .filter((user) => {
+      const name = String(user.user_name || "").toLowerCase();
+      const email = String(user.email || "").toLowerCase();
+      const localPart = email.split("@")[0];
+      const compactName = name.replace(/[^a-z0-9]/g, "");
+      const compactQuery = normalizedQuery.replace(/[^a-z0-9]/g, "");
+
+      if (!normalizedQuery) {
+        return true;
+      }
+
+      return [name, email, localPart, compactName].some((candidate) =>
+        candidate.includes(normalizedQuery) ||
+        (compactQuery && candidate.includes(compactQuery))
+      );
+    })
+    .slice(0, 8);
+}
+
+function setupMentionAutocomplete(textarea, panel) {
+  if (!textarea || !panel) {
+    return;
+  }
+
+  let mentionContext = null;
+  let mentionUsers = [];
+  let activeIndex = 0;
+  let requestId = 0;
+
+  function hideSuggestions() {
+    panel.classList.add("is-hidden");
+    panel.innerHTML = "";
+    mentionContext = null;
+    mentionUsers = [];
+    activeIndex = 0;
+    textarea.removeAttribute("aria-activedescendant");
+  }
+
+  function updateActiveSuggestion() {
+    panel.querySelectorAll(".mention-suggestion").forEach((suggestion, index) => {
+      const isActive = index === activeIndex;
+      suggestion.classList.toggle("is-active", isActive);
+      suggestion.setAttribute("aria-selected", String(isActive));
+      if (isActive) {
+        textarea.setAttribute("aria-activedescendant", suggestion.id);
+      }
+    });
+  }
+
+  function insertMention(user) {
+    if (!mentionContext) {
+      return;
+    }
+
+    const token = getMentionToken(user);
+    if (!token) {
+      hideSuggestions();
+      return;
+    }
+
+    const beforeMention = textarea.value.slice(0, mentionContext.start);
+    const afterMention = textarea.value.slice(mentionContext.end);
+    const insertedText = `@${token} `;
+    const nextCaretPosition = beforeMention.length + insertedText.length;
+
+    textarea.value = `${beforeMention}${insertedText}${afterMention}`;
+    textarea.focus();
+    textarea.setSelectionRange(nextCaretPosition, nextCaretPosition);
+    textarea.dispatchEvent(new Event("input", { bubbles: true }));
+    hideSuggestions();
+  }
+
+  function renderSuggestions(users) {
+    panel.innerHTML = "";
+
+    if (!users.length) {
+      hideSuggestions();
+      return;
+    }
+
+    const fragment = document.createDocumentFragment();
+    users.forEach((user, index) => {
+      const item = document.createElement("button");
+      item.type = "button";
+      item.id = `mention-suggestion-${index}`;
+      item.className = "mention-suggestion";
+      item.setAttribute("role", "option");
+      item.setAttribute("aria-selected", String(index === activeIndex));
+
+      const avatar = document.createElement("span");
+      avatar.className = "mention-avatar";
+      avatar.textContent = getMentionDisplayName(user).slice(0, 1).toUpperCase();
+
+      const details = document.createElement("span");
+      details.className = "mention-details";
+
+      const name = document.createElement("span");
+      name.className = "mention-name";
+      name.textContent = getMentionDisplayName(user);
+
+      const handle = document.createElement("span");
+      handle.className = "mention-handle";
+      handle.textContent = `@${getMentionToken(user)}`;
+
+      details.append(name, handle);
+      item.append(avatar, details);
+
+      item.addEventListener("mousedown", (event) => {
+        event.preventDefault();
+      });
+      item.addEventListener("click", () => {
+        insertMention(user);
+      });
+
+      fragment.append(item);
+    });
+
+    panel.append(fragment);
+    panel.classList.remove("is-hidden");
+    updateActiveSuggestion();
+  }
+
+  async function refreshSuggestions() {
+    const nextContext = getMentionContext(textarea);
+    if (!nextContext) {
+      hideSuggestions();
+      return;
+    }
+
+    mentionContext = nextContext;
+    const currentRequestId = ++requestId;
+
+    try {
+      const users = await getActiveUsers();
+      if (currentRequestId !== requestId) {
+        return;
+      }
+
+      mentionUsers = filterMentionUsers(users, mentionContext.query);
+      activeIndex = 0;
+      renderSuggestions(mentionUsers);
+    } catch (_error) {
+      hideSuggestions();
+    }
+  }
+
+  textarea.setAttribute("aria-autocomplete", "list");
+  textarea.setAttribute("aria-controls", panel.id);
+
+  textarea.addEventListener("input", refreshSuggestions);
+  textarea.addEventListener("click", refreshSuggestions);
+  textarea.addEventListener("keyup", (event) => {
+    if (!["ArrowDown", "ArrowUp", "Enter", "Tab", "Escape"].includes(event.key)) {
+      refreshSuggestions();
+    }
+  });
+
+  textarea.addEventListener("keydown", (event) => {
+    if (panel.classList.contains("is-hidden") || !mentionUsers.length) {
+      return;
+    }
+
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      activeIndex = (activeIndex + 1) % mentionUsers.length;
+      updateActiveSuggestion();
+      return;
+    }
+
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      activeIndex = (activeIndex - 1 + mentionUsers.length) % mentionUsers.length;
+      updateActiveSuggestion();
+      return;
+    }
+
+    if (event.key === "Enter" || event.key === "Tab") {
+      event.preventDefault();
+      insertMention(mentionUsers[activeIndex]);
+      return;
+    }
+
+    if (event.key === "Escape") {
+      event.preventDefault();
+      hideSuggestions();
+    }
+  });
+
+  textarea.addEventListener("blur", () => {
+    window.setTimeout(hideSuggestions, 120);
+  });
+}
+
 function getTaskAssigneeList(task) {
   const candidates = Array.isArray(task.assignees) && task.assignees.length
     ? task.assignees
@@ -2179,7 +2414,7 @@ function renderNotifications(notifications) {
 
     const body = document.createElement("span");
     body.className = "notification-body";
-    body.textContent = notification.body || "";
+    body.textContent = notification.description || notification.body || "";
 
     const meta = document.createElement("span");
     meta.className = "notification-meta";
@@ -2236,6 +2471,8 @@ function setupTaskPage() {
   const workLogMessage = document.querySelector("#work-log-message");
   const taskActionMessage = document.querySelector("#task-action-message");
   const commentList = document.querySelector("#comment-list");
+  const commentTextInput = document.querySelector("#comment_text");
+  const mentionSuggestions = document.querySelector("#mention-suggestions");
   const parentCommentInput = document.querySelector("#parent_comment_id");
   const replyContext = document.querySelector("#reply-context");
   const replyTarget = document.querySelector("#reply-target");
@@ -2254,6 +2491,8 @@ function setupTaskPage() {
     setMessage(messageElement, "Task id is missing.", true);
     return;
   }
+
+  setupMentionAutocomplete(commentTextInput, mentionSuggestions);
 
   function clearReplyTarget() {
     if (parentCommentInput) {

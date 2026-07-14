@@ -186,6 +186,7 @@ class NotificationResponse(BaseModel):
     id: int
     subject: str
     body: str | None = None
+    description: str | None = None
     status: str
     source_type: str
     source_id: int

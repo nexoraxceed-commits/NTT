@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Task | Nexora</title>
-    <link rel="stylesheet" href="/Css/styles.css?v=20260714-notifications">
+    <link rel="stylesheet" href="/Css/styles.css?v=20260714-mentions">
   </head>
   <body class="app-body">
     <main class="workspace-shell">
@@ -127,7 +127,10 @@
             </div>
             <div class="field-group">
               <label for="comment_text">Comment</label>
-              <textarea id="comment_text" name="comment_text" rows="4" maxlength="1000" required></textarea>
+              <div class="mention-field">
+                <textarea id="comment_text" name="comment_text" rows="4" maxlength="1000" required autocomplete="off"></textarea>
+                <div class="mention-suggestions is-hidden" id="mention-suggestions" role="listbox" aria-label="Mention users"></div>
+              </div>
             </div>
             <div class="field-group">
               <label for="deliverable_url">Deliverable URL</label>
@@ -150,6 +153,6 @@
       </section>
     </main>
     <script src="/Js/config.js"></script>
-    <script src="/Js/app.js?v=20260714-notifications"></script>
+    <script src="/Js/app.js?v=20260714-mentions"></script>
   </body>
 </html>
