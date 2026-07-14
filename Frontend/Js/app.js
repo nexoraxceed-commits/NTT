@@ -816,6 +816,117 @@ function setupLogoutButtons() {
   });
 }
 
+function createNotificationTray(notificationIcon) {
+  const tray = document.createElement("div");
+  tray.className = "notification-tray";
+
+  const trigger = document.createElement("button");
+  trigger.className = "btn btn-icon notification-trigger";
+  trigger.type = "button";
+  trigger.dataset.notificationTrigger = "true";
+  trigger.setAttribute("aria-label", "Show notifications");
+  trigger.setAttribute("aria-expanded", "false");
+  trigger.innerHTML = notificationIcon;
+
+  const flyout = document.createElement("div");
+  flyout.className = "notification-flyout";
+
+  const header = document.createElement("div");
+  header.className = "notification-flyout-header";
+
+  const title = document.createElement("p");
+  title.textContent = "Notifications";
+
+  const viewAll = document.createElement("a");
+  viewAll.href = "/notifications";
+  viewAll.textContent = "View all";
+
+  header.append(title, viewAll);
+
+  const list = document.createElement("div");
+  list.className = "notification-list notification-list-compact";
+  list.dataset.notificationFlyoutList = "true";
+
+  flyout.append(header, list);
+  tray.append(trigger, flyout);
+
+  let isPinned = false;
+  let hasLoaded = false;
+
+  function closeFlyout() {
+    if (isPinned) {
+      return;
+    }
+
+    tray.classList.remove("is-open");
+    trigger.setAttribute("aria-expanded", "false");
+  }
+
+  async function loadFlyoutNotifications(force = false) {
+    if (hasLoaded && !force) {
+      return;
+    }
+
+    renderEmptyState(list, "Loading notifications...");
+    try {
+      const notifications = await getAuthorizedJson("/notifications");
+      renderNotifications(notifications.slice(0, 6), list);
+      hasLoaded = true;
+    } catch (error) {
+      renderEmptyState(list, error.message || "Notifications could not be loaded.");
+    }
+  }
+
+  function openFlyout() {
+    tray.classList.add("is-open");
+    trigger.setAttribute("aria-expanded", "true");
+    loadFlyoutNotifications();
+  }
+
+  trigger.addEventListener("click", (event) => {
+    event.stopPropagation();
+    isPinned = !tray.classList.contains("is-open") || !isPinned;
+    if (isPinned) {
+      openFlyout();
+      return;
+    }
+
+    tray.classList.remove("is-open");
+    trigger.setAttribute("aria-expanded", "false");
+  });
+
+  tray.addEventListener("mouseenter", openFlyout);
+  tray.addEventListener("mouseleave", closeFlyout);
+  tray.addEventListener("click", (event) => {
+    event.stopPropagation();
+  });
+
+  list.addEventListener("click", async (event) => {
+    const item = event.target.closest("[data-notification-id]");
+    if (!item) {
+      return;
+    }
+
+    await openNotificationTarget(
+      item.dataset.notificationId,
+      item.dataset.targetUrl || "/post-login"
+    );
+  });
+
+  document.addEventListener("click", () => {
+    isPinned = false;
+    closeFlyout();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      isPinned = false;
+      closeFlyout();
+    }
+  });
+
+  return tray;
+}
+
 function setupWorkspaceNavigation() {
   const shell = document.querySelector(".workspace-shell");
 
@@ -836,9 +947,6 @@ function setupWorkspaceNavigation() {
     if (["/tasks", "/task", "/create-task"].includes(navPath)) {
       return "tasks";
     }
-    if (["/notifications"].includes(navPath)) {
-      return "notifications";
-    }
     return "dashboard";
   })();
   const icons = {
@@ -857,7 +965,6 @@ function setupWorkspaceNavigation() {
     { href: "/post-login", label: "Dashboard", key: "dashboard" },
     { href: "/projects", label: "Projects", key: "projects" },
     { href: "/tasks", label: "Tasks", key: "tasks" },
-    { href: "/notifications", label: "Notifications", key: "notifications" },
   ];
   const nav = document.createElement("nav");
   nav.className = "workspace-nav";
@@ -884,9 +991,6 @@ function setupWorkspaceNavigation() {
     item.innerHTML = `<span class="nav-link-icon">${icons[link.key]}</span><span>${link.label}</span>`;
     if (link.key === activeKey) {
       item.classList.add("is-active");
-    }
-    if (link.key === "notifications") {
-      item.dataset.notificationNavLink = "true";
     }
     list.append(item);
   });
@@ -936,12 +1040,16 @@ function setupWorkspaceNavigation() {
 
     titleBlock.classList.add("workspace-title-block");
     brand.append(nav, brandText);
-    topbar.append(brand);
+
+    const topbarActions = document.createElement("div");
+    topbarActions.className = "workspace-topbar-actions";
+    topbarActions.append(createNotificationTray(icons.notifications));
 
     if (actions) {
-      topbar.append(actions);
+      topbarActions.append(actions);
     }
 
+    topbar.append(brand, topbarActions);
     header.prepend(topbar);
     updateNotificationBadge();
     return;
@@ -952,22 +1060,22 @@ function setupWorkspaceNavigation() {
 }
 
 async function updateNotificationBadge() {
-  const notificationLink = document.querySelector("[data-notification-nav-link]");
-  if (!notificationLink || !getSession()?.accessToken) {
+  const notificationTrigger = document.querySelector("[data-notification-trigger]");
+  if (!notificationTrigger || !getSession()?.accessToken) {
     return;
   }
 
   try {
     const data = await getAuthorizedJson("/notifications/unread-count");
-    notificationLink.querySelector(".nav-badge")?.remove();
+    notificationTrigger.querySelector(".notification-badge")?.remove();
     if (data.unread_count > 0) {
       const badge = document.createElement("span");
-      badge.className = "nav-badge";
+      badge.className = "notification-badge";
       badge.textContent = data.unread_count > 99 ? "99+" : String(data.unread_count);
-      notificationLink.append(badge);
+      notificationTrigger.append(badge);
     }
   } catch (_error) {
-    notificationLink.querySelector(".nav-badge")?.remove();
+    notificationTrigger.querySelector(".notification-badge")?.remove();
   }
 }
 
@@ -2386,8 +2494,19 @@ function getNotificationTarget(notification) {
   return "/post-login";
 }
 
-function renderNotifications(notifications) {
-  const list = document.querySelector("#notification-list");
+async function openNotificationTarget(notificationId, targetUrl) {
+  try {
+    await postAuthorizedJson(`/notifications/${notificationId}/read`, {});
+    await updateNotificationBadge();
+  } catch (_error) {
+    // Navigation is still useful even if the read marker fails.
+  }
+
+  window.location.href = targetUrl;
+}
+
+function renderNotifications(notifications, targetList = null) {
+  const list = targetList || document.querySelector("#notification-list");
   if (!list) {
     return;
   }
@@ -2438,16 +2557,10 @@ function setupNotificationsPage() {
       return;
     }
 
-    const notificationId = item.dataset.notificationId;
-    const targetUrl = item.dataset.targetUrl || "/post-login";
-    try {
-      await postAuthorizedJson(`/notifications/${notificationId}/read`, {});
-      await updateNotificationBadge();
-    } catch (_error) {
-      // Navigation is still useful even if the read marker fails.
-    }
-
-    window.location.href = targetUrl;
+    await openNotificationTarget(
+      item.dataset.notificationId,
+      item.dataset.targetUrl || "/post-login"
+    );
   });
 
   (async () => {
