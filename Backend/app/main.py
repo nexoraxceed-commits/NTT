@@ -172,6 +172,46 @@ def resolve_active_user_ids(
     return user_ids
 
 
+def invalidate_user_cache() -> None:
+    backend_cache.delete("users:active")
+
+
+def invalidate_notification_cache(user_ids: set[str] | list[str] | None = None) -> None:
+    if not user_ids:
+        backend_cache.delete_prefix("notifications:")
+        return
+
+    for user_id in {str(value) for value in user_ids if value}:
+        backend_cache.delete(f"notifications:list:{user_id}")
+        backend_cache.delete(f"notifications:unread:{user_id}")
+
+
+def invalidate_project_cache(project_id: int | None = None) -> None:
+    backend_cache.delete_prefix("projects:list:")
+    backend_cache.delete_prefix("dashboard:data:")
+    if project_id is None:
+        backend_cache.delete_prefix("projects:detail:")
+        return
+
+    backend_cache.delete_prefix(f"projects:detail:{project_id}:")
+
+
+def invalidate_task_cache(
+    task_id: int | None = None,
+    project_id: int | None = None,
+) -> None:
+    backend_cache.delete_prefix("dashboard:data:")
+    if project_id is not None:
+        backend_cache.delete_prefix(f"projects:detail:{project_id}:")
+    else:
+        backend_cache.delete_prefix("projects:detail:")
+
+    if task_id is not None:
+        backend_cache.delete(f"tasks:detail:{task_id}")
+    else:
+        backend_cache.delete_prefix("tasks:detail:")
+
+
 def queue_notification_log(
     supabase_admin: Client,
     recipients: list[dict],
@@ -232,6 +272,8 @@ def queue_notification_log(
                     return
                 return
 
+    invalidate_notification_cache(seen_user_ids)
+
 
 def get_task_target_url(task_id: int) -> str:
     return f"/task?id={task_id}"
@@ -252,6 +294,177 @@ def rows_for_user_ids(
             app_settings,
             [str(user_id) for user_id in user_ids if user_id],
         ).values()
+    )
+
+
+def get_ref_user_display_name(ref_user: dict | None, app_settings: Settings) -> str:
+    if not ref_user:
+        return "Someone"
+
+    return (
+        normalize_optional_text(ref_user.get(REF_USER_NAME_COLUMN))
+        or normalize_optional_text(
+            ref_user.get(app_settings.signup_allowed_users_email_column)
+        )
+        or "Someone"
+    )
+
+
+def get_actor_display_name(
+    supabase_admin: Client,
+    app_settings: Settings,
+    user_id: object,
+) -> str:
+    rows = rows_for_user_ids(supabase_admin, app_settings, [str(user_id)])
+    return get_ref_user_display_name(rows[0] if rows else None, app_settings)
+
+
+def notify_user_ids(
+    supabase_admin: Client,
+    app_settings: Settings,
+    user_ids: list[str],
+    subject: str,
+    body: str,
+    source_type: str,
+    source_id: int,
+    target_url: str | None = None,
+    exclude_user_ids: set[str] | None = None,
+) -> set[str]:
+    excluded_ids = exclude_user_ids or set()
+    recipient_ids = []
+    seen_ids: set[str] = set()
+    for user_id in user_ids:
+        if not user_id:
+            continue
+        normalized_id = str(user_id)
+        if normalized_id in seen_ids or normalized_id in excluded_ids:
+            continue
+        seen_ids.add(normalized_id)
+        recipient_ids.append(normalized_id)
+
+    if not recipient_ids:
+        return set()
+
+    queue_notification_log(
+        supabase_admin,
+        rows_for_user_ids(supabase_admin, app_settings, recipient_ids),
+        subject,
+        body,
+        source_type,
+        source_id,
+        app_settings,
+        target_url=target_url,
+    )
+    return set(recipient_ids)
+
+
+def notify_task_roles(
+    supabase_admin: Client,
+    app_settings: Settings,
+    task_name: str,
+    task_id: int,
+    assigned_user_id: object | None = None,
+    stakeholder_user_id: object | None = None,
+    watcher_user_ids: list[str] | None = None,
+    exclude_user_ids: set[str] | None = None,
+) -> None:
+    notified_ids = set(exclude_user_ids or set())
+    target_url = get_task_target_url(task_id)
+    if assigned_user_id:
+        notified_ids.update(
+            notify_user_ids(
+                supabase_admin,
+                app_settings,
+                [str(assigned_user_id)],
+                f"You have been assigned {task_name}",
+                f'You are the assignee for task "{task_name}".',
+                "TASK",
+                task_id,
+                target_url=target_url,
+                exclude_user_ids=notified_ids,
+            )
+        )
+
+    if stakeholder_user_id:
+        notified_ids.update(
+            notify_user_ids(
+                supabase_admin,
+                app_settings,
+                [str(stakeholder_user_id)],
+                f"You are stakeholder of {task_name}",
+                f'You are the stakeholder for task "{task_name}".',
+                "TASK",
+                task_id,
+                target_url=target_url,
+                exclude_user_ids=notified_ids,
+            )
+        )
+
+    notify_user_ids(
+        supabase_admin,
+        app_settings,
+        watcher_user_ids or [],
+        f"You are watching {task_name}",
+        f'You will receive updates for task "{task_name}".',
+        "TASK",
+        task_id,
+        target_url=target_url,
+        exclude_user_ids=notified_ids,
+    )
+
+
+def notify_project_roles(
+    supabase_admin: Client,
+    app_settings: Settings,
+    project_name: str,
+    project_id: int,
+    assigned_user_id: object | None = None,
+    stakeholder_user_id: object | None = None,
+    watcher_user_ids: list[str] | None = None,
+    exclude_user_ids: set[str] | None = None,
+) -> None:
+    notified_ids = set(exclude_user_ids or set())
+    target_url = get_project_target_url(project_id)
+    if assigned_user_id:
+        notified_ids.update(
+            notify_user_ids(
+                supabase_admin,
+                app_settings,
+                [str(assigned_user_id)],
+                f"You have been assigned {project_name}",
+                f'You are the assignee for project "{project_name}".',
+                "PROJECT",
+                project_id,
+                target_url=target_url,
+                exclude_user_ids=notified_ids,
+            )
+        )
+
+    if stakeholder_user_id:
+        notified_ids.update(
+            notify_user_ids(
+                supabase_admin,
+                app_settings,
+                [str(stakeholder_user_id)],
+                f"You are stakeholder of {project_name}",
+                f'You are the stakeholder for project "{project_name}".',
+                "PROJECT",
+                project_id,
+                target_url=target_url,
+                exclude_user_ids=notified_ids,
+            )
+        )
+
+    notify_user_ids(
+        supabase_admin,
+        app_settings,
+        watcher_user_ids or [],
+        f"You are watching {project_name}",
+        f'You will receive updates for project "{project_name}".',
+        "PROJECT",
+        project_id,
+        target_url=target_url,
+        exclude_user_ids=notified_ids,
     )
 
 
@@ -424,6 +637,10 @@ def build_notification_description(
     notification: dict,
     task_access_logs_by_task: dict[int, list[dict]],
 ) -> str | None:
+    body = normalize_optional_text(notification.get("body"))
+    if body:
+        return body
+
     source_type = str(notification.get("source_type") or "").upper()
     if source_type == "TASK" and notification.get("source_id") is not None:
         try:
@@ -440,7 +657,7 @@ def build_notification_description(
             if access_log_description:
                 return access_log_description
 
-    return normalize_optional_text(notification.get("body"))
+    return None
 
 
 def get_user_email(
@@ -626,7 +843,7 @@ def create_app() -> FastAPI:
                 detail="Account created, but user status could not be updated.",
             ) from exc
 
-        backend_cache.clear()
+        invalidate_user_cache()
         return MessageResponse(detail="Signup successful. You can now sign in.")
 
     @app.post("/auth/forgot-password", response_model=MessageResponse)
@@ -763,7 +980,7 @@ def create_app() -> FastAPI:
         backend_cache.set(
             cache_key,
             [user.model_dump() for user in response],
-            app_settings.backend_cache_ttl_seconds,
+            app_settings.backend_cache_users_ttl_seconds,
         )
         return response
 
@@ -771,6 +988,7 @@ def create_app() -> FastAPI:
     def list_notifications(
         current_user: object = Depends(get_current_user),
         supabase_admin: Client = Depends(get_supabase_admin_client),
+        app_settings: Settings = Depends(get_settings),
     ) -> list[NotificationResponse]:
         user_id = getattr(current_user, "id", None)
         if not user_id:
@@ -778,6 +996,14 @@ def create_app() -> FastAPI:
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Session expired. Please sign in again.",
             )
+
+        cache_key = f"notifications:list:{user_id}"
+        cached_notifications = backend_cache.get(cache_key)
+        if cached_notifications is not None:
+            return [
+                NotificationResponse(**notification)
+                for notification in cached_notifications
+            ]
 
         notifications = get_notifications_for_user(supabase_admin, str(user_id))
         task_notification_ids = [
@@ -790,7 +1016,7 @@ def create_app() -> FastAPI:
             supabase_admin,
             task_notification_ids,
         )
-        return [
+        response = [
             NotificationResponse(
                 id=notification["id"],
                 subject=notification.get("subject") or "",
@@ -807,11 +1033,18 @@ def create_app() -> FastAPI:
             )
             for notification in notifications
         ]
+        backend_cache.set(
+            cache_key,
+            [notification.model_dump() for notification in response],
+            app_settings.backend_cache_notifications_ttl_seconds,
+        )
+        return response
 
     @app.get("/notifications/unread-count", response_model=NotificationCountResponse)
     def get_unread_notification_count(
         current_user: object = Depends(get_current_user),
         supabase_admin: Client = Depends(get_supabase_admin_client),
+        app_settings: Settings = Depends(get_settings),
     ) -> NotificationCountResponse:
         user_id = getattr(current_user, "id", None)
         if not user_id:
@@ -820,12 +1053,21 @@ def create_app() -> FastAPI:
                 detail="Session expired. Please sign in again.",
             )
 
-        return NotificationCountResponse(
-            unread_count=count_unread_notifications_for_user(
-                supabase_admin,
-                str(user_id),
-            )
+        cache_key = f"notifications:unread:{user_id}"
+        cached_count = backend_cache.get(cache_key)
+        if cached_count is not None:
+            return NotificationCountResponse(unread_count=int(cached_count))
+
+        unread_count = count_unread_notifications_for_user(
+            supabase_admin,
+            str(user_id),
         )
+        backend_cache.set(
+            cache_key,
+            unread_count,
+            app_settings.backend_cache_notifications_ttl_seconds,
+        )
+        return NotificationCountResponse(unread_count=unread_count)
 
     @app.post("/notifications/{notification_id}/read", response_model=MessageResponse)
     def read_notification(
@@ -852,6 +1094,7 @@ def create_app() -> FastAPI:
                 detail="Notification not found.",
             )
 
+        invalidate_notification_cache([str(user_id)])
         return MessageResponse(detail="Notification marked as read.")
 
     @app.get("/projects", response_model=list[ProjectSummaryResponse])
@@ -978,7 +1221,7 @@ def create_app() -> FastAPI:
         backend_cache.set(
             cache_key,
             [project.model_dump() for project in response],
-            app_settings.backend_cache_ttl_seconds,
+            app_settings.backend_cache_projects_ttl_seconds,
         )
         return response
 
@@ -1159,7 +1402,7 @@ def create_app() -> FastAPI:
         backend_cache.set(
             cache_key,
             dashboard,
-            app_settings.backend_cache_ttl_seconds,
+            app_settings.backend_cache_dashboard_ttl_seconds,
         )
         return dashboard
 
@@ -1377,7 +1620,7 @@ def create_app() -> FastAPI:
         backend_cache.set(
             cache_key,
             response.model_dump(),
-            app_settings.backend_cache_ttl_seconds,
+            app_settings.backend_cache_tasks_ttl_seconds,
         )
         return response
 
@@ -1467,28 +1710,41 @@ def create_app() -> FastAPI:
             payload.watcher_emails,
             "watcher",
         )
-        replace_project_watchers(supabase_admin, project_id, watcher_user_ids)
-        notification_user_ids = [
-            str(user_id)
-            for user_id in [assigned_user_id, stakeholder_user_id, *watcher_user_ids]
-            if user_id
+        previous_watcher_user_ids = {
+            str(watcher["user_id"])
+            for watcher in project_watchers
+            if watcher.get("user_id")
+        }
+        newly_added_watcher_user_ids = [
+            str(watcher_user_id)
+            for watcher_user_id in watcher_user_ids
+            if str(watcher_user_id) not in previous_watcher_user_ids
         ]
-        queue_notification_log(
+        assigned_notification_user_id = (
+            assigned_user_id
+            if assigned_user_id
+            and str(project.get("assigned_to") or "") != str(assigned_user_id)
+            else None
+        )
+        stakeholder_notification_user_id = (
+            stakeholder_user_id
+            if stakeholder_user_id
+            and str(project.get("stakeholder_id") or "") != str(stakeholder_user_id)
+            else None
+        )
+        replace_project_watchers(supabase_admin, project_id, watcher_user_ids)
+        notify_project_roles(
             supabase_admin,
-            rows_for_user_ids(
-                supabase_admin,
-                app_settings,
-                notification_user_ids,
-            ),
-            "Project updated",
-            f"Project #{project_id} was updated.",
-            "PROJECT",
-            project_id,
             app_settings,
-            target_url=get_project_target_url(project_id),
+            normalize_optional_text(project.get("project_name")) or f"Project #{project_id}",
+            project_id,
+            assigned_user_id=assigned_notification_user_id,
+            stakeholder_user_id=stakeholder_notification_user_id,
+            watcher_user_ids=newly_added_watcher_user_ids,
+            exclude_user_ids={str(user_id)},
         )
 
-        backend_cache.clear()
+        invalidate_project_cache(project_id)
         return MessageResponse(detail="Project updated successfully.")
 
     @app.post("/projects", response_model=MessageResponse)
@@ -1620,24 +1876,15 @@ def create_app() -> FastAPI:
 
             supabase_admin.table(PROJECT_MEMBERS_TABLE).insert(member_rows).execute()
             replace_project_watchers(supabase_admin, project_id, watcher_user_ids)
-            notification_user_ids = [
-                str(user_id)
-                for user_id in [assigned_user_id, stakeholder_user_id, *watcher_user_ids]
-                if user_id
-            ]
-            queue_notification_log(
+            notify_project_roles(
                 supabase_admin,
-                rows_for_user_ids(
-                    supabase_admin,
-                    app_settings,
-                    notification_user_ids,
-                ),
-                "Project assignment updated",
-                f"You were added to project {payload.project_name.strip()}.",
-                "PROJECT",
-                project_id,
                 app_settings,
-                target_url=get_project_target_url(project_id),
+                payload.project_name.strip(),
+                int(project_id),
+                assigned_user_id=assigned_user_id,
+                stakeholder_user_id=stakeholder_user_id,
+                watcher_user_ids=watcher_user_ids,
+                exclude_user_ids={str(user_id)},
             )
         except Exception as exc:
             raise HTTPException(
@@ -1648,7 +1895,7 @@ def create_app() -> FastAPI:
                 ),
             ) from exc
 
-        backend_cache.clear()
+        invalidate_project_cache(int(project_id))
         return MessageResponse(detail="Project created successfully.")
 
     @app.post("/projects/{project_id}/tasks", response_model=MessageResponse)
@@ -1728,27 +1975,21 @@ def create_app() -> FastAPI:
                 new_assignee_id=str(assigned_user_id) if assigned_user_id else None,
                 event_note="Task was created.",
             )
-            notification_user_ids = [
-                str(user_id)
-                for user_id in [assigned_user_id, stakeholder_user_id, *watcher_user_ids]
-                if user_id
-            ]
-            queue_notification_log(
+            notify_task_roles(
                 supabase_admin,
-                rows_for_user_ids(
-                    supabase_admin,
-                    app_settings,
-                    notification_user_ids,
-                ),
-                "Task assignment updated",
-                f"You were added to task {payload.task_title.strip()}.",
-                "TASK",
-                task_id,
                 app_settings,
-                target_url=get_task_target_url(task_id),
+                payload.task_title.strip(),
+                task_id,
+                assigned_user_id=assigned_user_id,
+                stakeholder_user_id=stakeholder_user_id,
+                watcher_user_ids=watcher_user_ids,
+                exclude_user_ids={str(user_id)},
             )
 
-        backend_cache.clear()
+        if task_id:
+            invalidate_task_cache(task_id, project_id)
+        else:
+            invalidate_project_cache(project_id)
         return MessageResponse(detail="Task created successfully.")
 
     @app.post("/tasks/{task_id}/update", response_model=MessageResponse)
@@ -1852,28 +2093,45 @@ def create_app() -> FastAPI:
             payload.watcher_emails,
             "watcher",
         )
-        replace_task_watchers(supabase_admin, task_id, watcher_user_ids)
-        notification_user_ids = [
-            str(user_id)
-            for user_id in [assigned_user_id, stakeholder_user_id, *watcher_user_ids]
-            if user_id
+        previous_task_watcher_user_ids = {
+            str(watcher["user_id"])
+            for watcher in get_task_watchers(supabase_admin, task_id)
+            if watcher.get("user_id")
+        }
+        newly_added_task_watcher_user_ids = [
+            str(watcher_user_id)
+            for watcher_user_id in watcher_user_ids
+            if str(watcher_user_id) not in previous_task_watcher_user_ids
         ]
-        queue_notification_log(
+        assigned_notification_user_id = (
+            assigned_user_id
+            if "assigned_to" in update_payload
+            and assigned_user_id
+            and str(task.get("assigned_to") or "") != str(assigned_user_id)
+            else None
+        )
+        stakeholder_notification_user_id = (
+            stakeholder_user_id
+            if "stakeholder_id" in update_payload
+            and stakeholder_user_id
+            and str(task.get("stakeholder_id") or "") != str(stakeholder_user_id)
+            else None
+        )
+        replace_task_watchers(supabase_admin, task_id, watcher_user_ids)
+        notify_task_roles(
             supabase_admin,
-            rows_for_user_ids(
-                supabase_admin,
-                app_settings,
-                notification_user_ids,
-            ),
-            "Task updated",
-            f"Task #{task_id} was updated.",
-            "TASK",
-            task_id,
             app_settings,
-            target_url=get_task_target_url(task_id),
+            normalize_optional_text(update_payload.get("task_title"))
+            or normalize_optional_text(task.get("task_title"))
+            or f"Task #{task_id}",
+            task_id,
+            assigned_user_id=assigned_notification_user_id,
+            stakeholder_user_id=stakeholder_notification_user_id,
+            watcher_user_ids=newly_added_task_watcher_user_ids,
+            exclude_user_ids={str(user_id)},
         )
 
-        backend_cache.clear()
+        invalidate_task_cache(task_id, project_id)
         return MessageResponse(detail="Task updated successfully.")
 
     @app.post("/tasks/{task_id}/status", response_model=MessageResponse)
@@ -1907,23 +2165,63 @@ def create_app() -> FastAPI:
                 detail="Unsupported task status.",
             )
 
+        current_status = str(task.get("status") or TASK_STATUS_OPEN).upper()
+        if requested_status == current_status:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Task is already in this status.",
+            )
+
+        if requested_status == TASK_STATUS_IN_PROGRESS and current_status != TASK_STATUS_OPEN:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Only open tasks can be moved to in progress.",
+            )
+
+        if (
+            requested_status == TASK_STATUS_CLOSE_REQUESTED
+            and current_status != TASK_STATUS_IN_PROGRESS
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Only in-progress tasks can be sent for close review.",
+            )
+
+        if requested_status == TASK_STATUS_CLOSED and current_status not in {
+            TASK_STATUS_IN_PROGRESS,
+            TASK_STATUS_CLOSE_REQUESTED,
+        }:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Only in-progress or close-requested tasks can be closed.",
+            )
+
+        current_user_is_assignee = str(task.get("assigned_to")) == str(user_id)
+        current_user_is_stakeholder = str(task.get("stakeholder_id")) == str(user_id)
+
         if requested_status in {
             TASK_STATUS_IN_PROGRESS,
             TASK_STATUS_CLOSE_REQUESTED,
-        } and str(task.get("assigned_to")) != str(user_id):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Only the assignee can move this task to that status.",
-            )
+        }:
+            if current_user_is_stakeholder:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Stakeholders can only close tasks.",
+                )
+            if not current_user_is_assignee:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Only the assignee can move this task to that status.",
+                )
 
-        if requested_status == TASK_STATUS_CLOSED and str(
-            task.get("stakeholder_id")
-        ) != str(user_id):
+        if requested_status == TASK_STATUS_CLOSED and not current_user_is_stakeholder:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Only the stakeholder can close this task.",
             )
 
+        task_name = normalize_optional_text(task.get("task_title")) or f"Task #{task_id}"
+        actor_name = get_actor_display_name(supabase_admin, app_settings, user_id)
         status_payload = {"status": requested_status}
         if requested_status == TASK_STATUS_IN_PROGRESS and not task.get("start_date"):
             status_payload["start_date"] = datetime.now(timezone.utc).isoformat()
@@ -1957,20 +2255,16 @@ def create_app() -> FastAPI:
         if requested_status == TASK_STATUS_CLOSE_REQUESTED and task.get(
             "stakeholder_id"
         ):
-            recipients = get_ref_users_by_auth_uids(
+            notify_user_ids(
                 supabase_admin,
                 app_settings,
                 [str(task["stakeholder_id"])],
-            )
-            queue_notification_log(
-                supabase_admin,
-                list(recipients.values()),
-                "Task close requested",
-                f"Task #{task_id} is ready for stakeholder review.",
+                f"{actor_name} requested to close task",
+                f'{actor_name} requested to close "{task_name}".',
                 "TASK",
                 task_id,
-                app_settings,
                 target_url=get_task_target_url(task_id),
+                exclude_user_ids={str(user_id)},
             )
 
         task_watchers = get_task_watchers(supabase_admin, task_id)
@@ -1979,24 +2273,19 @@ def create_app() -> FastAPI:
             for watcher in task_watchers
             if watcher.get("user_id")
         ]
-        queue_notification_log(
+        notify_user_ids(
             supabase_admin,
-            list(
-                get_ref_users_by_auth_uids(
-                    supabase_admin,
-                    app_settings,
-                    watcher_user_ids,
-                ).values()
-            ),
-            "Task status updated",
-            f"Task #{task_id} status changed to {requested_status}.",
+            app_settings,
+            watcher_user_ids,
+            f"{task_name} moved to {requested_status}",
+            f'{actor_name} changed "{task_name}" to {requested_status}.',
             "TASK",
             task_id,
-            app_settings,
             target_url=get_task_target_url(task_id),
+            exclude_user_ids={str(user_id)},
         )
 
-        backend_cache.clear()
+        invalidate_task_cache(task_id, project_id)
         return MessageResponse(detail="Task status updated successfully.")
 
     @app.get("/tasks/{task_id}", response_model=TaskDetailResponse)
@@ -2160,7 +2449,7 @@ def create_app() -> FastAPI:
         backend_cache.set(
             cache_key,
             response.model_dump(),
-            app_settings.backend_cache_ttl_seconds,
+            app_settings.backend_cache_tasks_ttl_seconds,
         )
         return response
 
@@ -2227,32 +2516,50 @@ def create_app() -> FastAPI:
             for watcher in task_watchers
             if watcher.get("user_id")
         ]
-        notify_user_ids = watcher_user_ids[:]
+        task_name = normalize_optional_text(task.get("task_title")) or f"Task #{task_id}"
+        actor_name = get_actor_display_name(supabase_admin, app_settings, user_id)
+        role_notification_ids = watcher_user_ids[:]
         if task.get("stakeholder_id"):
-            notify_user_ids.append(str(task["stakeholder_id"]))
+            role_notification_ids.append(str(task["stakeholder_id"]))
         active_users = get_active_ref_users(supabase_admin, app_settings)
         mentioned_user_ids = extract_mentioned_user_ids(
             payload.comment_text,
             active_users,
             app_settings,
         )
-        notify_user_ids.extend(mentioned_user_ids)
-        queue_notification_log(
+        mentioned_user_id_set = {
+            str(mentioned_user_id)
+            for mentioned_user_id in mentioned_user_ids
+            if str(mentioned_user_id) != str(user_id)
+        }
+        notify_user_ids(
             supabase_admin,
-            rows_for_user_ids(
-                supabase_admin,
-                app_settings,
-                notify_user_ids,
-            ),
-            "Task reply added" if payload.parent_comment_id else "Task comment added",
-            f"A comment was added to task #{task_id}.",
+            app_settings,
+            role_notification_ids,
+            f"New reply on {task_name}"
+            if payload.parent_comment_id
+            else f"New comment on {task_name}",
+            f'{actor_name} added a reply on "{task_name}".'
+            if payload.parent_comment_id
+            else f'{actor_name} added a comment on "{task_name}".',
             "TASK",
             task_id,
-            app_settings,
             target_url=get_task_target_url(task_id),
+            exclude_user_ids={str(user_id), *mentioned_user_id_set},
+        )
+        notify_user_ids(
+            supabase_admin,
+            app_settings,
+            list(mentioned_user_id_set),
+            f"{actor_name} mentioned you",
+            f'{actor_name} mentioned you in "{task_name}".',
+            "TASK",
+            task_id,
+            target_url=get_task_target_url(task_id),
+            exclude_user_ids={str(user_id)},
         )
 
-        backend_cache.clear()
+        invalidate_task_cache(task_id, int(task["project_id"]))
         return MessageResponse(detail="Comment added successfully.")
 
     @app.post("/tasks/{task_id}/work-logs", response_model=MessageResponse)
@@ -2303,22 +2610,21 @@ def create_app() -> FastAPI:
             event_note=f"{payload.hours or 0} hours logged for {work_date}.",
         )
         if task.get("stakeholder_id"):
-            queue_notification_log(
+            task_name = normalize_optional_text(task.get("task_title")) or f"Task #{task_id}"
+            actor_name = get_actor_display_name(supabase_admin, app_settings, user_id)
+            notify_user_ids(
                 supabase_admin,
-                rows_for_user_ids(
-                    supabase_admin,
-                    app_settings,
-                    [str(task["stakeholder_id"])],
-                ),
-                "Task work log added",
-                f"Work was logged on task #{task_id}.",
+                app_settings,
+                [str(task["stakeholder_id"])],
+                f"Work logged on {task_name}",
+                f'{actor_name} logged {payload.hours or 0}h on "{task_name}".',
                 "TASK",
                 task_id,
-                app_settings,
                 target_url=get_task_target_url(task_id),
+                exclude_user_ids={str(user_id)},
             )
 
-        backend_cache.clear()
+        invalidate_task_cache(task_id, int(task["project_id"]))
         return MessageResponse(detail="Work log added successfully.")
 
     @app.delete("/access-logs", response_model=MessageResponse)
@@ -2334,7 +2640,7 @@ def create_app() -> FastAPI:
             )
 
         delete_task_access_logs(supabase_admin)
-        backend_cache.clear()
+        invalidate_task_cache()
         return MessageResponse(detail="Task access log deleted successfully.")
 
     return app

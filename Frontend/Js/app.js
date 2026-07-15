@@ -1235,6 +1235,239 @@ function renderEmptyState(container, text) {
   container.append(emptyState);
 }
 
+const taskBoardColumns = [
+  { key: "OPEN", label: "Open", className: "is-open" },
+  { key: "IN PROGRESS", label: "In Progress", className: "is-progress" },
+  { key: "CLOSED", label: "Closed", className: "is-closed" },
+];
+
+function getTaskBoardStatus(task) {
+  const status = String(task.status || "OPEN").toUpperCase();
+  if (status === "CLOSED") {
+    return "CLOSED";
+  }
+  if (status === "IN PROGRESS" || status === "CLOSE REQUESTED") {
+    return "IN PROGRESS";
+  }
+  return "OPEN";
+}
+
+function getTaskFilterLabels(tasks, key, options = {}) {
+  if (key === "project") {
+    return Array.from(
+      new Set(tasks.map((task) => task.project_name || "No project"))
+    ).sort();
+  }
+
+  if (key === "assignee") {
+    return Array.from(
+      new Set(
+        tasks.flatMap((task) =>
+          getTaskAssigneeList(task).map(
+            (assignee) => assignee.name || assignee.email || "Unassigned"
+          )
+        )
+      )
+    ).sort();
+  }
+
+  if (key === "status") {
+    return Array.from(new Set(tasks.map((task) => task.status || "OPEN"))).sort();
+  }
+
+  return options.values || [];
+}
+
+function filterTasksForBoard(tasks, activeFilters = {}) {
+  return tasks.filter((task) => {
+    const title = String(task.task_title || "").toLowerCase();
+    const projectName = task.project_name || "No project";
+    const assignees = getTaskAssigneeList(task).map(
+      (assignee) => assignee.name || assignee.email || "Unassigned"
+    );
+    const status = task.status || "OPEN";
+
+    return (
+      (!activeFilters.title ||
+        title.includes(String(activeFilters.title).toLowerCase())) &&
+      (!activeFilters.project || projectName === activeFilters.project) &&
+      (!activeFilters.assignee || assignees.includes(activeFilters.assignee)) &&
+      (!activeFilters.status || status === activeFilters.status)
+    );
+  });
+}
+
+function renderTaskBoardFilters(
+  container,
+  sourceTasks,
+  activeFilters,
+  onFilterChange,
+  options = {}
+) {
+  const filterBar = document.createElement("div");
+  filterBar.className = "task-board-filters";
+
+  const filterDefinitions = [
+    {
+      key: "title",
+      label: "Task title",
+      type: "search",
+      placeholder: "Search task title",
+    },
+  ];
+
+  if (options.showProjectFilter) {
+    filterDefinitions.push({ key: "project", label: "Project" });
+  }
+
+  filterDefinitions.push(
+    { key: "assignee", label: "Assignee" },
+    { key: "status", label: "Status" }
+  );
+
+  filterDefinitions.forEach((definition) => {
+    const field = document.createElement("label");
+    field.className = "task-board-filter";
+    const label = document.createElement("span");
+    label.textContent = definition.label;
+    field.append(label);
+
+    if (definition.type === "search") {
+      const input = document.createElement("input");
+      input.type = "search";
+      input.placeholder = definition.placeholder;
+      input.value = activeFilters[definition.key] || "";
+      input.dataset.taskBoardFilter = definition.key;
+      field.append(input);
+    } else {
+      const select = document.createElement("select");
+      select.dataset.taskBoardFilter = definition.key;
+      const defaultOption = document.createElement("option");
+      defaultOption.value = "";
+      defaultOption.textContent = "All";
+      select.append(defaultOption);
+      getTaskFilterLabels(sourceTasks, definition.key).forEach((optionValue) => {
+        const option = document.createElement("option");
+        option.value = optionValue;
+        option.textContent = optionValue;
+        option.selected = activeFilters[definition.key] === optionValue;
+        select.append(option);
+      });
+      field.append(select);
+    }
+
+    filterBar.append(field);
+  });
+
+  filterBar.querySelectorAll("[data-task-board-filter]").forEach((control) => {
+    const applyFilter = () => {
+      const nextFilters = Object.fromEntries(
+        Array.from(filterBar.querySelectorAll("[data-task-board-filter]")).map(
+          (filterControl) => [
+            filterControl.dataset.taskBoardFilter,
+            filterControl.value,
+          ]
+        )
+      );
+      onFilterChange(nextFilters);
+    };
+    control.addEventListener("input", applyFilter);
+    control.addEventListener("change", applyFilter);
+  });
+
+  container.append(filterBar);
+}
+
+function createTaskBoardCard(task, options = {}) {
+  const card = document.createElement("article");
+  card.className = "task-card";
+  card.tabIndex = 0;
+  card.setAttribute("role", "link");
+  card.addEventListener("click", () => {
+    window.location.href = `/task?id=${task.id}`;
+  });
+  card.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      window.location.href = `/task?id=${task.id}`;
+    }
+  });
+
+  const title = document.createElement("a");
+  title.className = "task-card-title";
+  title.href = `/task?id=${task.id}`;
+  title.textContent = task.task_title || `Task #${task.id}`;
+  title.addEventListener("click", (event) => event.stopPropagation());
+
+  const meta = document.createElement("div");
+  meta.className = "task-card-meta";
+
+  if (options.showProject && task.project_name) {
+    const projectMeta = document.createElement("span");
+    projectMeta.textContent = task.project_name;
+    meta.append(projectMeta);
+  }
+
+  const assigneeMeta = document.createElement("span");
+  assigneeMeta.textContent = `Assignee: ${formatTaskAssignees(task)}`;
+  meta.append(assigneeMeta);
+
+  const dueMeta = document.createElement("span");
+  dueMeta.textContent = `Due: ${formatDisplayDate(task.end_date)}`;
+  meta.append(dueMeta);
+
+  const statusWrap = document.createElement("div");
+  statusWrap.className = "task-card-status";
+  statusWrap.append(createStatusBadge(task.status));
+
+  card.append(title, meta, statusWrap);
+  return card;
+}
+
+function renderTaskBoard(container, tasks, options = {}) {
+  const board = document.createElement("div");
+  board.className = "task-board";
+  const tasksByColumn = taskBoardColumns.reduce((columns, column) => {
+    columns[column.key] = [];
+    return columns;
+  }, {});
+
+  tasks.forEach((task) => {
+    tasksByColumn[getTaskBoardStatus(task)].push(task);
+  });
+
+  taskBoardColumns.forEach((column) => {
+    const section = document.createElement("section");
+    section.className = `task-column ${column.className}`;
+
+    const header = document.createElement("div");
+    header.className = "task-column-header";
+    const title = document.createElement("h3");
+    title.textContent = column.label;
+    const count = document.createElement("span");
+    count.textContent = tasksByColumn[column.key].length;
+    header.append(title, count);
+
+    const body = document.createElement("div");
+    body.className = "task-column-body";
+    if (!tasksByColumn[column.key].length) {
+      const empty = document.createElement("p");
+      empty.className = "empty-state compact";
+      empty.textContent = "No tasks.";
+      body.append(empty);
+    } else {
+      tasksByColumn[column.key].forEach((task) => {
+        body.append(createTaskBoardCard(task, options));
+      });
+    }
+
+    section.append(header, body);
+    board.append(section);
+  });
+
+  container.append(board);
+}
+
 function setupDashboardProjects() {
   const projectList = document.querySelector("#project-list");
   const taskList = document.querySelector("#all-task-list");
@@ -1511,15 +1744,18 @@ function setupDashboardProjects() {
       });
 
       const titleCell = document.createElement("td");
+      titleCell.dataset.label = "Project title";
       const projectLink = document.createElement("a");
       projectLink.href = `/project?id=${project.id}`;
       projectLink.textContent = project.project_name;
       titleCell.append(projectLink);
 
       const assigneeCell = document.createElement("td");
+      assigneeCell.dataset.label = "Assignee";
       assigneeCell.textContent = getProjectAssigneeLabel(project);
 
       const stakeholderCell = document.createElement("td");
+      stakeholderCell.dataset.label = "Stakeholder";
       stakeholderCell.textContent =
         project.stakeholder_name || project.stakeholder_email || "No stakeholder";
 
@@ -1574,135 +1810,19 @@ function setupDashboardProjects() {
       return;
     }
 
-    const projects = Array.from(
-      new Set(filterSourceTasks.map((task) => task.project_name || "No project"))
-    ).sort();
-    const assignees = Array.from(
-      new Set(
-        filterSourceTasks.flatMap((task) =>
-          getTaskAssignees(task).map(
-            (assignee) => assignee.name || assignee.email || "Unassigned"
-          )
-        )
-      )
-    ).sort();
-    const statuses = Array.from(
-      new Set(filterSourceTasks.map((task) => task.status || "OPEN"))
-    ).sort();
-
-    const tableWrap = document.createElement("div");
-    tableWrap.className = "data-table-wrap";
-
-    const table = document.createElement("table");
-    table.className = "data-table";
-
-    const thead = document.createElement("thead");
-    const headerRow = document.createElement("tr");
-    [
-      { label: "Task title", filter: "title", type: "search" },
-      { label: "Project", filter: "project", options: projects },
-      { label: "Assignee", filter: "assignee", options: assignees },
-      { label: "Status", filter: "status", options: statuses },
-      { label: "End date" },
-    ].forEach((column) => {
-      const cell = document.createElement("th");
-      cell.scope = "col";
-      cell.textContent = column.label;
-      if (column.type === "search") {
-        const input = document.createElement("input");
-        input.className = "table-filter";
-        input.type = "search";
-        input.placeholder = "Search title";
-        input.dataset.globalTaskFilter = column.filter;
-        input.value = activeFilters[column.filter] || "";
-        cell.append(input);
-      } else if (column.filter) {
-        const select = document.createElement("select");
-        select.className = "table-filter";
-        select.dataset.globalTaskFilter = column.filter;
-        select.innerHTML = `<option value="">All</option>`;
-        column.options.forEach((optionValue) => {
-          const option = document.createElement("option");
-          option.value = optionValue;
-          option.textContent = optionValue;
-          option.selected = activeFilters[column.filter] === optionValue;
-          select.append(option);
-        });
-        cell.append(select);
-      }
-      headerRow.append(cell);
-    });
-    thead.append(headerRow);
-
-    const tbody = document.createElement("tbody");
-
-    if (!tasks.length) {
-      const row = document.createElement("tr");
-      const cell = document.createElement("td");
-      cell.colSpan = 5;
-      cell.textContent = "No tasks found.";
-      row.append(cell);
-      tbody.append(row);
-    }
-
-    tasks.forEach((task) => {
-      const row = document.createElement("tr");
-      row.addEventListener("click", () => {
-        window.location.href = `/task?id=${task.id}`;
-      });
-
-      const titleCell = document.createElement("td");
-      const taskLink = document.createElement("a");
-      taskLink.href = `/task?id=${task.id}`;
-      taskLink.textContent = task.task_title;
-      titleCell.append(taskLink);
-
-      const projectCell = document.createElement("td");
-      projectCell.textContent = task.project_name || "No project";
-
-      const assigneeCell = document.createElement("td");
-      assigneeCell.textContent = getTaskAssigneeLabel(task);
-
-      const statusCell = document.createElement("td");
-      statusCell.append(createStatusBadge(task.status));
-
-      const endDateCell = document.createElement("td");
-      endDateCell.textContent = formatDisplayDate(task.end_date);
-
-      row.append(titleCell, projectCell, assigneeCell, statusCell, endDateCell);
-      tbody.append(row);
-    });
-
-    table.append(thead, tbody);
-    tableWrap.append(table);
-    taskList.append(tableWrap);
-
-    table.querySelectorAll("[data-global-task-filter]").forEach((filter) => {
-      filter.addEventListener("input", () => {
-        const nextFilters = Object.fromEntries(
-          Array.from(table.querySelectorAll("[data-global-task-filter]")).map(
-            (control) => [control.dataset.globalTaskFilter, control.value]
-          )
+    renderTaskBoardFilters(
+      taskList,
+      filterSourceTasks,
+      activeFilters,
+      (nextFilters) => {
+        renderGlobalTaskRows(
+          filterTasksForBoard(filterSourceTasks, nextFilters),
+          nextFilters
         );
-        const filtered = sourceTasks.filter((task) => {
-          const title = String(task.task_title || "").toLowerCase();
-          const projectName = task.project_name || "No project";
-          const taskAssignees = getTaskAssignees(task).map(
-            (assignee) => assignee.name || assignee.email || "Unassigned"
-          );
-          const status = task.status || "OPEN";
-          return (
-            (!nextFilters.title ||
-              title.includes(nextFilters.title.toLowerCase())) &&
-            (!nextFilters.project || projectName === nextFilters.project) &&
-            (!nextFilters.assignee ||
-              taskAssignees.includes(nextFilters.assignee)) &&
-            (!nextFilters.status || status === nextFilters.status)
-          );
-        });
-        renderGlobalTaskRows(filtered, nextFilters);
-      });
-    });
+      },
+      { showProjectFilter: true }
+    );
+    renderTaskBoard(taskList, tasks, { showProject: true });
   }
 
   async function loadProjects() {
@@ -1914,121 +2034,15 @@ function renderTaskList(tasks) {
     return;
   }
 
-  const tableWrap = document.createElement("div");
-  tableWrap.className = "data-table-wrap";
-
-  const table = document.createElement("table");
-  table.className = "data-table";
-
-  const thead = document.createElement("thead");
-  const headerRow = document.createElement("tr");
-  const assignees = Array.from(
-    new Set(
-      tasks.flatMap((task) =>
-        getTaskAssigneeList(task).map(
-          (assignee) => assignee.name || assignee.email || "Unassigned"
-        )
-      )
-    )
-  ).sort();
-  const statuses = Array.from(new Set(tasks.map((task) => task.status || "OPEN"))).sort();
-  [
-    { label: "Task title", filter: "title", type: "search" },
-    { label: "Assignee", filter: "assignee", options: assignees },
-    { label: "Status", filter: "status", options: statuses },
-  ].forEach((column) => {
-    const cell = document.createElement("th");
-    cell.scope = "col";
-    cell.textContent = column.label;
-    if (column.type === "search") {
-      const input = document.createElement("input");
-      input.className = "table-filter";
-      input.type = "search";
-      input.dataset.taskFilter = column.filter;
-      cell.append(input);
-    } else if (column.filter) {
-      const select = document.createElement("select");
-      select.className = "table-filter";
-      select.dataset.taskFilter = column.filter;
-      select.innerHTML = `<option value="">All</option>`;
-      column.options.forEach((optionValue) => {
-        const option = document.createElement("option");
-        option.value = optionValue;
-        option.textContent = optionValue;
-        select.append(option);
-      });
-      cell.append(select);
-    }
-    headerRow.append(cell);
-  });
-  thead.append(headerRow);
-
-  const tbody = document.createElement("tbody");
-
-  function renderRows(filteredTasks) {
-    tbody.innerHTML = "";
-    if (!filteredTasks.length) {
-      const row = document.createElement("tr");
-      const cell = document.createElement("td");
-      cell.colSpan = 3;
-      cell.textContent = "No tasks found.";
-      row.append(cell);
-      tbody.append(row);
-      return;
-    }
-
-    filteredTasks.forEach((task) => {
-      const row = document.createElement("tr");
-      row.addEventListener("click", () => {
-        window.location.href = `/task?id=${task.id}`;
-      });
-
-      const titleCell = document.createElement("td");
-      const taskLink = document.createElement("a");
-      taskLink.href = `/task?id=${task.id}`;
-      taskLink.textContent = task.task_title;
-      titleCell.append(taskLink);
-
-      const assigneeCell = document.createElement("td");
-      assigneeCell.textContent = formatTaskAssignees(task);
-
-      const statusCell = document.createElement("td");
-      statusCell.append(createStatusBadge(task.status));
-
-      row.append(titleCell, assigneeCell, statusCell);
-      tbody.append(row);
+  function renderBoard(filteredTasks, activeFilters = {}) {
+    taskList.innerHTML = "";
+    renderTaskBoardFilters(taskList, tasks, activeFilters, (nextFilters) => {
+      renderBoard(filterTasksForBoard(tasks, nextFilters), nextFilters);
     });
+    renderTaskBoard(taskList, filteredTasks);
   }
 
-  table.append(thead, tbody);
-  tableWrap.append(table);
-  taskList.append(tableWrap);
-
-  table.querySelectorAll("[data-task-filter]").forEach((filter) => {
-    filter.addEventListener("input", () => {
-      const activeFilters = Object.fromEntries(
-        Array.from(table.querySelectorAll("[data-task-filter]")).map((control) => [
-          control.dataset.taskFilter,
-          control.value,
-        ])
-      );
-      const filteredTasks = tasks.filter((task) => {
-        const title = String(task.task_title || "").toLowerCase();
-        const assignees = getTaskAssigneeList(task).map(
-          (assignee) => assignee.name || assignee.email || "Unassigned"
-        );
-        const status = task.status || "OPEN";
-        return (
-          (!activeFilters.title ||
-            title.includes(activeFilters.title.toLowerCase())) &&
-          (!activeFilters.assignee || assignees.includes(activeFilters.assignee)) &&
-          (!activeFilters.status || status === activeFilters.status)
-        );
-      });
-      renderRows(filteredTasks);
-    });
-  });
-  renderRows(tasks);
+  renderBoard(tasks);
 }
 
 function setupProjectPage() {
@@ -2324,9 +2338,10 @@ function setTaskWorkflowVisibility(task) {
   const currentEmail = String(session?.email || "").toLowerCase();
   const assignedEmail = String(task.assigned_to_email || "").toLowerCase();
   const stakeholderEmail = String(task.stakeholder_email || "").toLowerCase();
-  const status = task.status || "OPEN";
+  const status = String(task.status || "OPEN").toUpperCase();
   const isAssignee = Boolean(currentEmail && currentEmail === assignedEmail);
   const isStakeholder = Boolean(currentEmail && currentEmail === stakeholderEmail);
+  const canUseAssigneeWorkflow = isAssignee && !isStakeholder;
 
   const startWorkButton = document.querySelector("#start-work-button");
   const requestCloseButton = document.querySelector("#request-close-button");
@@ -2335,21 +2350,22 @@ function setTaskWorkflowVisibility(task) {
   if (startWorkButton) {
     startWorkButton.classList.toggle(
       "is-hidden",
-      !isAssignee || status !== "OPEN"
+      !canUseAssigneeWorkflow || status !== "OPEN"
     );
   }
 
   if (requestCloseButton) {
     requestCloseButton.classList.toggle(
       "is-hidden",
-      !isAssignee || status === "CLOSED" || status === "CLOSE REQUESTED"
+      !canUseAssigneeWorkflow || status !== "IN PROGRESS"
     );
   }
 
   if (closeTaskButton) {
     closeTaskButton.classList.toggle(
       "is-hidden",
-      !isStakeholder || status !== "CLOSE REQUESTED"
+      !isStakeholder ||
+        (status !== "IN PROGRESS" && status !== "CLOSE REQUESTED")
     );
   }
 }

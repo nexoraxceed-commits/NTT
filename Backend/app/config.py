@@ -19,6 +19,11 @@ class Settings:
     supabase_secret_key: str | None
     frontend_origin: str
     backend_cache_ttl_seconds: int
+    backend_cache_users_ttl_seconds: int
+    backend_cache_projects_ttl_seconds: int
+    backend_cache_dashboard_ttl_seconds: int
+    backend_cache_tasks_ttl_seconds: int
+    backend_cache_notifications_ttl_seconds: int
     password_reset_redirect_url: str
     signup_allowed_users_table: str
     signup_allowed_users_email_column: str
@@ -101,6 +106,26 @@ def get_settings() -> Settings:
         ),
         backend_cache_ttl_seconds=_get_int_config_value(
             "BACKEND_CACHE_TTL_SECONDS", 60
+        ),
+        backend_cache_users_ttl_seconds=_get_int_config_value(
+            "BACKEND_CACHE_USERS_TTL_SECONDS",
+            _get_int_config_value("BACKEND_CACHE_TTL_SECONDS", 900),
+        ),
+        backend_cache_projects_ttl_seconds=_get_int_config_value(
+            "BACKEND_CACHE_PROJECTS_TTL_SECONDS",
+            _get_int_config_value("BACKEND_CACHE_TTL_SECONDS", 300),
+        ),
+        backend_cache_dashboard_ttl_seconds=_get_int_config_value(
+            "BACKEND_CACHE_DASHBOARD_TTL_SECONDS",
+            _get_int_config_value("BACKEND_CACHE_TTL_SECONDS", 45),
+        ),
+        backend_cache_tasks_ttl_seconds=_get_int_config_value(
+            "BACKEND_CACHE_TASKS_TTL_SECONDS",
+            _get_int_config_value("BACKEND_CACHE_TTL_SECONDS", 20),
+        ),
+        backend_cache_notifications_ttl_seconds=_get_int_config_value(
+            "BACKEND_CACHE_NOTIFICATIONS_TTL_SECONDS",
+            _get_int_config_value("BACKEND_CACHE_TTL_SECONDS", 8),
         ),
         password_reset_redirect_url=_get_config_value(
             "PASSWORD_RESET_REDIRECT_URL",

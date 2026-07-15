@@ -583,6 +583,24 @@ def count_unread_notifications_for_user(
     try:
         response = (
             supabase.table(NOTIFICATION_LOG_TABLE)
+            .select("id", count="exact")
+            .eq("recipient_user_id", user_id)
+            .neq("status", NOTIFICATION_STATUS_READ)
+            .limit(1)
+            .execute()
+        )
+        if getattr(response, "count", None) is not None:
+            return int(response.count)
+    except TypeError:
+        pass
+    except Exception as exc:
+        if is_optional_analytics_table_error(exc):
+            return 0
+        raise
+
+    try:
+        response = (
+            supabase.table(NOTIFICATION_LOG_TABLE)
             .select("id")
             .eq("recipient_user_id", user_id)
             .neq("status", NOTIFICATION_STATUS_READ)
