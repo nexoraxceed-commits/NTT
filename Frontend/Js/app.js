@@ -6,6 +6,16 @@ const historyLogoutKey = "ntt_history_logout";
 let activeUsersPromise = null;
 let preloadPromise = null;
 let refreshSessionPromise = null;
+const liveRefreshJobs = new Map();
+let liveRefreshStarted = false;
+const liveRefreshTickMs = 3000;
+const liveRefreshIntervals = {
+  badge: 10000,
+  flyout: 8000,
+  page: 12000,
+  task: 6000,
+  notifications: 8000,
+};
 const authPages = new Set([
   "/",
   "/index.html",
@@ -317,6 +327,114 @@ function setMessage(messageElement, text, isError = false) {
 
   messageElement.textContent = text;
   messageElement.classList.toggle("is-error", isError);
+}
+
+function isLiveRefreshPausedByInput() {
+  const activeElement = document.activeElement;
+  if (!activeElement || activeElement === document.body) {
+    return false;
+  }
+
+  return (
+    ["INPUT", "TEXTAREA", "SELECT"].includes(activeElement.tagName) ||
+    Boolean(activeElement.isContentEditable)
+  );
+}
+
+function registerLiveRefreshJob(key, callback, options = {}) {
+  if (!key || typeof callback !== "function") {
+    return;
+  }
+
+  liveRefreshJobs.set(key, {
+    callback,
+    intervalMs: options.intervalMs || liveRefreshIntervals.page,
+    lastRunAt: Date.now(),
+    isRunning: false,
+    runWhileEditing: Boolean(options.runWhileEditing),
+    shouldRun: options.shouldRun || (() => true),
+  });
+}
+
+function shouldRunLiveRefreshJob(job) {
+  try {
+    return job.shouldRun();
+  } catch (_error) {
+    return false;
+  }
+}
+
+async function runLiveRefreshJob(job, force = false) {
+  if (
+    !job ||
+    job.isRunning ||
+    !getSession()?.accessToken ||
+    document.hidden ||
+    (!job.runWhileEditing && isLiveRefreshPausedByInput()) ||
+    !shouldRunLiveRefreshJob(job)
+  ) {
+    return;
+  }
+
+  const now = Date.now();
+  if (!force && now - job.lastRunAt < job.intervalMs) {
+    return;
+  }
+
+  job.isRunning = true;
+  try {
+    await job.callback({ silent: true, force });
+    job.lastRunAt = Date.now();
+  } catch (_error) {
+    // Background refresh should never interrupt the current workflow.
+  } finally {
+    job.isRunning = false;
+  }
+}
+
+function refreshLiveJobs(force = false) {
+  liveRefreshJobs.forEach((job) => {
+    runLiveRefreshJob(job, force);
+  });
+}
+
+function startLiveRefreshLoop() {
+  if (liveRefreshStarted) {
+    return;
+  }
+
+  liveRefreshStarted = true;
+  window.setInterval(() => refreshLiveJobs(false), liveRefreshTickMs);
+  window.addEventListener("focus", () => refreshLiveJobs(true));
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) {
+      refreshLiveJobs(true);
+    }
+  });
+}
+
+function getDataFilterValues(root, selector, datasetKey) {
+  if (!root) {
+    return {};
+  }
+
+  return Object.fromEntries(
+    Array.from(root.querySelectorAll(selector))
+      .map((control) => [control.dataset[datasetKey], control.value])
+      .filter(([key, value]) => key && value)
+  );
+}
+
+function getProjectTableFilters(root) {
+  return getDataFilterValues(root, "[data-project-filter]", "projectFilter");
+}
+
+function getTaskBoardFilters(root) {
+  return getDataFilterValues(
+    root,
+    "[data-task-board-filter]",
+    "taskBoardFilter"
+  );
 }
 
 function setText(selector, text) {
@@ -774,6 +892,7 @@ async function authorizedJson(path, options = {}, allowRefresh = true) {
 
     try {
       response = await fetch(`${apiBaseUrl}${path}`, {
+        cache: "no-store",
         ...options,
         headers,
       });
@@ -1042,7 +1161,9 @@ function createNotificationTray(notificationIcon) {
       return;
     }
 
-    renderEmptyState(list, "Loading notifications...");
+    if (!hasLoaded) {
+      renderEmptyState(list, "Loading notifications...");
+    }
     try {
       const notifications = await getAuthorizedJson("/notifications");
       renderNotifications(notifications.slice(0, 6), list);
@@ -1098,6 +1219,16 @@ function createNotificationTray(notificationIcon) {
       closeFlyout();
     }
   });
+
+  registerLiveRefreshJob(
+    "notification-flyout",
+    () => loadFlyoutNotifications(true),
+    {
+      intervalMs: liveRefreshIntervals.flyout,
+      runWhileEditing: true,
+      shouldRun: () => tray.classList.contains("is-open"),
+    }
+  );
 
   return tray;
 }
@@ -1227,11 +1358,19 @@ function setupWorkspaceNavigation() {
     topbar.append(brand, topbarActions);
     header.prepend(topbar);
     updateNotificationBadge();
+    registerLiveRefreshJob("notification-badge", updateNotificationBadge, {
+      intervalMs: liveRefreshIntervals.badge,
+      runWhileEditing: true,
+    });
     return;
   }
 
   shell.prepend(nav);
   updateNotificationBadge();
+  registerLiveRefreshJob("notification-badge", updateNotificationBadge, {
+    intervalMs: liveRefreshIntervals.badge,
+    runWhileEditing: true,
+  });
 }
 
 async function updateNotificationBadge() {
@@ -1839,6 +1978,20 @@ function setupDashboardProjects() {
     analyticsElement.append(weeklyHoursCard);
   }
 
+  function filterProjectsForTable(projects, activeFilters = {}) {
+    return projects.filter((project) => {
+      const watchers = getProjectWatchers(project).map(
+        (watcher) => watcher.name || watcher.email || "No watchers"
+      );
+      const stakeholder =
+        project.stakeholder_name || project.stakeholder_email || "No stakeholder";
+      return (
+        (!activeFilters.watcher || watchers.includes(activeFilters.watcher)) &&
+        (!activeFilters.stakeholder || stakeholder === activeFilters.stakeholder)
+      );
+    });
+  }
+
   function renderProjectRows(projects, activeFilters = {}) {
     if (!projectList) {
       return;
@@ -1945,23 +2098,8 @@ function setupDashboardProjects() {
 
     table.querySelectorAll("[data-project-filter]").forEach((filter) => {
       filter.addEventListener("change", () => {
-        const activeFilters = Object.fromEntries(
-          Array.from(table.querySelectorAll("[data-project-filter]")).map((select) => [
-            select.dataset.projectFilter,
-            select.value,
-          ])
-        );
-        const filtered = dashboardProjects.filter((project) => {
-          const watchers = getProjectWatchers(project).map(
-            (watcher) => watcher.name || watcher.email || "No watchers"
-          );
-          const stakeholder =
-            project.stakeholder_name || project.stakeholder_email || "No stakeholder";
-          return (
-            (!activeFilters.watcher || watchers.includes(activeFilters.watcher)) &&
-            (!activeFilters.stakeholder || stakeholder === activeFilters.stakeholder)
-          );
-        });
+        const activeFilters = getProjectTableFilters(table);
+        const filtered = filterProjectsForTable(dashboardProjects, activeFilters);
         renderProjectRows(filtered, activeFilters);
       });
     });
@@ -2001,8 +2139,13 @@ function setupDashboardProjects() {
     renderTaskBoard(taskList, tasks, { showProject: true });
   }
 
-  async function loadProjects() {
-    setMessage(messageElement, "Loading workspace data...");
+  async function loadProjects(options = {}) {
+    const { silent = false } = options;
+    const activeProjectFilters = getProjectTableFilters(projectList);
+    const activeTaskFilters = getTaskBoardFilters(taskList);
+    if (!silent) {
+      setMessage(messageElement, "Loading workspace data...");
+    }
     try {
       const dashboardData = await getAuthorizedJson("/dashboard");
       const projects = dashboardData.projects || [];
@@ -2015,17 +2158,27 @@ function setupDashboardProjects() {
         }))
       );
       renderAnalytics(projects, dashboardDetails);
-      renderProjectRows(projects);
-      renderGlobalTaskRows(tasks);
-      setMessage(messageElement, "");
+      renderProjectRows(
+        filterProjectsForTable(projects, activeProjectFilters),
+        activeProjectFilters
+      );
+      renderGlobalTaskRows(
+        filterTasksForBoard(tasks, activeTaskFilters),
+        activeTaskFilters
+      );
+      if (!silent) {
+        setMessage(messageElement, "");
+      }
     } catch (error) {
-      if (projectList) {
-        renderEmptyState(projectList, "Projects could not be loaded.");
+      if (!silent) {
+        if (projectList) {
+          renderEmptyState(projectList, "Projects could not be loaded.");
+        }
+        if (taskList) {
+          renderEmptyState(taskList, "Tasks could not be loaded.");
+        }
+        setMessage(messageElement, error.message, true);
       }
-      if (taskList) {
-        renderEmptyState(taskList, "Tasks could not be loaded.");
-      }
-      setMessage(messageElement, error.message, true);
     }
   }
 
@@ -2157,6 +2310,9 @@ function setupDashboardProjects() {
 
   refreshButton?.addEventListener("click", loadProjects);
   loadProjects();
+  registerLiveRefreshJob("workspace-data", loadProjects, {
+    intervalMs: liveRefreshIntervals.page,
+  });
 }
 
 function fillSelectsForProjectPage() {
@@ -2195,6 +2351,7 @@ function renderProjectDetail(project) {
 
 function renderTaskList(tasks) {
   const taskList = document.querySelector("#task-list");
+  const activeFilters = getTaskBoardFilters(taskList);
   taskList.innerHTML = "";
 
   if (!tasks.length) {
@@ -2210,7 +2367,7 @@ function renderTaskList(tasks) {
     renderTaskBoard(taskList, filteredTasks);
   }
 
-  renderBoard(tasks);
+  renderBoard(filterTasksForBoard(tasks, activeFilters), activeFilters);
 }
 
 function setupProjectPage() {
@@ -2270,17 +2427,32 @@ function setupProjectPage() {
     inlineProjectForm.classList.remove("is-hidden");
   }
 
-  async function loadProject() {
-    setMessage(projectMessage, "Loading project...");
+  async function loadProject(options = {}) {
+    const { silent = false } = options;
+    if (
+      silent &&
+      inlineProjectForm &&
+      !inlineProjectForm.classList.contains("is-hidden")
+    ) {
+      return;
+    }
+
+    if (!silent) {
+      setMessage(projectMessage, "Loading project...");
+    }
     try {
       const project = await getAuthorizedJson(`/projects/${projectId}`);
       currentProject = project;
       renderProjectDetail(project);
       renderTaskList(project.tasks || []);
-      hideInlineProjectEditor();
-      setMessage(projectMessage, "");
+      if (!silent) {
+        hideInlineProjectEditor();
+        setMessage(projectMessage, "");
+      }
     } catch (error) {
-      setMessage(projectMessage, error.message, true);
+      if (!silent) {
+        setMessage(projectMessage, error.message, true);
+      }
     }
   }
 
@@ -2323,6 +2495,9 @@ function setupProjectPage() {
   });
 
   loadProject();
+  registerLiveRefreshJob(`project-detail:${projectId}`, loadProject, {
+    intervalMs: liveRefreshIntervals.page,
+  });
 }
 
 function setupEditProjectPage() {
@@ -2735,17 +2910,31 @@ function setupNotificationsPage() {
     );
   });
 
-  (async () => {
-    setMessage(messageElement, "Loading notifications...");
+  async function loadNotifications(options = {}) {
+    const { silent = false } = options;
+    if (!silent) {
+      setMessage(messageElement, "Loading notifications...");
+    }
     try {
       const notifications = await getAuthorizedJson("/notifications");
       renderNotifications(notifications);
-      setMessage(messageElement, "");
+      updateNotificationBadge();
+      if (!silent) {
+        setMessage(messageElement, "");
+      }
     } catch (error) {
-      setMessage(messageElement, error.message, true);
-      renderEmptyState(list, "Notifications could not be loaded.");
+      if (!silent) {
+        setMessage(messageElement, error.message, true);
+        renderEmptyState(list, "Notifications could not be loaded.");
+      }
     }
-  })();
+  }
+
+  loadNotifications();
+  registerLiveRefreshJob("notifications-page", loadNotifications, {
+    intervalMs: liveRefreshIntervals.notifications,
+    runWhileEditing: true,
+  });
 }
 
 function setupTaskPage() {
@@ -2798,7 +2987,12 @@ function setupTaskPage() {
     document.querySelector("#comment_text")?.focus();
   }
 
-  async function loadTask() {
+  async function loadTask(options = {}) {
+    const { silent = false } = options;
+    if (silent && isLiveRefreshPausedByInput()) {
+      return;
+    }
+
     try {
       const task = await getAuthorizedJson(`/tasks/${taskId}`);
       renderTaskDetail(task);
@@ -2823,7 +3017,9 @@ function setupTaskPage() {
         taskEndDateInput.value = task.end_date || "";
       }
     } catch (error) {
-      setMessage(messageElement, error.message, true);
+      if (!silent) {
+        setMessage(messageElement, error.message, true);
+      }
     }
   }
 
@@ -2966,6 +3162,9 @@ function setupTaskPage() {
 
   setupActivityTabs();
   loadTask();
+  registerLiveRefreshJob(`task-detail:${taskId}`, loadTask, {
+    intervalMs: liveRefreshIntervals.task,
+  });
 }
 
 window.addEventListener("pageshow", guardPageAccess);
@@ -2982,3 +3181,4 @@ setupTaskPage();
 setupNotificationsPage();
 setupWorkspaceNavigation();
 setupLogoutButtons();
+startLiveRefreshLoop();
