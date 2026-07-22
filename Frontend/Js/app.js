@@ -311,6 +311,27 @@ function createIdempotencyKey(scope) {
   return `${scope}:${Date.now()}:${Math.random().toString(36).slice(2)}`;
 }
 
+function hashIdentityKey(value) {
+  return Array.from(String(value || "item")).reduce(
+    (hash, character) => (hash * 31 + character.charCodeAt(0)) >>> 0,
+    0
+  );
+}
+
+function applyIdentityColor(element, type, item) {
+  if (!element) {
+    return;
+  }
+
+  const identityKey = `${type}:${item?.id || item?.task_id || item?.project_id || item?.project_name || item?.task_title || "item"}`;
+  const hue = hashIdentityKey(identityKey) % 360;
+  element.classList.add("identity-card");
+  element.style.setProperty("--identity-bg", `hsl(${hue} 86% 96%)`);
+  element.style.setProperty("--identity-border", `hsl(${hue} 62% 82%)`);
+  element.style.setProperty("--identity-accent", `hsl(${hue} 46% 38%)`);
+  element.style.setProperty("--identity-shadow", `hsla(${hue}, 62%, 52%, 0.16)`);
+}
+
 function setButtonBusy(button, isBusy) {
   if (!button) {
     return;
@@ -1720,6 +1741,7 @@ function renderTaskBoardFilters(
 function createTaskBoardCard(task, options = {}) {
   const card = document.createElement("article");
   card.className = "task-card";
+  applyIdentityColor(card, "task", task);
   card.tabIndex = 0;
   card.setAttribute("role", "link");
   card.addEventListener("click", () => {
@@ -2095,6 +2117,8 @@ function setupDashboardProjects() {
 
     projects.forEach((project) => {
       const row = document.createElement("tr");
+      row.className = "project-row";
+      applyIdentityColor(row, "project", project);
       row.addEventListener("click", () => {
         window.location.href = `/project?id=${project.id}`;
       });
