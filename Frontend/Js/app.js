@@ -1391,6 +1391,7 @@ function setupCreateProjectForm() {
       const data = await postAuthorizedJson("/projects", payload);
       form.reset();
       setMessage(messageElement, data.detail || "Project created successfully.");
+      window.location.href = "/projects";
     } catch (error) {
       setMessage(messageElement, error.message, true);
     } finally {
@@ -2496,7 +2497,7 @@ function setTaskWorkflowVisibility(task) {
   const status = String(task.status || "OPEN").toUpperCase();
   const isAssignee = Boolean(currentEmail && currentEmail === assignedEmail);
   const isStakeholder = Boolean(currentEmail && currentEmail === stakeholderEmail);
-  const canUseAssigneeWorkflow = isAssignee && !isStakeholder;
+  const canUseAssigneeWorkflow = isAssignee;
 
   const startWorkButton = document.querySelector("#start-work-button");
   const requestCloseButton = document.querySelector("#request-close-button");

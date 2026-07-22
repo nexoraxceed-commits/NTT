@@ -2190,11 +2190,6 @@ def create_app() -> FastAPI:
             TASK_STATUS_IN_PROGRESS,
             TASK_STATUS_CLOSE_REQUESTED,
         }:
-            if current_user_is_stakeholder:
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="Stakeholders can only close tasks.",
-                )
             if not current_user_is_assignee:
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
