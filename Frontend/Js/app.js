@@ -1349,11 +1349,12 @@ function setupWorkspaceNavigation() {
 
     const topbarActions = document.createElement("div");
     topbarActions.className = "workspace-topbar-actions";
-    topbarActions.append(createNotificationTray(icons.notifications));
 
     if (actions) {
       topbarActions.append(actions);
     }
+
+    topbarActions.append(createNotificationTray(icons.notifications));
 
     topbar.append(brand, topbarActions);
     header.prepend(topbar);
