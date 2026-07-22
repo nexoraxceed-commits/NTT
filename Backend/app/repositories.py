@@ -8,6 +8,7 @@ from app.constants import (
     NOTIFICATION_LOG_TABLE,
     NOTIFICATION_STATUS_READ,
     NORMAL_STATUS,
+    PUSH_SUBSCRIPTIONS_TABLE,
     PROJECT_WATCHERS_TABLE,
     PROJECTS_TABLE,
     REF_USER_NAME_COLUMN,
@@ -23,6 +24,7 @@ def is_optional_analytics_table_error(exc: Exception) -> bool:
         "task_work_logs" in message
         or "task_access_log" in message
         or "notification_log" in message
+        or "push_subscriptions" in message
         or "description" in message
         or "parent_comment_id" in message
         or "target_url" in message
@@ -31,6 +33,76 @@ def is_optional_analytics_table_error(exc: Exception) -> bool:
         or "could not find" in message
         or "does not exist" in message
     )
+
+
+def upsert_push_subscription(
+    supabase: Client,
+    user_id: str,
+    endpoint: str,
+    p256dh: str,
+    auth: str,
+    expiration_time: int | None,
+) -> None:
+    row = {
+        "user_id": user_id,
+        "endpoint": endpoint,
+        "p256dh": p256dh,
+        "auth": auth,
+        "expiration_time": expiration_time,
+        "status": ACTIVE_STATUS,
+    }
+    try:
+        supabase.table(PUSH_SUBSCRIPTIONS_TABLE).upsert(
+            row,
+            on_conflict="endpoint",
+        ).execute()
+    except Exception as exc:
+        if is_optional_analytics_table_error(exc):
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Push notification storage is not configured yet.",
+            ) from exc
+        raise
+
+
+def get_active_push_subscriptions_for_users(
+    supabase: Client,
+    user_ids: list[str],
+) -> list[dict]:
+    unique_user_ids = sorted({user_id for user_id in user_ids if user_id})
+    if not unique_user_ids:
+        return []
+
+    try:
+        response = (
+            supabase.table(PUSH_SUBSCRIPTIONS_TABLE)
+            .select("id,user_id,endpoint,p256dh,auth,expiration_time,status")
+            .in_("user_id", unique_user_ids)
+            .eq("status", ACTIVE_STATUS)
+            .execute()
+        )
+    except Exception as exc:
+        if is_optional_analytics_table_error(exc):
+            return []
+        raise
+
+    return getattr(response, "data", None) or []
+
+
+def delete_push_subscription_by_endpoint(
+    supabase: Client,
+    endpoint: str,
+) -> None:
+    if not endpoint:
+        return
+
+    try:
+        supabase.table(PUSH_SUBSCRIPTIONS_TABLE).delete().eq(
+            "endpoint", endpoint
+        ).execute()
+    except Exception as exc:
+        if not is_optional_analytics_table_error(exc):
+            raise
 
 
 def get_ref_user(

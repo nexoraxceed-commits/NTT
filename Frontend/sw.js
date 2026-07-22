@@ -1,4 +1,4 @@
-const NEXORA_CACHE_VERSION = "nexora-mobile-app-v1";
+﻿const NEXORA_CACHE_VERSION = "nexora-push-app-v1";
 const STATIC_CACHE = `${NEXORA_CACHE_VERSION}:static`;
 const PAGE_CACHE = `${NEXORA_CACHE_VERSION}:pages`;
 
@@ -6,13 +6,17 @@ const STATIC_ASSETS = [
   "/",
   "/offline.html",
   "/manifest.webmanifest",
-  "/Css/styles.css?v=20260723-mobile-app",
-  "/Js/config.js?v=20260723-mobile-app",
-  "/Js/app.js?v=20260723-mobile-app",
-  "/Js/reset-password.js?v=20260723-mobile-app",
-  "/icons/icon-192.png",
-  "/icons/icon-512.png",
-  "/icons/apple-touch-icon.png"
+  "/Css/styles.css?v=20260723-push-app",
+  "/Js/config.js?v=20260723-push-app",
+  "/Js/app.js?v=20260723-push-app",
+  "/Js/reset-password.js?v=20260723-push-app",
+  "/icons/icon-72.png?v=20260723-push-app",
+  "/icons/icon-96.png?v=20260723-push-app",
+  "/icons/icon-144.png?v=20260723-push-app",
+  "/icons/icon-192.png?v=20260723-push-app",
+  "/icons/icon-384.png?v=20260723-push-app",
+  "/icons/icon-512.png?v=20260723-push-app",
+  "/icons/apple-touch-icon.png?v=20260723-push-app"
 ];
 
 const PAGE_ASSETS = [
@@ -103,4 +107,76 @@ self.addEventListener("fetch", (event) => {
   ) {
     event.respondWith(staleWhileRevalidate(request));
   }
+});
+
+function getNotificationPayload(event) {
+  if (!event.data) {
+    return {};
+  }
+
+  try {
+    return event.data.json();
+  } catch (_error) {
+    return {
+      title: "Nexora update",
+      body: event.data.text(),
+      target_url: "/notifications"
+    };
+  }
+}
+
+function buildNotificationTarget(targetUrl, notificationId) {
+  const url = new URL(targetUrl || "/notifications", self.location.origin);
+  if (notificationId) {
+    url.searchParams.set("notificationId", notificationId);
+  }
+  return url.href;
+}
+
+self.addEventListener("push", (event) => {
+  const payload = getNotificationPayload(event);
+  const title = payload.title || "Nexora update";
+  const options = {
+    body: payload.body || "Open Nexora for details.",
+    icon: payload.icon || "/icons/icon-192.png?v=20260723-push-app",
+    badge: payload.badge || "/icons/icon-192.png?v=20260723-push-app",
+    tag: payload.tag,
+    data: {
+      notificationId: payload.notification_id,
+      targetUrl: payload.target_url || "/notifications"
+    }
+  };
+
+  event.waitUntil(self.registration.showNotification(title, options));
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+
+  const targetUrl = buildNotificationTarget(
+    event.notification.data?.targetUrl,
+    event.notification.data?.notificationId
+  );
+
+  event.waitUntil(
+    self.clients
+      .matchAll({ type: "window", includeUncontrolled: true })
+      .then((clientList) => {
+        for (const client of clientList) {
+          if ("focus" in client && "navigate" in client) {
+            return client.navigate(targetUrl).then((focusedClient) => {
+              if (focusedClient && "focus" in focusedClient) {
+                return focusedClient.focus();
+              }
+              return client.focus();
+            });
+          }
+        }
+
+        if (self.clients.openWindow) {
+          return self.clients.openWindow(targetUrl);
+        }
+        return undefined;
+      })
+  );
 });

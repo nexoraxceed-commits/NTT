@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class LoginRequest(BaseModel):
@@ -178,6 +178,24 @@ class ErrorResponse(BaseModel):
 
 class MessageResponse(BaseModel):
     detail: str
+
+
+class PushSubscriptionKeys(BaseModel):
+    p256dh: str = Field(min_length=1)
+    auth: str = Field(min_length=1)
+
+
+class PushSubscriptionRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    endpoint: str = Field(min_length=1)
+    expiration_time: int | None = Field(default=None, alias="expirationTime")
+    keys: PushSubscriptionKeys
+
+
+class PushConfigResponse(BaseModel):
+    public_key: str | None = None
+    is_configured: bool
 
 
 class NotificationResponse(BaseModel):

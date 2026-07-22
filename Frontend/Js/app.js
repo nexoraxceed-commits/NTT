@@ -370,6 +370,140 @@ function registerMobileAppServiceWorker() {
   });
 }
 
+function isPushNotificationSupported() {
+  return (
+    "serviceWorker" in navigator &&
+    "PushManager" in window &&
+    "Notification" in window &&
+    (window.location.protocol === "https:" ||
+      ["localhost", "127.0.0.1"].includes(window.location.hostname))
+  );
+}
+
+function urlBase64ToUint8Array(base64String) {
+  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = `${base64String}${padding}`
+    .replace(/-/g, "+")
+    .replace(/_/g, "/");
+  const rawData = window.atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+
+  for (let index = 0; index < rawData.length; index += 1) {
+    outputArray[index] = rawData.charCodeAt(index);
+  }
+
+  return outputArray;
+}
+
+async function enablePushNotifications(statusElement = null) {
+  if (!isPushNotificationSupported()) {
+    throw new Error("Push notifications are not supported in this browser.");
+  }
+
+  if (Notification.permission === "denied") {
+    throw new Error("Push notifications are blocked for this site.");
+  }
+
+  const pushConfig = await getAuthorizedJson("/push/config");
+  if (!pushConfig.is_configured || !pushConfig.public_key) {
+    throw new Error("Push notifications are not configured on the backend yet.");
+  }
+
+  const permission =
+    Notification.permission === "granted"
+      ? "granted"
+      : await Notification.requestPermission();
+
+  if (permission !== "granted") {
+    throw new Error("Push notification permission was not granted.");
+  }
+
+  const registration = await navigator.serviceWorker.ready;
+  let subscription = await registration.pushManager.getSubscription();
+
+  if (!subscription) {
+    subscription = await registration.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(pushConfig.public_key),
+    });
+  }
+
+  await postAuthorizedJson("/push/subscriptions", subscription.toJSON());
+  if (statusElement) {
+    setMessage(statusElement, "Push notifications are enabled.");
+  }
+}
+
+function setupPushNotificationButtons() {
+  const buttons = document.querySelectorAll("[data-enable-push-button]");
+  if (!buttons.length) {
+    return;
+  }
+
+  buttons.forEach((button) => {
+    if (button.dataset.pushReady === "true") {
+      return;
+    }
+    button.dataset.pushReady = "true";
+
+    if (!isPushNotificationSupported()) {
+      button.disabled = true;
+      button.textContent = "Push unavailable";
+      return;
+    }
+
+    if (Notification.permission === "granted") {
+      button.textContent = "Push enabled";
+    } else if (Notification.permission === "denied") {
+      button.textContent = "Push blocked";
+      button.disabled = true;
+    }
+
+    button.addEventListener("click", async (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const statusElement = document.querySelector("[data-push-message]");
+      const originalText = button.textContent;
+      setButtonBusy(button, true);
+      try {
+        await enablePushNotifications(statusElement);
+        document.querySelectorAll("[data-enable-push-button]").forEach((item) => {
+          item.textContent = "Push enabled";
+        });
+      } catch (error) {
+        if (statusElement) {
+          setMessage(statusElement, error.message, true);
+        } else {
+          button.textContent = error.message || originalText;
+          window.setTimeout(() => {
+            button.textContent = originalText;
+          }, 3500);
+        }
+      } finally {
+        setButtonBusy(button, false);
+      }
+    });
+  });
+}
+
+async function handleNotificationOpenFromUrl() {
+  const notificationId = getQueryParam("notificationId");
+  if (!notificationId || !getSession()?.accessToken) {
+    return;
+  }
+
+  try {
+    await postAuthorizedJson(`/notifications/${notificationId}/read`, {});
+    await updateNotificationBadge();
+  } catch (_error) {
+    return;
+  }
+
+  const url = new URL(window.location.href);
+  url.searchParams.delete("notificationId");
+  window.history.replaceState({}, document.title, `${url.pathname}${url.search}${url.hash}`);
+}
+
 function isLiveRefreshPausedByInput() {
   const activeElement = document.activeElement;
   if (!activeElement || activeElement === document.body) {
@@ -1181,9 +1315,15 @@ function createNotificationTray(notificationIcon) {
   markAll.className = "notification-header-action";
   markAll.textContent = "Read all";
 
+  const enablePush = document.createElement("button");
+  enablePush.type = "button";
+  enablePush.className = "notification-header-action";
+  enablePush.dataset.enablePushButton = "true";
+  enablePush.textContent = "Enable push";
+
   const headerActions = document.createElement("div");
   headerActions.className = "notification-flyout-actions";
-  headerActions.append(markAll, viewAll);
+  headerActions.append(enablePush, markAll, viewAll);
 
   header.append(title, headerActions);
 
@@ -3273,4 +3413,6 @@ setupNotificationsPage();
 setupWorkspaceNavigation();
 setupLogoutButtons();
 registerMobileAppServiceWorker();
+setupPushNotificationButtons();
+handleNotificationOpenFromUrl();
 startLiveRefreshLoop();

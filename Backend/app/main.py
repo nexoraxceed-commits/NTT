@@ -1,3 +1,4 @@
+import json
 import re
 import time
 from datetime import date, datetime, timezone
@@ -30,7 +31,9 @@ from app.dependencies import get_current_user
 from app.mappers import build_watcher_responses
 from app.repositories import (
     count_unread_notifications_for_user,
+    delete_push_subscription_by_endpoint,
     delete_task_access_logs,
+    get_active_push_subscriptions_for_users,
     get_active_ref_users,
     get_notifications_for_user,
     get_project_by_id,
@@ -51,6 +54,7 @@ from app.repositories import (
     sync_ref_user_auth_uid,
     update_ref_user_auth_uid,
     update_ref_user_status,
+    upsert_push_subscription,
 )
 from app.schemas import (
     CreateTaskCommentRequest,
@@ -68,6 +72,8 @@ from app.schemas import (
     ProjectDetailResponse,
     ProjectSummaryResponse,
     ProjectUserResponse,
+    PushConfigResponse,
+    PushSubscriptionRequest,
     RefreshSessionRequest,
     SignupRequest,
     TaskAccessLogResponse,
@@ -310,6 +316,107 @@ def invalidate_task_cache(
         backend_cache.delete_prefix("tasks:detail:")
 
 
+def is_push_configured(app_settings: Settings) -> bool:
+    return bool(app_settings.vapid_public_key and app_settings.vapid_private_key)
+
+
+def notification_push_payload(
+    *,
+    notification_id: int | None,
+    subject: str,
+    body: str,
+    source_type: str,
+    source_id: int,
+    target_url: str | None,
+) -> dict:
+    return {
+        "notification_id": notification_id,
+        "title": subject,
+        "body": body or "Open Nexora for details.",
+        "source_type": source_type,
+        "source_id": source_id,
+        "target_url": target_url or "/notifications",
+        "tag": f"{source_type}:{source_id}:{notification_id or 'new'}",
+        "icon": "/icons/icon-192.png?v=20260723-push-app",
+        "badge": "/icons/icon-192.png?v=20260723-push-app",
+    }
+
+
+def send_push_notifications(
+    supabase_admin: Client,
+    app_settings: Settings,
+    notification_rows: list[dict],
+    *,
+    subject: str,
+    body: str,
+    source_type: str,
+    source_id: int,
+    target_url: str | None,
+) -> None:
+    if not is_push_configured(app_settings) or not notification_rows:
+        return
+
+    recipient_user_ids = [
+        str(row.get("recipient_user_id"))
+        for row in notification_rows
+        if row.get("recipient_user_id")
+    ]
+    subscriptions = get_active_push_subscriptions_for_users(
+        supabase_admin,
+        recipient_user_ids,
+    )
+    if not subscriptions:
+        return
+
+    notification_by_user_id = {
+        str(row.get("recipient_user_id")): row
+        for row in notification_rows
+        if row.get("recipient_user_id")
+    }
+
+    try:
+        from pywebpush import WebPushException, webpush
+    except ImportError:
+        return
+
+    vapid_claims = {"sub": app_settings.vapid_subject}
+    for subscription in subscriptions:
+        user_id = str(subscription.get("user_id") or "")
+        notification = notification_by_user_id.get(user_id, {})
+        payload = notification_push_payload(
+            notification_id=notification.get("id"),
+            subject=subject,
+            body=body,
+            source_type=source_type,
+            source_id=source_id,
+            target_url=target_url,
+        )
+
+        endpoint = subscription.get("endpoint")
+        try:
+            webpush(
+                subscription_info={
+                    "endpoint": endpoint,
+                    "keys": {
+                        "p256dh": subscription.get("p256dh"),
+                        "auth": subscription.get("auth"),
+                    },
+                },
+                data=json.dumps(payload),
+                vapid_private_key=app_settings.vapid_private_key,
+                vapid_claims=vapid_claims,
+            )
+        except WebPushException as exc:
+            response = getattr(exc, "response", None)
+            if getattr(response, "status_code", None) in {404, 410}:
+                delete_push_subscription_by_endpoint(
+                    supabase_admin,
+                    str(endpoint or ""),
+                )
+        except Exception:
+            continue
+
+
 def queue_notification_log(
     supabase_admin: Client,
     recipients: list[dict],
@@ -346,8 +453,10 @@ def queue_notification_log(
         )
 
     if rows:
+        notification_rows = rows
         try:
-            supabase_admin.table(NOTIFICATION_LOG_TABLE).insert(rows).execute()
+            response = supabase_admin.table(NOTIFICATION_LOG_TABLE).insert(rows).execute()
+            notification_rows = getattr(response, "data", None) or rows
         except Exception as exc:
             if not is_optional_analytics_table_error(exc):
                 return
@@ -363,13 +472,24 @@ def queue_notification_log(
                 fallback_rows.append(fallback_row)
 
             try:
-                supabase_admin.table(NOTIFICATION_LOG_TABLE).insert(
+                response = supabase_admin.table(NOTIFICATION_LOG_TABLE).insert(
                     fallback_rows
                 ).execute()
+                notification_rows = getattr(response, "data", None) or fallback_rows
             except Exception as fallback_exc:
                 if is_optional_analytics_table_error(fallback_exc):
                     return
                 return
+        send_push_notifications(
+            supabase_admin,
+            app_settings,
+            notification_rows,
+            subject=subject,
+            body=body,
+            source_type=source_type,
+            source_id=source_id,
+            target_url=target_url,
+        )
 
     invalidate_notification_cache(seen_user_ids)
 
@@ -1128,6 +1248,45 @@ def create_app() -> FastAPI:
             app_settings.backend_cache_users_ttl_seconds,
         )
         return response
+
+    @app.get("/push/config", response_model=PushConfigResponse)
+    def get_push_config(
+        app_settings: Settings = Depends(get_settings),
+    ) -> PushConfigResponse:
+        return PushConfigResponse(
+            public_key=app_settings.vapid_public_key,
+            is_configured=is_push_configured(app_settings),
+        )
+
+    @app.post("/push/subscriptions", response_model=MessageResponse)
+    def save_push_subscription(
+        payload: PushSubscriptionRequest,
+        current_user: object = Depends(get_current_user),
+        supabase_admin: Client = Depends(get_supabase_admin_client),
+        app_settings: Settings = Depends(get_settings),
+    ) -> MessageResponse:
+        if not is_push_configured(app_settings):
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Push notifications are not configured yet.",
+            )
+
+        user_id = getattr(current_user, "id", None)
+        if not user_id:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Session expired. Please sign in again.",
+            )
+
+        upsert_push_subscription(
+            supabase_admin,
+            str(user_id),
+            payload.endpoint,
+            payload.keys.p256dh,
+            payload.keys.auth,
+            payload.expiration_time,
+        )
+        return MessageResponse(detail="Push notifications enabled.")
 
     @app.get("/notifications", response_model=list[NotificationResponse])
     def list_notifications(

@@ -28,6 +28,9 @@ class Settings:
     signup_allowed_users_table: str
     signup_allowed_users_email_column: str
     signup_allowed_users_status_column: str
+    vapid_public_key: str | None
+    vapid_private_key: str | None
+    vapid_subject: str
 
 
 def _load_properties_file(path: Path) -> dict[str, str]:
@@ -139,5 +142,10 @@ def get_settings() -> Settings:
         ),
         signup_allowed_users_status_column=_get_config_value(
             "SIGNUP_ALLOWED_USERS_STATUS_COLUMN", "status"
+        ),
+        vapid_public_key=_get_config_value("VAPID_PUBLIC_KEY"),
+        vapid_private_key=_get_config_value("VAPID_PRIVATE_KEY"),
+        vapid_subject=_get_config_value(
+            "VAPID_SUBJECT", "mailto:noreply@nexora.local"
         ),
     )
