@@ -1,4 +1,4 @@
-﻿const NEXORA_CACHE_VERSION = "nexora-push-app-v1";
+const NEXORA_CACHE_VERSION = "nexora-push-app-v2";
 const STATIC_CACHE = `${NEXORA_CACHE_VERSION}:static`;
 const PAGE_CACHE = `${NEXORA_CACHE_VERSION}:pages`;
 
@@ -6,17 +6,17 @@ const STATIC_ASSETS = [
   "/",
   "/offline.html",
   "/manifest.webmanifest",
-  "/Css/styles.css?v=20260723-push-app",
-  "/Js/config.js?v=20260723-push-app",
-  "/Js/app.js?v=20260723-push-app",
-  "/Js/reset-password.js?v=20260723-push-app",
-  "/icons/icon-72.png?v=20260723-push-app",
-  "/icons/icon-96.png?v=20260723-push-app",
-  "/icons/icon-144.png?v=20260723-push-app",
-  "/icons/icon-192.png?v=20260723-push-app",
-  "/icons/icon-384.png?v=20260723-push-app",
-  "/icons/icon-512.png?v=20260723-push-app",
-  "/icons/apple-touch-icon.png?v=20260723-push-app"
+  "/Css/styles.css?v=20260723-scroll-fix",
+  "/Js/config.js?v=20260723-scroll-fix",
+  "/Js/app.js?v=20260723-scroll-fix",
+  "/Js/reset-password.js?v=20260723-scroll-fix",
+  "/icons/icon-72.png?v=20260723-scroll-fix",
+  "/icons/icon-96.png?v=20260723-scroll-fix",
+  "/icons/icon-144.png?v=20260723-scroll-fix",
+  "/icons/icon-192.png?v=20260723-scroll-fix",
+  "/icons/icon-384.png?v=20260723-scroll-fix",
+  "/icons/icon-512.png?v=20260723-scroll-fix",
+  "/icons/apple-touch-icon.png?v=20260723-scroll-fix"
 ];
 
 const PAGE_ASSETS = [
@@ -138,8 +138,8 @@ self.addEventListener("push", (event) => {
   const title = payload.title || "Nexora update";
   const options = {
     body: payload.body || "Open Nexora for details.",
-    icon: payload.icon || "/icons/icon-192.png?v=20260723-push-app",
-    badge: payload.badge || "/icons/icon-192.png?v=20260723-push-app",
+    icon: payload.icon || "/icons/icon-192.png?v=20260723-scroll-fix",
+    badge: payload.badge || "/icons/icon-192.png?v=20260723-scroll-fix",
     tag: payload.tag,
     data: {
       notificationId: payload.notification_id,

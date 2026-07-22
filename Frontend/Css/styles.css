@@ -37,6 +37,8 @@ body {
   min-height: 100%;
   max-width: 100%;
   overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 [hidden] {
@@ -54,7 +56,7 @@ body {
     sans-serif;
   -webkit-font-smoothing: antialiased;
   -webkit-tap-highlight-color: transparent;
-  overscroll-behavior-y: contain;
+  overscroll-behavior-y: auto;
   text-rendering: optimizeLegibility;
 }
 
@@ -385,6 +387,8 @@ a:focus-visible {
     max(24px, env(safe-area-inset-bottom))
     max(24px, env(safe-area-inset-left));
   background: linear-gradient(135deg, #f0effa 0%, #f7fbf8 100%);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .workspace-shell {
@@ -403,13 +407,24 @@ a:focus-visible {
 }
 
 @media (display-mode: standalone) {
+  html,
+  body {
+    height: auto;
+    min-height: 100%;
+    overflow-y: auto;
+  }
+
   .app-body {
+    display: block;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
     padding: 0;
   }
 
   .workspace-shell {
     min-height: 100vh;
     min-height: 100dvh;
+    overflow: visible;
     border-radius: 0;
   }
 
@@ -1636,6 +1651,9 @@ a:focus-visible {
 
 @media (max-width: 780px) {
   .app-body {
+    display: block;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
     padding: 0;
   }
 
@@ -1643,6 +1661,7 @@ a:focus-visible {
     width: 100%;
     min-height: 100vh;
     min-height: 100dvh;
+    overflow: visible;
     border: 0;
     border-radius: 0;
     padding:
