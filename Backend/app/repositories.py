@@ -8,12 +8,10 @@ from app.constants import (
     NOTIFICATION_LOG_TABLE,
     NOTIFICATION_STATUS_READ,
     NORMAL_STATUS,
-    PROJECT_MEMBERS_TABLE,
     PROJECT_WATCHERS_TABLE,
     PROJECTS_TABLE,
     REF_USER_NAME_COLUMN,
     TASK_ACCESS_LOG_TABLE,
-    TASK_WATCHERS_TABLE,
     TASK_WORK_LOGS_TABLE,
     TASKS_TABLE,
 )
@@ -25,6 +23,7 @@ def is_optional_analytics_table_error(exc: Exception) -> bool:
         "task_work_logs" in message
         or "task_access_log" in message
         or "notification_log" in message
+        or "description" in message
         or "parent_comment_id" in message
         or "target_url" in message
         or "read_at" in message
@@ -145,49 +144,6 @@ def get_ref_users_by_emails(
     }
 
 
-def get_project_members(
-    supabase: Client,
-    project_id: int,
-) -> list[dict]:
-    response = (
-        supabase.table(PROJECT_MEMBERS_TABLE)
-        .select("project_id,user_id,role,status")
-        .eq("project_id", project_id)
-        .eq("status", "ACTIVE")
-        .execute()
-    )
-    return getattr(response, "data", None) or []
-
-
-def get_project_members_for_projects(
-    supabase: Client,
-    project_ids: list[int],
-) -> dict[int, list[dict]]:
-    if not project_ids:
-        return {}
-
-    response = (
-        supabase.table(PROJECT_MEMBERS_TABLE)
-        .select("project_id,user_id,role,status")
-        .in_("project_id", list(set(project_ids)))
-        .eq("status", "ACTIVE")
-        .execute()
-    )
-    members = getattr(response, "data", None) or []
-    members_by_project: dict[int, list[dict]] = {
-        int(project_id): [] for project_id in project_ids
-    }
-
-    for member in members:
-        project_id = member.get("project_id")
-        if project_id is None:
-            continue
-
-        members_by_project.setdefault(int(project_id), []).append(member)
-
-    return members_by_project
-
-
 def get_project_watchers(
     supabase: Client,
     project_id: int,
@@ -243,58 +199,6 @@ def replace_project_watchers(
         supabase.table(PROJECT_WATCHERS_TABLE).insert(rows).execute()
 
 
-def get_user_project_memberships(
-    supabase: Client,
-    user_id: str,
-) -> list[dict]:
-    response = (
-        supabase.table(PROJECT_MEMBERS_TABLE)
-        .select("project_id,user_id,role,status")
-        .eq("user_id", user_id)
-        .eq("status", "ACTIVE")
-        .execute()
-    )
-    return getattr(response, "data", None) or []
-
-
-def get_user_project_watchlist(
-    supabase: Client,
-    user_id: str,
-) -> list[dict]:
-    response = (
-        supabase.table(PROJECT_WATCHERS_TABLE)
-        .select("project_id,user_id,status")
-        .eq("user_id", user_id)
-        .eq("status", ACTIVE_STATUS)
-        .execute()
-    )
-    return getattr(response, "data", None) or []
-
-
-def ensure_project_member(
-    supabase: Client,
-    project_id: int,
-    user_id: str,
-) -> None:
-    response = (
-        supabase.table(PROJECT_MEMBERS_TABLE)
-        .select("id")
-        .eq("project_id", project_id)
-        .eq("user_id", user_id)
-        .eq("status", "ACTIVE")
-        .limit(1)
-        .execute()
-    )
-    memberships = getattr(response, "data", None) or []
-    if memberships:
-        return
-
-    raise HTTPException(
-        status_code=status.HTTP_403_FORBIDDEN,
-        detail="You do not have access to this project.",
-    )
-
-
 def get_project_by_id(
     supabase: Client,
     project_id: int,
@@ -304,7 +208,7 @@ def get_project_by_id(
             supabase.table(PROJECTS_TABLE)
             .select(
                 "id,created_at,project_name,description,document_name,document_url,"
-                "documents,created_by,status,assigned_to,stakeholder_id"
+                "documents,created_by,status,stakeholder_id"
             )
             .eq("id", project_id)
             .limit(1)
@@ -342,7 +246,7 @@ def get_task_by_id(
             supabase.table(TASKS_TABLE)
             .select(
                 "id,created_at,project_id,task_title,task_details,documents,"
-                "assigned_to,stakeholder_id,created_by,status,due_date,start_date,end_date"
+                "assigned_to,created_by,status,due_date,start_date,end_date"
             )
             .eq("id", task_id)
             .limit(1)
@@ -370,59 +274,6 @@ def get_task_by_id(
         )
 
     return tasks[0]
-
-
-def get_task_watchers(
-    supabase: Client,
-    task_id: int,
-) -> list[dict]:
-    response = (
-        supabase.table(TASK_WATCHERS_TABLE)
-        .select("task_id,user_id,status")
-        .eq("task_id", task_id)
-        .eq("status", ACTIVE_STATUS)
-        .execute()
-    )
-    return getattr(response, "data", None) or []
-
-
-def get_task_watchers_for_tasks(
-    supabase: Client,
-    task_ids: list[int],
-) -> dict[int, list[dict]]:
-    if not task_ids:
-        return {}
-
-    response = (
-        supabase.table(TASK_WATCHERS_TABLE)
-        .select("task_id,user_id,status")
-        .in_("task_id", list(set(task_ids)))
-        .eq("status", ACTIVE_STATUS)
-        .execute()
-    )
-    watchers = getattr(response, "data", None) or []
-    watchers_by_task: dict[int, list[dict]] = {int(task_id): [] for task_id in task_ids}
-    for watcher in watchers:
-        task_id = watcher.get("task_id")
-        if task_id is None:
-            continue
-        watchers_by_task.setdefault(int(task_id), []).append(watcher)
-
-    return watchers_by_task
-
-
-def replace_task_watchers(
-    supabase: Client,
-    task_id: int,
-    watcher_user_ids: list[str],
-) -> None:
-    supabase.table(TASK_WATCHERS_TABLE).delete().eq("task_id", task_id).execute()
-    rows = [
-        {"task_id": task_id, "user_id": user_id, "status": ACTIVE_STATUS}
-        for user_id in sorted(set(watcher_user_ids))
-    ]
-    if rows:
-        supabase.table(TASK_WATCHERS_TABLE).insert(rows).execute()
 
 
 def get_task_work_logs(
@@ -560,7 +411,7 @@ def get_notifications_for_user(
         response = (
             supabase.table(NOTIFICATION_LOG_TABLE)
             .select(
-                "id,created_at,recipient_user_id,recipient_email,subject,body,"
+                "id,created_at,recipient_user_id,recipient_email,subject,body,description,"
                 "status,source_type,source_id,target_url,read_at"
             )
             .eq("recipient_user_id", user_id)

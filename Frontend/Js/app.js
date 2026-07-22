@@ -4,6 +4,8 @@ const persistentSessionKey = "ntt_auth_persistent_session";
 const authActiveKey = "ntt_auth_active";
 const historyLogoutKey = "ntt_history_logout";
 let activeUsersPromise = null;
+let preloadPromise = null;
+let refreshSessionPromise = null;
 const authPages = new Set([
   "/",
   "/index.html",
@@ -55,43 +57,83 @@ function normalizePath(pathname) {
 
 function getSession() {
   const rawSession = window.sessionStorage.getItem(sessionKey);
-  const rawPersistentSession = window.localStorage.getItem(persistentSessionKey);
 
   try {
     if (rawSession) {
-      return JSON.parse(rawSession);
-    }
-
-    if (rawPersistentSession) {
-      const session = JSON.parse(rawPersistentSession);
-      window.sessionStorage.setItem(sessionKey, rawPersistentSession);
-      return session;
+      const session = JSON.parse(rawSession);
+      return session?.accessToken ? session : null;
     }
 
     return null;
   } catch (_error) {
     window.sessionStorage.removeItem(sessionKey);
-    window.localStorage.removeItem(persistentSessionKey);
     return null;
   }
+}
+
+function getPersistentSession() {
+  const rawPersistentSession = window.localStorage.getItem(persistentSessionKey);
+  if (!rawPersistentSession) {
+    return null;
+  }
+
+  try {
+    const session = JSON.parse(rawPersistentSession);
+    if (session?.refreshToken && session?.rememberMe) {
+      if (session.accessToken) {
+        window.localStorage.setItem(
+          persistentSessionKey,
+          JSON.stringify({
+            refreshToken: session.refreshToken,
+            userId: session.userId,
+            email: session.email,
+            rememberMe: true,
+            savedAt: session.savedAt || Date.now(),
+          })
+        );
+      }
+
+      return session;
+    }
+  } catch (_error) {
+    // Invalid persisted data is cleaned below.
+  }
+
+  window.localStorage.removeItem(persistentSessionKey);
+  return null;
 }
 
 function isAuthActive() {
   return window.localStorage.getItem(authActiveKey) === "true";
 }
 
-function saveSession(data) {
+function saveSession(data, rememberMe = false) {
   clearHistoryLogout();
   window.localStorage.setItem(authActiveKey, "true");
-  const session = JSON.stringify({
+  const session = {
     accessToken: data.access_token,
     refreshToken: data.refresh_token,
     userId: data.user_id,
     email: data.email,
-  });
+    rememberMe: Boolean(rememberMe),
+    savedAt: Date.now(),
+  };
 
-  window.sessionStorage.setItem(sessionKey, session);
-  window.localStorage.setItem(persistentSessionKey, session);
+  window.sessionStorage.setItem(sessionKey, JSON.stringify(session));
+  if (rememberMe) {
+    window.localStorage.setItem(
+      persistentSessionKey,
+      JSON.stringify({
+        refreshToken: session.refreshToken,
+        userId: session.userId,
+        email: session.email,
+        rememberMe: true,
+        savedAt: session.savedAt,
+      })
+    );
+  } else {
+    window.localStorage.removeItem(persistentSessionKey);
+  }
 }
 
 function clearSession() {
@@ -100,7 +142,25 @@ function clearSession() {
   window.localStorage.removeItem(authActiveKey);
 }
 
-function logout() {
+async function logout() {
+  const session = getSession();
+  if (session?.accessToken) {
+    try {
+      await fetch(`${apiBaseUrl}/auth/logout`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.accessToken}`,
+        },
+        body: JSON.stringify({
+          refresh_token: session.refreshToken || null,
+        }),
+      });
+    } catch (_error) {
+      // Client cleanup still needs to happen even if network logout fails.
+    }
+  }
+
   clearSession();
   clearHistoryLogout();
   window.location.replace("/");
@@ -151,6 +211,7 @@ function isBackForwardNavigation(event) {
 function guardPageAccess(event) {
   const path = normalizePath(window.location.pathname);
   const session = getSession();
+  const persistentSession = getPersistentSession();
   const cameFromHistory = isBackForwardNavigation(event);
 
   if (authPages.has(path) && session?.accessToken) {
@@ -162,6 +223,20 @@ function guardPageAccess(event) {
     }
 
     window.location.replace("/post-login");
+    return;
+  }
+
+  if (authPages.has(path) && persistentSession?.refreshToken && isAuthActive()) {
+    refreshSession()
+      .then((restoredSession) => {
+        if (restoredSession?.accessToken) {
+          window.location.replace("/post-login");
+        }
+      })
+      .catch(() => {
+        clearSession();
+        clearHistoryLogout();
+      });
     return;
   }
 
@@ -183,7 +258,28 @@ function guardPageAccess(event) {
   }
 
   if (dashboardPages.has(path) && (!session?.accessToken || !isAuthActive())) {
+    if (persistentSession?.refreshToken && isAuthActive()) {
+      refreshSession()
+        .then((restoredSession) => {
+          if (restoredSession?.accessToken) {
+            preloadWorkspaceData();
+            return;
+          }
+
+          redirectToSignIn();
+        })
+        .catch(() => {
+          redirectToSignIn();
+        });
+      return;
+    }
+
     window.location.replace(wasLoggedOutByHistory() ? "/signed-out" : "/");
+    return;
+  }
+
+  if (dashboardPages.has(path) && session?.accessToken) {
+    preloadWorkspaceData();
   }
 }
 
@@ -193,7 +289,25 @@ function getFormValues(form) {
   return {
     email: String(formData.get("email") ?? "").trim(),
     password: String(formData.get("password") ?? ""),
+    remember_me: Boolean(formData.get("remember")),
   };
+}
+
+function createIdempotencyKey(scope) {
+  if (window.crypto?.randomUUID) {
+    return `${scope}:${window.crypto.randomUUID()}`;
+  }
+
+  return `${scope}:${Date.now()}:${Math.random().toString(36).slice(2)}`;
+}
+
+function setButtonBusy(button, isBusy) {
+  if (!button) {
+    return;
+  }
+
+  button.disabled = isBusy;
+  button.classList.toggle("is-loading", isBusy);
 }
 
 function setMessage(messageElement, text, isError = false) {
@@ -506,19 +620,6 @@ function formatTaskAssignees(task) {
     .join(", ");
 }
 
-function formatProjectMembers(members = []) {
-  if (!members.length) {
-    return "No assignees";
-  }
-
-  return members
-    .map((member) => {
-      const name = member.user_name || member.email || "Unknown user";
-      return `${name} - ${member.role}`;
-    })
-    .join(", ");
-}
-
 function formatWatchers(watchers = []) {
   if (!watchers.length) {
     return "No watchers";
@@ -619,35 +720,92 @@ async function postJson(path, payload) {
   return data;
 }
 
-async function authorizedJson(path, options = {}) {
-  const session = getSession();
+async function refreshSession() {
+  const session = getSession() || getPersistentSession();
+  if (!session?.refreshToken) {
+    return null;
+  }
+
+  if (!refreshSessionPromise) {
+    refreshSessionPromise = postJson("/auth/refresh", {
+      refresh_token: session.refreshToken,
+    })
+      .then((data) => {
+        saveSession(data, Boolean(session.rememberMe));
+        return getSession();
+      })
+      .catch((error) => {
+        clearSession();
+        throw error;
+      })
+      .finally(() => {
+        refreshSessionPromise = null;
+      });
+  }
+
+  return refreshSessionPromise;
+}
+
+async function authorizedJson(path, options = {}, allowRefresh = true) {
+  let session = getSession();
   if (!session?.accessToken) {
-    redirectToSignIn();
-    throw new Error("Session expired. Redirecting to sign in.");
+    try {
+      const restoredSession = allowRefresh ? await refreshSession() : null;
+      if (restoredSession?.accessToken) {
+        session = restoredSession;
+      }
+    } catch (_error) {
+      // Fall through to sign-in redirect below.
+    }
+
+    if (!session?.accessToken) {
+      redirectToSignIn();
+      throw new Error("Session expired. Redirecting to sign in.");
+    }
   }
 
-  const headers = {
-    Authorization: `Bearer ${session.accessToken}`,
-    ...(options.headers || {}),
-  };
+  async function sendRequest(accessToken) {
+    const headers = {
+      Authorization: `Bearer ${accessToken}`,
+      ...(options.headers || {}),
+    };
 
-  let response;
+    let response;
 
-  try {
-    response = await fetch(`${apiBaseUrl}${path}`, {
-      ...options,
-      headers,
-    });
-  } catch (error) {
-    throw new Error("Could not reach the backend. Please try again in a moment.");
+    try {
+      response = await fetch(`${apiBaseUrl}${path}`, {
+        ...options,
+        headers,
+      });
+    } catch (error) {
+      throw new Error("Could not reach the backend. Please try again in a moment.");
+    }
+
+    const data = await response.json().catch(() => ({
+      detail: response.ok ? "" : `Backend returned ${response.status}.`,
+    }));
+
+    return { response, data };
   }
 
-  const data = await response.json().catch(() => ({
-    detail: response.ok ? "" : `Backend returned ${response.status}.`,
-  }));
+  let { response, data } = await sendRequest(session.accessToken);
 
   if (!response.ok) {
     if (isExpiredSessionResponse(response, data)) {
+      if (allowRefresh) {
+        try {
+          const refreshedSession = await refreshSession();
+          if (refreshedSession?.accessToken) {
+            ({ response, data } = await sendRequest(refreshedSession.accessToken));
+            if (response.ok) {
+              return data;
+            }
+          }
+        } catch (_error) {
+          // Fall through to sign-in redirect below.
+        }
+      }
+
       redirectToSignIn();
       throw new Error("Session expired. Redirecting to sign in.");
     }
@@ -681,6 +839,23 @@ async function getActiveUsers() {
   }
 
   return activeUsersPromise;
+}
+
+function preloadWorkspaceData() {
+  if (!getSession()?.accessToken) {
+    return Promise.resolve(null);
+  }
+
+  if (!preloadPromise) {
+    preloadPromise = Promise.allSettled([
+      getActiveUsers(),
+      getAuthorizedJson("/projects"),
+    ]).finally(() => {
+      preloadPromise = null;
+    });
+  }
+
+  return preloadPromise;
 }
 
 async function populateUserSelect(selectElement, options = {}) {
@@ -1098,8 +1273,9 @@ function setupLoginForm() {
     setMessage(messageElement, "Signing in...");
 
     try {
-      const data = await postJson("/auth/login", getFormValues(form));
-      saveSession(data);
+      const values = getFormValues(form);
+      const data = await postJson("/auth/login", values);
+      saveSession(data, values.remember_me);
       window.location.replace("/post-login");
     } catch (error) {
       setMessage(messageElement, error.message, true);
@@ -1169,7 +1345,6 @@ function setupForgotPasswordForm() {
 function setupCreateProjectForm() {
   const form = document.querySelector("#create-project-form");
   const messageElement = document.querySelector("#form-message");
-  const assigneeSelect = document.querySelector("#assigned_to_email");
   const stakeholderSelect = document.querySelector("#project_stakeholder_email");
   const watcherSelect = document.querySelector("#project_watcher_emails");
 
@@ -1177,12 +1352,6 @@ function setupCreateProjectForm() {
     return;
   }
 
-  if (assigneeSelect) {
-    populateUserSelect(assigneeSelect)
-      .catch((error) => {
-        setMessage(messageElement, error.message, true);
-      });
-  }
   if (stakeholderSelect) {
     populateUserSelect(stakeholderSelect, { includeCurrentUser: true }).catch(
       (error) => {
@@ -1208,14 +1377,15 @@ function setupCreateProjectForm() {
       description: String(formData.get("description") ?? "").trim() || null,
       document_name: String(formData.get("document_name") ?? "").trim() || null,
       document_url: String(formData.get("document_url") ?? "").trim() || null,
-      assigned_to_email:
-        String(formData.get("assigned_to_email") ?? "").trim() || null,
       stakeholder_email:
         String(formData.get("stakeholder_email") ?? "").trim() || null,
       watcher_emails: getSelectedValues(watcherSelect),
+      idempotency_key: createIdempotencyKey("create-project"),
     };
 
     setMessage(messageElement, "Creating project...");
+    const submitButton = event.submitter || form.querySelector("[type='submit']");
+    setButtonBusy(submitButton, true);
 
     try {
       const data = await postAuthorizedJson("/projects", payload);
@@ -1223,6 +1393,8 @@ function setupCreateProjectForm() {
       setMessage(messageElement, data.detail || "Project created successfully.");
     } catch (error) {
       setMessage(messageElement, error.message, true);
+    } finally {
+      setButtonBusy(submitButton, false);
     }
   });
 }
@@ -1495,22 +1667,20 @@ function setupDashboardProjects() {
     return formatTaskAssignees(task);
   }
 
-  function getProjectAssignees(project) {
-    if (project.assigned_to_name || project.assigned_to_email) {
-      return [
-        {
-          name: project.assigned_to_name || project.assigned_to_email,
-          email: project.assigned_to_email || null,
-        },
-      ];
+  function getProjectWatchers(project) {
+    if (Array.isArray(project.watchers) && project.watchers.length) {
+      return project.watchers.map((watcher) => ({
+        name: watcher.user_name || watcher.email,
+        email: watcher.email || null,
+      }));
     }
 
-    return [{ name: "Unassigned", email: null }];
+    return [{ name: "No watchers", email: null }];
   }
 
-  function getProjectAssigneeLabel(project) {
-    return getProjectAssignees(project)
-      .map((assignee) => assignee.name || assignee.email)
+  function getProjectWatcherLabel(project) {
+    return getProjectWatchers(project)
+      .map((watcher) => watcher.name || watcher.email)
       .join(", ");
   }
 
@@ -1522,16 +1692,21 @@ function setupDashboardProjects() {
     if (!dateValue) {
       return false;
     }
-    const date = new Date(dateValue);
-    if (Number.isNaN(date.getTime())) {
+    const dateText = String(dateValue).slice(0, 10);
+    const [year, month, day] = dateText.split("-").map(Number);
+    if (!year || !month || !day) {
       return false;
     }
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const weekStart = new Date(today);
-    weekStart.setDate(today.getDate() - today.getDay());
-    const weekEnd = new Date(weekStart);
-    weekEnd.setDate(weekStart.getDate() + 7);
+    const date = Date.UTC(year, month - 1, day);
+    const now = new Date();
+    const today = Date.UTC(
+      now.getUTCFullYear(),
+      now.getUTCMonth(),
+      now.getUTCDate()
+    );
+    const mondayOffset = (new Date(today).getUTCDay() + 6) % 7;
+    const weekStart = today - mondayOffset * 24 * 60 * 60 * 1000;
+    const weekEnd = weekStart + 7 * 24 * 60 * 60 * 1000;
     return date >= weekStart && date < weekEnd;
   }
 
@@ -1674,11 +1849,11 @@ function setupDashboardProjects() {
       projectCountElement.textContent = `${count} project${count === 1 ? "" : "s"}`;
     }
 
-    const assignees = Array.from(
+    const watchers = Array.from(
       new Set(
         dashboardProjects.flatMap((project) =>
-          getProjectAssignees(project).map(
-            (assignee) => assignee.name || assignee.email || "Unassigned"
+          getProjectWatchers(project).map(
+            (watcher) => watcher.name || watcher.email || "No watchers"
           )
         )
       )
@@ -1702,7 +1877,7 @@ function setupDashboardProjects() {
     const headerRow = document.createElement("tr");
     [
       { label: "Project title" },
-      { label: "Assignee", filter: "assignee", options: assignees },
+      { label: "Watchers", filter: "watcher", options: watchers },
       { label: "Stakeholder", filter: "stakeholder", options: stakeholders },
     ].forEach((column) => {
       const cell = document.createElement("th");
@@ -1750,16 +1925,16 @@ function setupDashboardProjects() {
       projectLink.textContent = project.project_name;
       titleCell.append(projectLink);
 
-      const assigneeCell = document.createElement("td");
-      assigneeCell.dataset.label = "Assignee";
-      assigneeCell.textContent = getProjectAssigneeLabel(project);
+      const watcherCell = document.createElement("td");
+      watcherCell.dataset.label = "Watchers";
+      watcherCell.textContent = getProjectWatcherLabel(project);
 
       const stakeholderCell = document.createElement("td");
       stakeholderCell.dataset.label = "Stakeholder";
       stakeholderCell.textContent =
         project.stakeholder_name || project.stakeholder_email || "No stakeholder";
 
-      row.append(titleCell, assigneeCell, stakeholderCell);
+      row.append(titleCell, watcherCell, stakeholderCell);
       tbody.append(row);
     });
 
@@ -1776,13 +1951,13 @@ function setupDashboardProjects() {
           ])
         );
         const filtered = dashboardProjects.filter((project) => {
-          const assignees = getProjectAssignees(project).map(
-            (assignee) => assignee.name || assignee.email || "Unassigned"
+          const watchers = getProjectWatchers(project).map(
+            (watcher) => watcher.name || watcher.email || "No watchers"
           );
           const stakeholder =
             project.stakeholder_name || project.stakeholder_email || "No stakeholder";
           return (
-            (!activeFilters.assignee || assignees.includes(activeFilters.assignee)) &&
+            (!activeFilters.watcher || watchers.includes(activeFilters.watcher)) &&
             (!activeFilters.stakeholder || stakeholder === activeFilters.stakeholder)
           );
         });
@@ -1914,11 +2089,11 @@ function setupDashboardProjects() {
       ["Work Hours Logged This Week", Number(weeklyHours.toFixed(2))],
       [],
       ["Project Register"],
-      ["Project", "Description", "Assignee", "Stakeholder", "Status"],
+      ["Project", "Description", "Watchers", "Stakeholder", "Status"],
       ...dashboardProjects.map((project) => [
         project.project_name,
         project.description || "",
-        getProjectAssigneeLabel(project),
+        getProjectWatcherLabel(project),
         project.stakeholder_name || project.stakeholder_email || "",
         project.status || "",
       ]),
@@ -1926,22 +2101,20 @@ function setupDashboardProjects() {
       ["Task Register"],
       [
         "Project",
-        "Project Assignee",
+        "Project Watchers",
         "Project Stakeholder",
         "Task",
         "Task Assignee",
-        "Task Stakeholder",
         "Task Status",
         "Start Date",
         "End Date",
       ],
       ...tasks.map(({ project, ...task }) => [
         project.project_name,
-        getProjectAssigneeLabel(project),
+        getProjectWatcherLabel(project),
         project.stakeholder_name || project.stakeholder_email || "",
         task.task_title,
         getTaskAssigneeLabel(task),
-        task.stakeholder_name || task.stakeholder_email || "",
         task.status || "",
         task.start_date || "",
         task.end_date || "",
@@ -1986,10 +2159,8 @@ function setupDashboardProjects() {
 }
 
 function fillSelectsForProjectPage() {
-  const projectAssigneeSelect = document.querySelector("#edit_assigned_to_email");
   const taskAssigneeSelect = document.querySelector("#task_assigned_to_email");
 
-  populateUserSelect(projectAssigneeSelect).catch(() => {});
   populateUserSelect(taskAssigneeSelect, { includeCurrentUser: true }).catch(() => {});
 }
 
@@ -2007,10 +2178,6 @@ function renderProjectDetail(project) {
       ? createTextLink(documentUrl, documentName)
       : "No documents URL added."
   );
-  document.querySelector("#project-assignees").textContent =
-    project.assigned_to_name ||
-    project.assigned_to_email ||
-    formatProjectMembers(project.assignees);
   const projectStakeholderElement = document.querySelector("#project-stakeholder");
   if (projectStakeholderElement) {
     projectStakeholderElement.textContent =
@@ -2053,9 +2220,6 @@ function setupProjectPage() {
   const inlineProjectForm = document.querySelector("#inline-project-form");
   const inlineProjectMessage = document.querySelector("#inline-project-message");
   const inlineProjectCancel = document.querySelector("#inline-project-cancel");
-  const inlineAssigneeSelect = document.querySelector(
-    "#inline_project_assigned_to_email"
-  );
   const inlineStakeholderSelect = document.querySelector(
     "#inline_project_stakeholder_email"
   );
@@ -2093,11 +2257,7 @@ function setupProjectPage() {
     document.querySelector("#inline_project_document_url").value =
       currentProject.document_url || currentProject.documents || "";
 
-    await populateUserSelect(inlineAssigneeSelect, { includeCurrentUser: true });
     await populateUserSelect(inlineStakeholderSelect, { includeCurrentUser: true });
-    if (inlineAssigneeSelect && currentProject.assigned_to_email) {
-      inlineAssigneeSelect.value = currentProject.assigned_to_email;
-    }
     if (inlineStakeholderSelect && currentProject.stakeholder_email) {
       inlineStakeholderSelect.value = currentProject.stakeholder_email;
     }
@@ -2149,8 +2309,6 @@ function setupProjectPage() {
         document_name:
           String(formData.get("document_name") ?? "").trim() || null,
         document_url: String(formData.get("document_url") ?? "").trim() || null,
-        assigned_to_email:
-          String(formData.get("assigned_to_email") ?? "").trim() || null,
         stakeholder_email:
           String(formData.get("stakeholder_email") ?? "").trim() || null,
         watcher_emails: getCheckedValues(inlineWatcherList),
@@ -2182,8 +2340,10 @@ function setupEditProjectPage() {
   }
 
   backLink.href = `/project?id=${projectId}`;
-  const editAssigneeSelect = document.querySelector("#edit_assigned_to_email");
-  const editAssigneePromise = populateUserSelect(editAssigneeSelect, {
+  const editStakeholderSelect = document.querySelector(
+    "#edit_project_stakeholder_email"
+  );
+  const editStakeholderPromise = populateUserSelect(editStakeholderSelect, {
     includeCurrentUser: true,
   }).catch(() => {});
   const editWatcherSelect = document.querySelector("#edit_project_watcher_emails");
@@ -2196,9 +2356,9 @@ function setupEditProjectPage() {
         project.document_name || "";
       document.querySelector("#edit_document_url").value =
         project.document_url || project.documents || "";
-      await editAssigneePromise;
-      if (editAssigneeSelect && project.assigned_to_email) {
-        editAssigneeSelect.value = project.assigned_to_email;
+      await editStakeholderPromise;
+      if (editStakeholderSelect && project.stakeholder_email) {
+        editStakeholderSelect.value = project.stakeholder_email;
       }
       await populateUserMultiSelect(
         editWatcherSelect,
@@ -2219,8 +2379,8 @@ function setupEditProjectPage() {
         description: String(formData.get("description") ?? "").trim() || null,
         document_name: String(formData.get("document_name") ?? "").trim() || null,
         document_url: String(formData.get("document_url") ?? "").trim() || null,
-        assigned_to_email:
-          String(formData.get("assigned_to_email") ?? "").trim() || null,
+        stakeholder_email:
+          String(formData.get("stakeholder_email") ?? "").trim() || null,
         watcher_emails: getSelectedValues(editWatcherSelect),
       });
       setMessage(editMessage, data.detail || "Project updated successfully.");
@@ -2252,12 +2412,6 @@ function setupCreateTaskPage() {
   populateUserSelect(document.querySelector("#task_assigned_to_email"), {
     includeCurrentUser: true,
   }).catch(() => {});
-  populateUserSelect(document.querySelector("#task_stakeholder_email"), {
-    includeCurrentUser: true,
-  }).catch(() => {});
-  populateUserMultiSelect(document.querySelector("#task_watcher_emails")).catch(
-    () => {}
-  );
 
   createTaskForm?.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -2269,6 +2423,9 @@ function setupCreateTaskPage() {
 
     const formData = new FormData(createTaskForm);
     setMessage(taskMessage, "Creating task...");
+    const submitButton =
+      event.submitter || createTaskForm.querySelector("[type='submit']");
+    setButtonBusy(submitButton, true);
 
     try {
       const data = await postAuthorizedJson(`/projects/${projectId}/tasks`, {
@@ -2278,17 +2435,15 @@ function setupCreateTaskPage() {
         end_date: String(formData.get("end_date") ?? "").trim(),
         assigned_to_email:
           String(formData.get("assigned_to_email") ?? "").trim() || null,
-        stakeholder_email:
-          String(formData.get("stakeholder_email") ?? "").trim() || null,
-        watcher_emails: getSelectedValues(
-          document.querySelector("#task_watcher_emails")
-        ),
+        idempotency_key: createIdempotencyKey("create-task"),
       });
       createTaskForm.reset();
       setMessage(taskMessage, data.detail || "Task created successfully.");
       window.location.href = `/project?id=${projectId}`;
     } catch (error) {
       setMessage(taskMessage, error.message, true);
+    } finally {
+      setButtonBusy(submitButton, false);
     }
   });
 }
@@ -2365,7 +2520,7 @@ function setTaskWorkflowVisibility(task) {
     closeTaskButton.classList.toggle(
       "is-hidden",
       !isStakeholder ||
-        (status !== "IN PROGRESS" && status !== "CLOSE REQUESTED")
+        !["IN PROGRESS", "CLOSE REQUESTED"].includes(status)
     );
   }
 }
@@ -2469,8 +2624,8 @@ function renderWorkLogs(workLogs) {
     const author = document.createElement("p");
     author.className = "meta-text";
     const loggedBy = workLog.logged_by_name || workLog.logged_by_email || "User";
-    const hours = workLog.hours ? ` · ${workLog.hours}h` : "";
-    author.textContent = `${loggedBy} · ${formatDisplayDate(workLog.work_date)}${hours}`;
+    const hours = workLog.hours ? ` - ${workLog.hours}h` : "";
+    author.textContent = `${loggedBy} - ${formatDisplayDate(workLog.work_date)}${hours}`;
 
     const body = document.createElement("p");
     body.textContent = workLog.work_note || "";
@@ -2607,8 +2762,6 @@ function setupTaskPage() {
   const replyTarget = document.querySelector("#reply-target");
   const cancelReplyButton = document.querySelector("#cancel-reply-button");
   const taskAssigneeSelect = document.querySelector("#task_edit_assigned_to_email");
-  const taskStakeholderSelect = document.querySelector("#task_edit_stakeholder_email");
-  const taskWatcherSelect = document.querySelector("#task_edit_watcher_emails");
   const taskEndDateInput = document.querySelector("#task_edit_end_date");
   const taskId = getQueryParam("id");
 
@@ -2652,16 +2805,18 @@ function setupTaskPage() {
       renderComments(task.comments || []);
       renderWorkLogs(task.work_logs || []);
       await populateUserSelect(taskAssigneeSelect, { includeCurrentUser: true });
-      await populateUserSelect(taskStakeholderSelect, { includeCurrentUser: true });
-      await populateUserCheckboxList(
-        taskWatcherSelect,
-        (task.watchers || []).map((watcher) => watcher.email)
-      );
       if (taskAssigneeSelect && task.assigned_to_email) {
         taskAssigneeSelect.value = task.assigned_to_email;
       }
-      if (taskStakeholderSelect && task.stakeholder_email) {
-        taskStakeholderSelect.value = task.stakeholder_email;
+      const session = getSession();
+      const currentEmail = String(session?.email || "").toLowerCase();
+      const assignedEmail = String(task.assigned_to_email || "").toLowerCase();
+      const stakeholderEmail = String(task.stakeholder_email || "").toLowerCase();
+      const canChangeAssignee =
+        Boolean(currentEmail) &&
+        (currentEmail === assignedEmail || currentEmail === stakeholderEmail);
+      if (taskAssigneeSelect) {
+        taskAssigneeSelect.disabled = !canChangeAssignee;
       }
       if (taskEndDateInput) {
         taskEndDateInput.value = task.end_date || "";
@@ -2671,19 +2826,21 @@ function setupTaskPage() {
     }
   }
 
-  document.querySelector("#save-task-button")?.addEventListener("click", async () => {
+  document.querySelector("#save-task-button")?.addEventListener("click", async (event) => {
+    const button = event.currentTarget;
     setMessage(taskActionMessage, "Saving task details...");
+    setButtonBusy(button, true);
     try {
       const data = await postAuthorizedJson(`/tasks/${taskId}/update`, {
         assigned_to_email: taskAssigneeSelect?.value || "",
-        stakeholder_email: taskStakeholderSelect?.value || "",
         end_date: taskEndDateInput?.value || null,
-        watcher_emails: getCheckedValues(taskWatcherSelect),
       });
       setMessage(taskActionMessage, data.detail || "Task details saved.");
       await loadTask();
     } catch (error) {
       setMessage(taskActionMessage, error.message, true);
+    } finally {
+      setButtonBusy(button, false);
     }
   });
 
@@ -2751,7 +2908,9 @@ function setupTaskPage() {
     }
 
     const formData = new FormData(commentForm);
+    const submitButton = commentForm.querySelector("button[type='submit']");
     setMessage(messageElement, "Adding comment...");
+    setButtonBusy(submitButton, true);
 
     try {
       const data = await postAuthorizedJson(`/tasks/${taskId}/comments`, {
@@ -2761,6 +2920,7 @@ function setupTaskPage() {
         parent_comment_id: parentCommentInput?.value
           ? Number(parentCommentInput.value)
           : null,
+        idempotency_key: createIdempotencyKey("task-comment"),
       });
       commentForm.reset();
       clearReplyTarget();
@@ -2768,6 +2928,8 @@ function setupTaskPage() {
       await loadTask();
     } catch (error) {
       setMessage(messageElement, error.message, true);
+    } finally {
+      setButtonBusy(submitButton, false);
     }
   });
 
@@ -2780,21 +2942,24 @@ function setupTaskPage() {
     }
 
     const formData = new FormData(workLogForm);
+    const submitButton = workLogForm.querySelector("button[type='submit']");
     setMessage(workLogMessage, "Adding work log...");
+    setButtonBusy(submitButton, true);
 
     try {
       const data = await postAuthorizedJson(`/tasks/${taskId}/work-logs`, {
         work_note: String(formData.get("work_note") ?? "").trim(),
         work_date: String(formData.get("work_date") ?? "").trim() || null,
-        hours: formData.get("hours")
-          ? Number(String(formData.get("hours")).trim())
-          : null,
+        hours: Number(String(formData.get("hours")).trim()),
+        idempotency_key: createIdempotencyKey("task-work-log"),
       });
       workLogForm.reset();
       setMessage(workLogMessage, data.detail || "Work log added.");
       await loadTask();
     } catch (error) {
       setMessage(workLogMessage, error.message, true);
+    } finally {
+      setButtonBusy(submitButton, false);
     }
   });
 

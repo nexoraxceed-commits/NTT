@@ -32,6 +32,12 @@
   box-sizing: border-box;
 }
 
+html,
+body {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
 [hidden] {
   display: none !important;
 }
@@ -258,6 +264,14 @@ button:hover {
   transform: translateY(-1px);
 }
 
+.btn:disabled,
+button:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
 .btn-primary,
 .button-link {
   color: #ffffff;
@@ -387,23 +401,26 @@ a:focus-visible {
 
 .workspace-nav::after {
   position: absolute;
-  top: 46px;
+  top: 0;
   left: 0;
-  display: none;
-  width: 248px;
-  height: 12px;
+  display: block;
+  width: 292px;
+  height: 420px;
+  border-radius: 28px;
   content: "";
+  opacity: 0;
+  pointer-events: none;
 }
 
 .workspace-nav:hover::after,
 .workspace-nav:focus-within::after,
 .workspace-nav.is-open::after {
-  display: block;
+  pointer-events: auto;
 }
 
 .nav-trigger {
   position: relative;
-  z-index: 2;
+  z-index: 3;
   display: grid;
   width: 46px;
   height: 46px;
@@ -433,7 +450,7 @@ a:focus-visible {
 .nav-panel {
   display: flex;
   position: absolute;
-  z-index: 1;
+  z-index: 4;
   top: calc(100% + 8px);
   left: 0;
   flex-direction: column;
@@ -578,6 +595,7 @@ a:focus-visible {
 .workspace-topbar-actions {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: 14px;
   margin-left: auto;
@@ -597,6 +615,7 @@ a:focus-visible {
 }
 
 .workspace-panel {
+  min-width: 0;
   max-width: 720px;
   border: 1px solid rgba(225, 231, 227, 0.95);
   border-radius: var(--radius-lg);

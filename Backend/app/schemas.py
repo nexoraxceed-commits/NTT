@@ -4,6 +4,7 @@ from pydantic import BaseModel, Field
 class LoginRequest(BaseModel):
     email: str = Field(min_length=3, max_length=320)
     password: str = Field(min_length=8, max_length=256)
+    remember_me: bool = False
 
 
 class SignupRequest(BaseModel):
@@ -15,21 +16,28 @@ class ForgotPasswordRequest(BaseModel):
     email: str = Field(min_length=3, max_length=320)
 
 
+class RefreshSessionRequest(BaseModel):
+    refresh_token: str = Field(min_length=10, max_length=4096)
+
+
+class LogoutRequest(BaseModel):
+    refresh_token: str | None = Field(default=None, max_length=4096)
+
+
 class CreateProjectRequest(BaseModel):
     project_name: str = Field(min_length=1, max_length=160)
     description: str | None = Field(default=None, max_length=1000)
     document_name: str | None = Field(default=None, max_length=160)
     document_url: str | None = Field(default=None, max_length=2000)
-    assigned_to_email: str | None = Field(default=None, max_length=320)
     stakeholder_email: str | None = Field(default=None, max_length=320)
     watcher_emails: list[str] = Field(default_factory=list)
+    idempotency_key: str | None = Field(default=None, max_length=120)
 
 
 class UpdateProjectRequest(BaseModel):
     description: str | None = Field(default=None, max_length=1000)
     document_name: str | None = Field(default=None, max_length=160)
     document_url: str | None = Field(default=None, max_length=2000)
-    assigned_to_email: str | None = Field(default=None, max_length=320)
     stakeholder_email: str | None = Field(default=None, max_length=320)
     watcher_emails: list[str] = Field(default_factory=list)
 
@@ -39,9 +47,8 @@ class CreateTaskRequest(BaseModel):
     task_details: str | None = Field(default=None, max_length=1000)
     documents: str | None = Field(default=None, max_length=2000)
     assigned_to_email: str | None = Field(default=None, max_length=320)
-    stakeholder_email: str | None = Field(default=None, max_length=320)
     end_date: str = Field(min_length=10, max_length=10)
-    watcher_emails: list[str] = Field(default_factory=list)
+    idempotency_key: str | None = Field(default=None, max_length=120)
 
 
 class UpdateTaskRequest(BaseModel):
@@ -49,9 +56,7 @@ class UpdateTaskRequest(BaseModel):
     task_details: str | None = Field(default=None, max_length=1000)
     documents: str | None = Field(default=None, max_length=2000)
     assigned_to_email: str | None = Field(default=None, max_length=320)
-    stakeholder_email: str | None = Field(default=None, max_length=320)
     end_date: str | None = Field(default=None, min_length=10, max_length=10)
-    watcher_emails: list[str] = Field(default_factory=list)
 
 
 class UpdateTaskStatusRequest(BaseModel):
@@ -62,23 +67,19 @@ class CreateTaskCommentRequest(BaseModel):
     comment_text: str = Field(min_length=1, max_length=1000)
     deliverable_url: str | None = Field(default=None, max_length=2000)
     parent_comment_id: int | None = None
+    idempotency_key: str | None = Field(default=None, max_length=120)
 
 
 class CreateTaskWorkLogRequest(BaseModel):
     work_note: str = Field(min_length=1, max_length=1000)
     work_date: str | None = Field(default=None, min_length=10, max_length=10)
-    hours: float | None = Field(default=None, ge=0, le=24)
+    hours: float = Field(gt=0, le=24)
+    idempotency_key: str | None = Field(default=None, max_length=120)
 
 
 class ProjectUserResponse(BaseModel):
     email: str
     user_name: str | None = None
-
-
-class ProjectMemberResponse(BaseModel):
-    email: str | None = None
-    user_name: str | None = None
-    role: str
 
 
 class WatcherResponse(BaseModel):
@@ -94,11 +95,8 @@ class ProjectSummaryResponse(BaseModel):
     document_url: str | None = None
     documents: str | None = None
     status: str
-    assigned_to_email: str | None = None
-    assigned_to_name: str | None = None
     stakeholder_email: str | None = None
     stakeholder_name: str | None = None
-    assignees: list[ProjectMemberResponse]
     watchers: list[WatcherResponse] = Field(default_factory=list)
     can_edit: bool = False
 

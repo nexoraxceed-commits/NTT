@@ -109,19 +109,19 @@ def get_settings() -> Settings:
         ),
         backend_cache_users_ttl_seconds=_get_int_config_value(
             "BACKEND_CACHE_USERS_TTL_SECONDS",
-            _get_int_config_value("BACKEND_CACHE_TTL_SECONDS", 900),
+            _get_int_config_value("BACKEND_CACHE_TTL_SECONDS", 1800),
         ),
         backend_cache_projects_ttl_seconds=_get_int_config_value(
             "BACKEND_CACHE_PROJECTS_TTL_SECONDS",
-            _get_int_config_value("BACKEND_CACHE_TTL_SECONDS", 300),
+            _get_int_config_value("BACKEND_CACHE_TTL_SECONDS", 600),
         ),
         backend_cache_dashboard_ttl_seconds=_get_int_config_value(
             "BACKEND_CACHE_DASHBOARD_TTL_SECONDS",
-            _get_int_config_value("BACKEND_CACHE_TTL_SECONDS", 45),
+            _get_int_config_value("BACKEND_CACHE_TTL_SECONDS", 20),
         ),
         backend_cache_tasks_ttl_seconds=_get_int_config_value(
             "BACKEND_CACHE_TASKS_TTL_SECONDS",
-            _get_int_config_value("BACKEND_CACHE_TTL_SECONDS", 20),
+            _get_int_config_value("BACKEND_CACHE_TTL_SECONDS", 8),
         ),
         backend_cache_notifications_ttl_seconds=_get_int_config_value(
             "BACKEND_CACHE_NOTIFICATIONS_TTL_SECONDS",

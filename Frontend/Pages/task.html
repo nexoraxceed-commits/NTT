@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Task | Nexora</title>
-    <link rel="stylesheet" href="/Css/styles.css?v=20260715-notification-bell">
+    <link rel="stylesheet" href="/Css/styles.css?v=20260722-role-model">
   </head>
   <body class="app-body">
     <main class="workspace-shell">
@@ -33,11 +33,11 @@
             <p class="detail-copy" id="task-assignee"></p>
           </div>
           <div>
-            <p class="eyebrow">Stakeholder</p>
+            <p class="eyebrow">Project stakeholder</p>
             <p class="detail-copy" id="task-stakeholder"></p>
           </div>
           <div>
-            <p class="eyebrow">Watchers</p>
+            <p class="eyebrow">Project watchers</p>
             <p class="detail-copy" id="task-watchers"></p>
           </div>
           <div>
@@ -76,19 +76,6 @@
                 </select>
               </div>
               <div class="field-group">
-                <label for="task_edit_stakeholder_email">Stakeholder</label>
-                <select id="task_edit_stakeholder_email" name="stakeholder_email">
-                  <option value="">No stakeholder</option>
-                  <option value="" disabled>Loading users...</option>
-                </select>
-              </div>
-              <div class="field-group">
-                <span class="field-label">Task watchers</span>
-                <div class="checkbox-list" id="task_edit_watcher_emails" role="group" aria-label="Task watchers">
-                  <p class="empty-state">Loading users...</p>
-                </div>
-              </div>
-              <div class="field-group">
                 <label for="task_edit_end_date">End date</label>
                 <input id="task_edit_end_date" name="end_date" type="date">
               </div>
@@ -105,7 +92,7 @@
               </div>
               <div class="field-group">
                 <label for="work_hours">Hours</label>
-                <input id="work_hours" name="hours" type="number" min="0" max="24" step="0.25">
+                <input id="work_hours" name="hours" type="number" min="0.25" max="24" step="0.25" required>
               </div>
               <div class="field-group">
                 <label for="work_note">Work note</label>
@@ -153,6 +140,6 @@
       </section>
     </main>
     <script src="/Js/config.js"></script>
-    <script src="/Js/app.js?v=20260715-notification-bell"></script>
+    <script src="/Js/app.js?v=20260722-role-model"></script>
   </body>
 </html>
