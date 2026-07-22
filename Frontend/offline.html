@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#2f6f5d">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="Nexora">
+    <title>Offline | Nexora</title>
+    <link rel="manifest" href="/manifest.webmanifest">
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+    <link rel="icon" href="/icons/icon-192.png" sizes="192x192" type="image/png">
+    <link rel="stylesheet" href="/Css/styles.css?v=20260723-mobile-app">
+  </head>
+  <body>
+    <main class="login-shell offline-shell">
+      <section class="brand-panel" aria-label="Offline status">
+        <div>
+          <p class="eyebrow">Nexora</p>
+          <h1>You are offline</h1>
+          <p class="brand-copy">
+            Nexora is installed on this device, but live project data needs an internet connection.
+          </p>
+        </div>
+      </section>
+
+      <section class="login-panel">
+        <div class="login-header">
+          <p class="eyebrow">Connection needed</p>
+          <h2>Try again</h2>
+        </div>
+        <p class="compact-copy">
+          Reconnect to the internet, then refresh to continue working with projects, tasks, comments, and notifications.
+        </p>
+        <button class="btn btn-primary" type="button" onclick="window.location.reload()">Reload</button>
+      </section>
+    </main>
+  </body>
+</html>

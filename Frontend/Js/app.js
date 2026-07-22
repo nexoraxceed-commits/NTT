@@ -350,6 +350,26 @@ function setMessage(messageElement, text, isError = false) {
   messageElement.classList.toggle("is-error", isError);
 }
 
+function registerMobileAppServiceWorker() {
+  if (!("serviceWorker" in navigator)) {
+    return;
+  }
+
+  const isSupportedOrigin =
+    window.location.protocol === "https:" ||
+    ["localhost", "127.0.0.1"].includes(window.location.hostname);
+
+  if (!isSupportedOrigin) {
+    return;
+  }
+
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js").catch(() => {
+      // The app remains fully usable in the browser if registration fails.
+    });
+  });
+}
+
 function isLiveRefreshPausedByInput() {
   const activeElement = document.activeElement;
   if (!activeElement || activeElement === document.body) {
@@ -3252,4 +3272,5 @@ setupTaskPage();
 setupNotificationsPage();
 setupWorkspaceNavigation();
 setupLogoutButtons();
+registerMobileAppServiceWorker();
 startLiveRefreshLoop();

@@ -1,0 +1,106 @@
+const NEXORA_CACHE_VERSION = "nexora-mobile-app-v1";
+const STATIC_CACHE = `${NEXORA_CACHE_VERSION}:static`;
+const PAGE_CACHE = `${NEXORA_CACHE_VERSION}:pages`;
+
+const STATIC_ASSETS = [
+  "/",
+  "/offline.html",
+  "/manifest.webmanifest",
+  "/Css/styles.css?v=20260723-mobile-app",
+  "/Js/config.js?v=20260723-mobile-app",
+  "/Js/app.js?v=20260723-mobile-app",
+  "/Js/reset-password.js?v=20260723-mobile-app",
+  "/icons/icon-192.png",
+  "/icons/icon-512.png",
+  "/icons/apple-touch-icon.png"
+];
+
+const PAGE_ASSETS = [
+  "/signup",
+  "/forgot-password",
+  "/reset-password",
+  "/post-login",
+  "/projects",
+  "/tasks",
+  "/notifications",
+  "/create-project",
+  "/edit-project",
+  "/create-task",
+  "/project",
+  "/task",
+  "/signed-out"
+];
+
+self.addEventListener("install", (event) => {
+  event.waitUntil(
+    Promise.all([
+      caches.open(STATIC_CACHE).then((cache) => cache.addAll(STATIC_ASSETS)),
+      caches.open(PAGE_CACHE).then((cache) => cache.addAll(PAGE_ASSETS))
+    ]).then(() => self.skipWaiting())
+  );
+});
+
+self.addEventListener("activate", (event) => {
+  event.waitUntil(
+    caches
+      .keys()
+      .then((cacheNames) =>
+        Promise.all(
+          cacheNames
+            .filter((cacheName) => !cacheName.startsWith(NEXORA_CACHE_VERSION))
+            .map((cacheName) => caches.delete(cacheName))
+        )
+      )
+      .then(() => self.clients.claim())
+  );
+});
+
+async function networkFirst(request) {
+  try {
+    const response = await fetch(request);
+    if (response.ok) {
+      const cache = await caches.open(PAGE_CACHE);
+      cache.put(request, response.clone());
+    }
+    return response;
+  } catch (_error) {
+    return (await caches.match(request)) || caches.match("/offline.html");
+  }
+}
+
+async function staleWhileRevalidate(request) {
+  const cachedResponse = await caches.match(request);
+  const fetchPromise = fetch(request)
+    .then((response) => {
+      if (response.ok) {
+        caches.open(STATIC_CACHE).then((cache) => cache.put(request, response.clone()));
+      }
+      return response;
+    })
+    .catch(() => cachedResponse);
+
+  return cachedResponse || fetchPromise;
+}
+
+self.addEventListener("fetch", (event) => {
+  const { request } = event;
+  const url = new URL(request.url);
+
+  if (request.method !== "GET" || url.origin !== self.location.origin) {
+    return;
+  }
+
+  if (request.mode === "navigate") {
+    event.respondWith(networkFirst(request));
+    return;
+  }
+
+  if (
+    url.pathname.startsWith("/Css/") ||
+    url.pathname.startsWith("/Js/") ||
+    url.pathname.startsWith("/icons/") ||
+    url.pathname === "/manifest.webmanifest"
+  ) {
+    event.respondWith(staleWhileRevalidate(request));
+  }
+});

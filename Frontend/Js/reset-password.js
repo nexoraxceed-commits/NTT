@@ -2,8 +2,32 @@ const messageElement = document.querySelector("#form-message");
 const form = document.querySelector("#reset-password-form");
 
 function setResetMessage(text, isError = false) {
+  if (!messageElement) {
+    return;
+  }
+
   messageElement.textContent = text;
   messageElement.classList.toggle("is-error", isError);
+}
+
+function registerMobileAppServiceWorker() {
+  if (!("serviceWorker" in navigator)) {
+    return;
+  }
+
+  const isSupportedOrigin =
+    window.location.protocol === "https:" ||
+    ["localhost", "127.0.0.1"].includes(window.location.hostname);
+
+  if (!isSupportedOrigin) {
+    return;
+  }
+
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js").catch(() => {
+      // Password reset remains usable if app-shell registration is unavailable.
+    });
+  });
 }
 
 function getRecoveryTokens() {
@@ -26,6 +50,8 @@ async function getSupabaseClient() {
     config.supabasePublishableKey
   );
 }
+
+registerMobileAppServiceWorker();
 
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
