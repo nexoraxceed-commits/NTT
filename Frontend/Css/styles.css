@@ -595,10 +595,16 @@ a:focus-visible {
 .workspace-topbar-actions {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
+  flex: 0 0 auto;
+  flex-wrap: nowrap;
   justify-content: flex-end;
   gap: 14px;
   margin-left: auto;
+}
+
+.workspace-topbar-actions > .header-actions {
+  flex: 0 0 auto;
+  flex-wrap: nowrap;
 }
 
 .workspace-title-block {
@@ -769,6 +775,7 @@ a:focus-visible {
 }
 
 .notification-tray {
+  flex: 0 0 auto;
   position: relative;
   z-index: 28;
 }
@@ -1580,7 +1587,7 @@ a:focus-visible {
 
   .workspace-topbar-actions {
     align-items: center;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     gap: 10px;
   }
 
@@ -1683,7 +1690,7 @@ a:focus-visible {
   }
 
   .workspace-topbar {
-    align-items: flex-start;
+    align-items: center;
   }
 
   .workspace-topbar-actions {
