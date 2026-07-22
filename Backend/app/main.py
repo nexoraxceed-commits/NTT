@@ -45,6 +45,7 @@ from app.repositories import (
     get_task_work_logs_for_tasks,
     insert_task_access_log,
     is_optional_analytics_table_error,
+    mark_all_notifications_read,
     mark_notification_read,
     replace_project_watchers,
     sync_ref_user_auth_uid,
@@ -1240,6 +1241,28 @@ def create_app() -> FastAPI:
 
         invalidate_notification_cache([str(user_id)])
         return MessageResponse(detail="Notification marked as read.")
+
+    @app.post("/notifications/read-all", response_model=MessageResponse)
+    def read_all_notifications(
+        current_user: object = Depends(get_current_user),
+        supabase_admin: Client = Depends(get_supabase_admin_client),
+    ) -> MessageResponse:
+        user_id = getattr(current_user, "id", None)
+        if not user_id:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Session expired. Please sign in again.",
+            )
+
+        updated_count = mark_all_notifications_read(
+            supabase_admin,
+            str(user_id),
+            datetime.now(timezone.utc).isoformat(),
+        )
+        invalidate_notification_cache([str(user_id)])
+        return MessageResponse(
+            detail=f"{updated_count} notification(s) marked as read."
+        )
 
     @app.get("/projects", response_model=list[ProjectSummaryResponse])
     def list_projects(

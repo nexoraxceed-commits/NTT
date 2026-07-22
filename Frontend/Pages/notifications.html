@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Notifications | Nexora</title>
-    <link rel="stylesheet" href="/Css/styles.css?v=20260722-role-model">
+    <link rel="stylesheet" href="/Css/styles.css?v=20260723-mobile-notifications">
   </head>
   <body class="app-body">
     <main class="workspace-shell">
@@ -18,12 +18,17 @@
       <section class="workspace-panel wide-panel">
         <div class="section-header">
           <h2>Updates</h2>
-          <p class="form-message" id="notification-message" role="status" aria-live="polite"></p>
+          <div class="section-actions">
+            <button class="btn btn-secondary btn-sm" id="notifications-read-all" type="button">
+              Read all
+            </button>
+            <p class="form-message" id="notification-message" role="status" aria-live="polite"></p>
+          </div>
         </div>
         <div class="notification-list" id="notification-list"></div>
       </section>
     </main>
     <script src="/Js/config.js"></script>
-    <script src="/Js/app.js?v=20260722-role-model"></script>
+    <script src="/Js/app.js?v=20260723-mobile-notifications"></script>
   </body>
 </html>

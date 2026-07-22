@@ -1135,7 +1135,16 @@ function createNotificationTray(notificationIcon) {
   viewAll.href = "/notifications";
   viewAll.textContent = "View all";
 
-  header.append(title, viewAll);
+  const markAll = document.createElement("button");
+  markAll.type = "button";
+  markAll.className = "notification-header-action";
+  markAll.textContent = "Read all";
+
+  const headerActions = document.createElement("div");
+  headerActions.className = "notification-flyout-actions";
+  headerActions.append(markAll, viewAll);
+
+  header.append(title, headerActions);
 
   const list = document.createElement("div");
   list.className = "notification-list notification-list-compact";
@@ -1207,6 +1216,23 @@ function createNotificationTray(notificationIcon) {
       item.dataset.notificationId,
       item.dataset.targetUrl || "/post-login"
     );
+  });
+
+  markAll.addEventListener("click", async (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    markAll.disabled = true;
+    try {
+      await markAllNotificationsRead();
+      list
+        .querySelectorAll(".notification-item.is-unread")
+        .forEach((item) => item.classList.remove("is-unread"));
+      await loadFlyoutNotifications(true);
+    } catch (error) {
+      renderEmptyState(list, error.message || "Notifications could not be updated.");
+    } finally {
+      markAll.disabled = false;
+    }
   });
 
   document.addEventListener("click", () => {
@@ -2853,6 +2879,11 @@ async function openNotificationTarget(notificationId, targetUrl) {
   window.location.href = targetUrl;
 }
 
+async function markAllNotificationsRead() {
+  await postAuthorizedJson("/notifications/read-all", {});
+  await updateNotificationBadge();
+}
+
 function renderNotifications(notifications, targetList = null) {
   const list = targetList || document.querySelector("#notification-list");
   if (!list) {
@@ -2895,6 +2926,7 @@ function renderNotifications(notifications, targetList = null) {
 function setupNotificationsPage() {
   const list = document.querySelector("#notification-list");
   const messageElement = document.querySelector("#notification-message");
+  const readAllButton = document.querySelector("#notifications-read-all");
   if (!list) {
     return;
   }
@@ -2930,6 +2962,20 @@ function setupNotificationsPage() {
       }
     }
   }
+
+  readAllButton?.addEventListener("click", async () => {
+    readAllButton.disabled = true;
+    setMessage(messageElement, "Marking notifications as read...");
+    try {
+      await markAllNotificationsRead();
+      await loadNotifications({ silent: true });
+      setMessage(messageElement, "All notifications marked as read.");
+    } catch (error) {
+      setMessage(messageElement, error.message, true);
+    } finally {
+      readAllButton.disabled = false;
+    }
+  });
 
   loadNotifications();
   registerLiveRefreshJob("notifications-page", loadNotifications, {

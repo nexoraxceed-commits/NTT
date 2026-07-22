@@ -488,6 +488,27 @@ def mark_notification_read(
     return notifications[0] if notifications else None
 
 
+def mark_all_notifications_read(
+    supabase: Client,
+    user_id: str,
+    read_at: str,
+) -> int:
+    try:
+        response = (
+            supabase.table(NOTIFICATION_LOG_TABLE)
+            .update({"status": NOTIFICATION_STATUS_READ, "read_at": read_at})
+            .eq("recipient_user_id", user_id)
+            .neq("status", NOTIFICATION_STATUS_READ)
+            .execute()
+        )
+    except Exception as exc:
+        if is_optional_analytics_table_error(exc):
+            return 0
+        raise
+
+    return len(getattr(response, "data", None) or [])
+
+
 def update_ref_user_status(
     supabase: Client,
     app_settings: Settings,
