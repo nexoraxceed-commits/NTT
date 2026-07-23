@@ -6,10 +6,11 @@ from datetime import date, datetime, timezone
 import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from supabase import Client
 
 from app.cache import backend_cache
+from app.board_report import build_board_report
 from app.config import Settings, get_settings
 from app.constants import (
     AUTH_UID_COLUMN,
@@ -963,6 +964,7 @@ def create_app() -> FastAPI:
         allow_credentials=True,
         allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
         allow_headers=["Content-Type", "Authorization", "Idempotency-Key"],
+        expose_headers=["Content-Disposition"],
     )
 
     @app.get("/health")
@@ -1684,6 +1686,24 @@ def create_app() -> FastAPI:
             app_settings.backend_cache_dashboard_ttl_seconds,
         )
         return dashboard
+
+    @app.get("/reports/board.pdf")
+    def download_board_report(
+        current_user: object = Depends(get_current_user),
+        supabase_admin: Client = Depends(get_supabase_admin_client),
+        app_settings: Settings = Depends(get_settings),
+    ) -> Response:
+        dashboard = get_dashboard_data(current_user, supabase_admin, app_settings)
+        report = build_board_report(
+            dashboard,
+            generated_for=str(getattr(current_user, "email", "") or "") or None,
+        )
+        filename = f"nexora-board-delivery-report-{date.today().isoformat()}.pdf"
+        return Response(
+            content=report,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
 
     @app.get("/projects/{project_id}", response_model=ProjectDetailResponse)
     def get_project_detail(

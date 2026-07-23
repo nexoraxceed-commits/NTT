@@ -997,21 +997,6 @@ function formatDisplayDate(value) {
   });
 }
 
-function toCsvValue(value) {
-  const text = String(value ?? "");
-  return `"${text.replaceAll('"', '""')}"`;
-}
-
-function downloadCsv(filename, rows) {
-  const csv = rows.map((row) => row.map(toCsvValue).join(",")).join("\n");
-  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
-  const link = document.createElement("a");
-  link.href = URL.createObjectURL(blob);
-  link.download = filename;
-  link.click();
-  URL.revokeObjectURL(link.href);
-}
-
 async function postJson(path, payload) {
   let response;
 
@@ -1133,6 +1118,50 @@ async function authorizedJson(path, options = {}, allowRefresh = true) {
   }
 
   return data;
+}
+
+async function authorizedFile(path, options = {}, allowRefresh = true) {
+  let session = getSession();
+  if (!session?.accessToken && allowRefresh) {
+    session = await refreshSession();
+  }
+  if (!session?.accessToken) {
+    redirectToSignIn();
+    throw new Error("Session expired. Redirecting to sign in.");
+  }
+
+  async function sendRequest(accessToken) {
+    try {
+      return await fetch(`${apiBaseUrl}${path}`, {
+        cache: "no-store",
+        ...options,
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          ...(options.headers || {}),
+        },
+      });
+    } catch (_error) {
+      throw new Error("Could not reach the backend. Please try again in a moment.");
+    }
+  }
+
+  let response = await sendRequest(session.accessToken);
+  if (response.status === 401 && allowRefresh) {
+    const refreshedSession = await refreshSession();
+    if (refreshedSession?.accessToken) {
+      response = await sendRequest(refreshedSession.accessToken);
+    }
+  }
+
+  if (!response.ok) {
+    if (response.status === 401) {
+      redirectToSignIn();
+      throw new Error("Session expired. Redirecting to sign in.");
+    }
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.detail || `Backend returned ${response.status}.`);
+  }
+  return response;
 }
 
 async function postAuthorizedJson(path, payload) {
@@ -2525,109 +2554,29 @@ function setupDashboardProjects() {
     }
   }
 
-  downloadButton?.addEventListener("click", () => {
-    const tasks = dashboardDetails.flatMap((project) =>
-      (project.tasks || []).map((task) => ({ ...task, project }))
-    );
-    const workLogRows = tasks.flatMap(({ project, ...task }) =>
-      (task.work_logs || []).map((workLog) => [
-        workLog.work_date || "",
-        project.project_name,
-        task.task_title,
-        workLog.logged_by_name || workLog.logged_by_email || "",
-        workLog.hours ?? "",
-        workLog.work_note || "",
-        workLog.created_at || "",
-      ])
-    );
-    const accessLogRows = tasks.flatMap(({ project, ...task }) =>
-      (task.access_logs || []).map((accessLog) => [
-        accessLog.created_at || "",
-        project.project_name,
-        task.task_title,
-        accessLog.event_type || "",
-        accessLog.actor_name || accessLog.actor_email || "",
-        accessLog.previous_status || "",
-        accessLog.new_status || "",
-        accessLog.previous_assignee_name ||
-          accessLog.previous_assignee_email ||
-          "",
-        accessLog.new_assignee_name || accessLog.new_assignee_email || "",
-        accessLog.event_note || "",
-      ])
-    );
-    const overdueTasks = tasks.filter(isTaskOverdue);
-    const weeklyHours = workLogRows
-      .filter((row) => isInCurrentWeek(row[0]))
-      .reduce((total, row) => total + Number(row[4] || 0), 0);
-    const reportRows = [
-      ["NTT Analytics Report"],
-      ["Generated At", new Date().toISOString()],
-      [],
-      ["Executive Summary"],
-      ["Projects", dashboardProjects.length],
-      ["Tasks", tasks.length],
-      ["Open Tasks", tasks.filter((task) => task.status === "OPEN").length],
-      [
-        "In Progress Tasks",
-        tasks.filter((task) => task.status === "IN PROGRESS").length,
-      ],
-      ["Overdue Tasks", overdueTasks.length],
-      ["Closed Tasks", tasks.filter((task) => task.status === "CLOSED").length],
-      ["Work Hours Logged This Week", Number(weeklyHours.toFixed(2))],
-      [],
-      ["Project Register"],
-      ["Project", "Description", "Watchers", "Stakeholder", "Status"],
-      ...dashboardProjects.map((project) => [
-        project.project_name,
-        project.description || "",
-        getProjectWatcherLabel(project),
-        project.stakeholder_name || project.stakeholder_email || "",
-        project.status || "",
-      ]),
-      [],
-      ["Task Register"],
-      [
-        "Project",
-        "Project Watchers",
-        "Project Stakeholder",
-        "Task",
-        "Task Assignee",
-        "Task Status",
-        "Start Date",
-        "End Date",
-      ],
-      ...tasks.map(({ project, ...task }) => [
-        project.project_name,
-        getProjectWatcherLabel(project),
-        project.stakeholder_name || project.stakeholder_email || "",
-        task.task_title,
-        getTaskAssigneeLabel(task),
-        task.status || "",
-        task.start_date || "",
-        task.end_date || "",
-      ]),
-      [],
-      ["Work Log Register"],
-      ["Work Date", "Project", "Task", "Logged By", "Hours", "Note", "Created At"],
-      ...workLogRows,
-      [],
-      ["Access Log"],
-      [
-        "Event At",
-        "Project",
-        "Task",
-        "Event",
-        "Actor",
-        "Previous Status",
-        "New Status",
-        "Previous Assignee",
-        "New Assignee",
-        "Note",
-      ],
-      ...accessLogRows,
-    ];
-    downloadCsv("ntt-manager-report.csv", reportRows);
+  downloadButton?.addEventListener("click", async () => {
+    setButtonBusy(downloadButton, true);
+    setMessage(messageElement, "Preparing board report...");
+    try {
+      const response = await authorizedFile("/reports/board.pdf", { method: "GET" });
+      const blob = await response.blob();
+      const disposition = response.headers.get("Content-Disposition") || "";
+      const filenameMatch = disposition.match(/filename="?([^";]+)"?/i);
+      const filename = filenameMatch?.[1] || "nexora-board-delivery-report.pdf";
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename;
+      document.body.append(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      setMessage(messageElement, "Board report downloaded.");
+    } catch (error) {
+      setMessage(messageElement, error.message, true);
+    } finally {
+      setButtonBusy(downloadButton, false);
+    }
   });
 
   deleteAccessLogButton?.addEventListener("click", async () => {
