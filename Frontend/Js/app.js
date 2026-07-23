@@ -10,7 +10,7 @@ const liveRefreshJobs = new Map();
 let liveRefreshStarted = false;
 const liveRefreshTickMs = 3000;
 const liveRefreshIntervals = {
-  badge: 10000,
+  badge: 3000,
   flyout: 8000,
   page: 12000,
   task: 6000,
@@ -470,59 +470,59 @@ async function enablePushNotifications(statusElement = null) {
   setMessage(statusElement, "");
 }
 
-function setupPushNotificationButtons() {
-  const buttons = document.querySelectorAll("[data-enable-push-button]");
-  if (!buttons.length) {
+function setupAutomaticPushNotifications() {
+  const enableIfNeeded = async () => {
+    if (
+      !getSession()?.accessToken ||
+      !isPushNotificationSupported() ||
+      Notification.permission === "denied"
+    ) {
+      return;
+    }
+
+    try {
+      const registration = await navigator.serviceWorker.ready;
+      const subscription = await registration.pushManager.getSubscription();
+      if (Notification.permission !== "granted" || !subscription) {
+        await enablePushNotifications();
+        return;
+      }
+
+      // Re-sync an existing browser subscription in case backend data was reset.
+      await postAuthorizedJson("/push/subscriptions", subscription.toJSON());
+    } catch (_error) {
+      // Push remains optional and must never prevent the workspace from loading.
+    }
+  };
+
+  if (
+    isPushNotificationSupported() &&
+    Notification.permission === "default"
+  ) {
+    // Mobile browsers commonly require a user gesture before showing their
+    // native permission prompt. Any first interaction can now initiate the
+    // same setup that the removed Enable push button previously performed.
+    const enableFromFirstInteraction = () => {
+      document.removeEventListener("pointerdown", enableFromFirstInteraction, true);
+      document.removeEventListener("keydown", enableFromFirstInteraction, true);
+      void enableIfNeeded();
+    };
+    document.addEventListener("pointerdown", enableFromFirstInteraction, {
+      capture: true,
+      once: true,
+    });
+    document.addEventListener("keydown", enableFromFirstInteraction, {
+      capture: true,
+      once: true,
+    });
     return;
   }
 
-  buttons.forEach((button) => {
-    if (button.dataset.pushReady === "true") {
-      return;
-    }
-    button.dataset.pushReady = "true";
-
-    if (!isPushNotificationSupported()) {
-      button.disabled = true;
-      button.textContent = "Push unavailable";
-      return;
-    }
-
-    if (Notification.permission === "granted") {
-      button.remove();
-      return;
-    }
-
-    if (Notification.permission === "denied") {
-      button.textContent = "Push blocked";
-      button.disabled = true;
-    }
-
-    button.addEventListener("click", async (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      const statusElement = document.querySelector("[data-push-message]");
-      const originalText = button.textContent;
-      setButtonBusy(button, true);
-      try {
-        await enablePushNotifications(statusElement);
-        document.querySelectorAll("[data-enable-push-button]").forEach((item) => {
-          item.remove();
-        });
-      } catch (error) {
-        if (statusElement) {
-          setMessage(statusElement, error.message, true);
-        } else {
-          button.textContent = error.message || originalText;
-          window.setTimeout(() => {
-            button.textContent = originalText;
-          }, 3500);
-        }
-      } finally {
-        setButtonBusy(button, false);
-      }
-    });
-  });
+  if (document.readyState === "complete") {
+    window.setTimeout(enableIfNeeded, 0);
+  } else {
+    window.addEventListener("load", enableIfNeeded, { once: true });
+  }
 }
 
 async function handleNotificationOpenFromUrl() {
@@ -625,6 +625,22 @@ function startLiveRefreshLoop() {
       refreshLiveJobs(true);
     }
   });
+
+  if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.addEventListener("message", (event) => {
+      if (event.data?.type !== "NEXORA_NOTIFICATION_RECEIVED") {
+        return;
+      }
+
+      void updateNotificationBadge();
+      ["notification-flyout", "notifications-page"].forEach((key) => {
+        const job = liveRefreshJobs.get(key);
+        if (job) {
+          void runLiveRefreshJob(job, true);
+        }
+      });
+    });
+  }
 }
 
 function getDataFilterValues(root, selector, datasetKey) {
@@ -1457,15 +1473,9 @@ function createNotificationTray(notificationIcon) {
   markAll.title = "Read all";
   markAll.innerHTML = notificationActionIcons.readAll;
 
-  const enablePush = document.createElement("button");
-  enablePush.type = "button";
-  enablePush.className = "notification-header-action";
-  enablePush.dataset.enablePushButton = "true";
-  enablePush.textContent = "Enable push";
-
   const headerActions = document.createElement("div");
   headerActions.className = "notification-flyout-actions";
-  headerActions.append(enablePush, markAll, viewAll);
+  headerActions.append(markAll, viewAll);
 
   header.append(title, headerActions);
 
@@ -3713,7 +3723,7 @@ setupNotificationsPage();
 setupWorkspaceNavigation();
 setupLogoutButtons();
 registerMobileAppServiceWorker();
-setupPushNotificationButtons();
+setupAutomaticPushNotifications();
 handleNotificationOpenFromUrl();
 startLiveRefreshLoop();
 synchronizeCurrentUserClass();
