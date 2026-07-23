@@ -80,6 +80,33 @@ class CreateTaskWorkLogRequest(BaseModel):
 class ProjectUserResponse(BaseModel):
     email: str
     user_name: str | None = None
+    user_class: str
+
+
+class CurrentUserResponse(BaseModel):
+    email: str
+    user_name: str | None = None
+    user_class: str
+    status: str
+
+
+class AdminCreateUserRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=320)
+    user_name: str = Field(min_length=1, max_length=160)
+    user_class: str = Field(min_length=1, max_length=20)
+
+
+class AdminUpdateUserClassRequest(BaseModel):
+    user_class: str = Field(min_length=1, max_length=20)
+
+
+class AdminUserResponse(BaseModel):
+    id: int
+    email: str
+    user_name: str | None = None
+    user_class: str
+    status: str
+    auth_uid: str | None = None
 
 
 class WatcherResponse(BaseModel):
@@ -170,6 +197,7 @@ class LoginResponse(BaseModel):
     token_type: str = "bearer"
     user_id: str
     email: str | None = None
+    user_class: str
 
 
 class ErrorResponse(BaseModel):

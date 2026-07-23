@@ -51,3 +51,20 @@ The backend is organized so each module has one clear responsibility:
 The static frontend reads the backend URL from `Frontend/Js/config.js`.
 For local development, keep `apiBaseUrl` as `http://localhost:8000`.
 When the backend is deployed, change it to the deployed backend URL.
+
+## User classes and onboarding
+
+Run `Resources/20260723_USER_CLASS_AND_ONBOARDING_RULES.sql` before deploying
+the user-management code.
+
+- `ADMIN` can register users, change managed users between `SENIOR` and
+  `JUNIOR`, and download the board report.
+- `SENIOR` can manage projects and tasks and can be assigned work.
+- `JUNIOR` can only participate as a task assignee. Junior users cannot be
+  selected as project stakeholders or watchers.
+
+An administrator-created user starts with `status = 'PENDING'` and
+`auth_uid = null`. Successful signup, or the first successful login for an
+already-created Supabase Auth account, updates both fields together to
+`status = 'NORMAL'` and the matching Auth UID. Protected API requests reject
+records whose status and Auth UID are not synchronized.

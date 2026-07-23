@@ -55,6 +55,9 @@ const dashboardPages = new Set([
   "/task",
   "/task.html",
   "/Pages/task.html",
+  "/users-admin",
+  "/users-admin.html",
+  "/Pages/users-admin.html",
 ]);
 
 function normalizePath(pathname) {
@@ -97,6 +100,7 @@ function getPersistentSession() {
             refreshToken: session.refreshToken,
             userId: session.userId,
             email: session.email,
+            userClass: session.userClass,
             rememberMe: true,
             savedAt: session.savedAt || Date.now(),
           })
@@ -125,6 +129,7 @@ function saveSession(data, rememberMe = false) {
     refreshToken: data.refresh_token,
     userId: data.user_id,
     email: data.email,
+    userClass: String(data.user_class || "").toUpperCase(),
     rememberMe: Boolean(rememberMe),
     savedAt: Date.now(),
   };
@@ -137,6 +142,7 @@ function saveSession(data, rememberMe = false) {
         refreshToken: session.refreshToken,
         userId: session.userId,
         email: session.email,
+        userClass: session.userClass,
         rememberMe: true,
         savedAt: session.savedAt,
       })
@@ -150,6 +156,38 @@ function clearSession() {
   window.sessionStorage.removeItem(sessionKey);
   window.localStorage.removeItem(persistentSessionKey);
   window.localStorage.removeItem(authActiveKey);
+}
+
+function applyRoleVisibility() {
+  const userClass = String(getSession()?.userClass || "").toUpperCase();
+  const isAdmin = userClass === "ADMIN";
+  const canManageWork = ["ADMIN", "SENIOR"].includes(userClass);
+  const managementOnlyPaths = new Set([
+    "/create-project",
+    "/create-project.html",
+    "/Pages/create-project.html",
+    "/edit-project",
+    "/edit-project.html",
+    "/Pages/edit-project.html",
+    "/create-task",
+    "/create-task.html",
+    "/Pages/create-task.html",
+  ]);
+  if (
+    userClass &&
+    !canManageWork &&
+    managementOnlyPaths.has(normalizePath(window.location.pathname))
+  ) {
+    window.location.replace("/post-login");
+    return;
+  }
+  document.querySelectorAll("[data-management-only]").forEach((element) => {
+    element.hidden = !canManageWork;
+  });
+  const reportButton = document.querySelector("#download-analytics-button");
+  if (reportButton) {
+    reportButton.hidden = !isAdmin;
+  }
 }
 
 async function logout() {
@@ -1189,6 +1227,33 @@ async function getActiveUsers() {
   return activeUsersPromise;
 }
 
+async function synchronizeCurrentUserClass() {
+  const session = getSession();
+  if (!session?.accessToken) {
+    return;
+  }
+  try {
+    const profile = await getAuthorizedJson("/auth/me");
+    const userClass = String(profile.user_class || "").toUpperCase();
+    if (!userClass || userClass === String(session.userClass || "").toUpperCase()) {
+      applyRoleVisibility();
+      return;
+    }
+    const updatedSession = { ...session, userClass };
+    window.sessionStorage.setItem(sessionKey, JSON.stringify(updatedSession));
+    const persistent = getPersistentSession();
+    if (persistent?.rememberMe) {
+      window.localStorage.setItem(
+        persistentSessionKey,
+        JSON.stringify({ ...persistent, userClass })
+      );
+    }
+    window.location.reload();
+  } catch (_error) {
+    // The normal authorized request path handles inactive or expired accounts.
+  }
+}
+
 function preloadWorkspaceData() {
   if (!getSession()?.accessToken) {
     return Promise.resolve(null);
@@ -1211,7 +1276,7 @@ async function populateUserSelect(selectElement, options = {}) {
     return;
   }
 
-  const { includeCurrentUser = false } = options;
+  const { includeCurrentUser = false, allowedClasses = null } = options;
   const users = await getActiveUsers();
   const session = getSession();
   let optionCount = 0;
@@ -1223,7 +1288,12 @@ async function populateUserSelect(selectElement, options = {}) {
   const fragment = document.createDocumentFragment();
 
   users.forEach((user) => {
-    if (!user.email || (!includeCurrentUser && user.email === session?.email)) {
+    if (
+      !user.email ||
+      (!includeCurrentUser && user.email === session?.email) ||
+      (allowedClasses &&
+        !allowedClasses.includes(String(user.user_class || "").toUpperCase()))
+    ) {
       return;
     }
 
@@ -1260,7 +1330,10 @@ async function populateUserMultiSelect(selectElement, selectedEmails = []) {
 
   const fragment = document.createDocumentFragment();
   users.forEach((user) => {
-    if (!user.email) {
+    if (
+      !user.email ||
+      String(user.user_class || "").toUpperCase() === "JUNIOR"
+    ) {
       return;
     }
 
@@ -1291,7 +1364,10 @@ async function populateUserCheckboxList(containerElement, selectedEmails = []) {
 
   const fragment = document.createDocumentFragment();
   users.forEach((user) => {
-    if (!user.email) {
+    if (
+      !user.email ||
+      String(user.user_class || "").toUpperCase() === "JUNIOR"
+    ) {
       return;
     }
 
@@ -1524,6 +1600,9 @@ function setupWorkspaceNavigation() {
   const path = normalizePath(window.location.pathname);
   const navPath = path.replace(/^\/Pages/, "").replace(/\.html$/, "");
   const activeKey = (() => {
+    if (navPath === "/users-admin") {
+      return "users";
+    }
     if (["/projects", "/project", "/create-project", "/edit-project"].includes(navPath)) {
       return "projects";
     }
@@ -1539,6 +1618,8 @@ function setupWorkspaceNavigation() {
       '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6.5A2.5 2.5 0 0 1 6.5 4h4.1c.62 0 1.22.24 1.66.68l1.06 1.06c.16.17.39.26.62.26h3.56A2.5 2.5 0 0 1 20 8.5v8A2.5 2.5 0 0 1 17.5 19h-11A2.5 2.5 0 0 1 4 16.5v-10Zm2.5-.5a.5.5 0 0 0-.5.5v10a.5.5 0 0 0 .5.5h11a.5.5 0 0 0 .5-.5v-8a.5.5 0 0 0-.5-.5h-3.56c-.76 0-1.49-.3-2.03-.84L10.85 6.1A.36.36 0 0 0 10.6 6H6.5Z"/></svg>',
     tasks:
       '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.1 7.9 4.7 6.5 3.3 7.9l2.8 2.8 4.8-4.8-1.4-1.4-3.4 3.4ZM13 7h8v2h-8V7Zm-6.9 8.9-1.4-1.4-1.4 1.4 2.8 2.8 4.8-4.8-1.4-1.4-3.4 3.4ZM13 15h8v2h-8v-2Z"/></svg>',
+    users:
+      '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm6.5-1a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM2 20a7 7 0 0 1 14 0H2Zm14.5-6c3.04 0 5.5 2.24 5.5 5v1h-4a9 9 0 0 0-2.17-5.86c.22-.09.44-.14.67-.14Z"/></svg>',
     notifications:
       '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 22a2.4 2.4 0 0 0 2.3-1.7H9.7A2.4 2.4 0 0 0 12 22Zm7-6.2V11a7 7 0 0 0-5-6.7V3a2 2 0 0 0-4 0v1.3A7 7 0 0 0 5 11v4.8L3.5 18v1h17v-1L19 15.8ZM7 17l.9-1.3V11a4.1 4.1 0 0 1 8.2 0v4.7L17 17H7Z"/></svg>',
     logout:
@@ -1549,6 +1630,9 @@ function setupWorkspaceNavigation() {
     { href: "/projects", label: "Projects", key: "projects" },
     { href: "/tasks", label: "Tasks", key: "tasks" },
   ];
+  if (String(getSession()?.userClass || "").toUpperCase() === "ADMIN") {
+    links.push({ href: "/users-admin", label: "Users", key: "users" });
+  }
   const nav = document.createElement("nav");
   nav.className = "workspace-nav";
   nav.setAttribute("aria-label", "Workspace navigation");
@@ -1767,6 +1851,134 @@ function setupForgotPasswordForm() {
   });
 }
 
+function setupAdminUsersPage() {
+  const form = document.querySelector("#admin-user-form");
+  const list = document.querySelector("#admin-user-list");
+  const messageElement = document.querySelector("#admin-user-message");
+  if (!form || !list) {
+    return;
+  }
+
+  if (String(getSession()?.userClass || "").toUpperCase() !== "ADMIN") {
+    window.location.replace("/post-login");
+    return;
+  }
+
+  function renderUsers(users) {
+    list.innerHTML = "";
+    if (!users.length) {
+      renderEmptyState(list, "No registered users found.");
+      return;
+    }
+
+    const wrapper = document.createElement("div");
+    wrapper.className = "data-table-wrap";
+    const table = document.createElement("table");
+    table.className = "data-table";
+    const header = document.createElement("thead");
+    const headerRow = document.createElement("tr");
+    ["Name", "Email", "Status", "Auth link", "User class"].forEach((label) => {
+      const cell = document.createElement("th");
+      cell.scope = "col";
+      cell.textContent = label;
+      headerRow.append(cell);
+    });
+    header.append(headerRow);
+    const body = document.createElement("tbody");
+
+    users.forEach((user) => {
+      const row = document.createElement("tr");
+      const values = [
+        user.user_name || "—",
+        user.email,
+        user.status,
+        user.auth_uid ? "Linked" : "Pending",
+      ];
+      values.forEach((value) => {
+        const cell = document.createElement("td");
+        cell.textContent = value;
+        row.append(cell);
+      });
+
+      const classCell = document.createElement("td");
+      if (user.user_class === "ADMIN") {
+        classCell.textContent = "ADMIN";
+      } else {
+        const select = document.createElement("select");
+        select.setAttribute("aria-label", `User class for ${user.email}`);
+        ["SENIOR", "JUNIOR"].forEach((userClass) => {
+          const option = document.createElement("option");
+          option.value = userClass;
+          option.textContent = userClass === "SENIOR" ? "Senior" : "Junior";
+          option.selected = user.user_class === userClass;
+          select.append(option);
+        });
+        select.addEventListener("change", async () => {
+          select.disabled = true;
+          setMessage(messageElement, `Updating ${user.email}...`);
+          try {
+            await postAuthorizedJson(`/admin/users/${user.id}/user-class`, {
+              user_class: select.value,
+            });
+            activeUsersPromise = null;
+            setMessage(messageElement, "User class updated.");
+          } catch (error) {
+            select.value = user.user_class;
+            setMessage(messageElement, error.message, true);
+          } finally {
+            select.disabled = false;
+          }
+        });
+        classCell.append(select);
+      }
+      row.append(classCell);
+      body.append(row);
+    });
+
+    table.append(header, body);
+    wrapper.append(table);
+    list.append(wrapper);
+  }
+
+  async function loadUsers() {
+    try {
+      renderUsers(await getAuthorizedJson("/admin/users"));
+    } catch (error) {
+      setMessage(messageElement, error.message, true);
+      renderEmptyState(list, "Users could not be loaded.");
+    }
+  }
+
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (!form.checkValidity()) {
+      form.reportValidity();
+      return;
+    }
+    const submitButton = event.submitter || form.querySelector("[type='submit']");
+    const formData = new FormData(form);
+    setButtonBusy(submitButton, true);
+    setMessage(messageElement, "Registering user...");
+    try {
+      await postAuthorizedJson("/admin/users", {
+        email: String(formData.get("email") || "").trim(),
+        user_name: String(formData.get("user_name") || "").trim(),
+        user_class: String(formData.get("user_class") || "").toUpperCase(),
+      });
+      form.reset();
+      activeUsersPromise = null;
+      setMessage(messageElement, "User registered as PENDING.");
+      await loadUsers();
+    } catch (error) {
+      setMessage(messageElement, error.message, true);
+    } finally {
+      setButtonBusy(submitButton, false);
+    }
+  });
+
+  loadUsers();
+}
+
 function setupCreateProjectForm() {
   const form = document.querySelector("#create-project-form");
   const messageElement = document.querySelector("#form-message");
@@ -1778,7 +1990,10 @@ function setupCreateProjectForm() {
   }
 
   if (stakeholderSelect) {
-    populateUserSelect(stakeholderSelect, { includeCurrentUser: true }).catch(
+    populateUserSelect(stakeholderSelect, {
+      includeCurrentUser: true,
+      allowedClasses: ["ADMIN", "SENIOR"],
+    }).catch(
       (error) => {
         setMessage(messageElement, error.message, true);
       }
@@ -2697,7 +2912,10 @@ function setupProjectPage() {
     document.querySelector("#inline_project_document_url").value =
       currentProject.document_url || currentProject.documents || "";
 
-    await populateUserSelect(inlineStakeholderSelect, { includeCurrentUser: true });
+    await populateUserSelect(inlineStakeholderSelect, {
+      includeCurrentUser: true,
+      allowedClasses: ["ADMIN", "SENIOR"],
+    });
     if (inlineStakeholderSelect && currentProject.stakeholder_email) {
       inlineStakeholderSelect.value = currentProject.stakeholder_email;
     }
@@ -2803,6 +3021,7 @@ function setupEditProjectPage() {
   );
   const editStakeholderPromise = populateUserSelect(editStakeholderSelect, {
     includeCurrentUser: true,
+    allowedClasses: ["ADMIN", "SENIOR"],
   }).catch(() => {});
   const editWatcherSelect = document.querySelector("#edit_project_watcher_emails");
 
@@ -3475,9 +3694,11 @@ function setupTaskPage() {
 
 window.addEventListener("pageshow", guardPageAccess);
 guardPageAccess();
+applyRoleVisibility();
 setupLoginForm();
 setupSignupForm();
 setupForgotPasswordForm();
+setupAdminUsersPage();
 setupCreateProjectForm();
 setupDashboardProjects();
 setupProjectPage();
@@ -3491,3 +3712,4 @@ registerMobileAppServiceWorker();
 setupPushNotificationButtons();
 handleNotificationOpenFromUrl();
 startLiveRefreshLoop();
+synchronizeCurrentUserClass();

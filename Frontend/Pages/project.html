@@ -10,9 +10,9 @@
     <meta name="apple-mobile-web-app-title" content="Nexora">
     <title>Project | Nexora</title>
     <link rel="manifest" href="/manifest.webmanifest">
-    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png?v=20260723-unread-bell-list">
-    <link rel="icon" href="/icons/icon-192.png?v=20260723-unread-bell-list" sizes="192x192" type="image/png">
-    <link rel="stylesheet" href="/Css/styles.css?v=20260723-unread-bell-list">
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png?v=20260723-user-classes">
+    <link rel="icon" href="/icons/icon-192.png?v=20260723-user-classes" sizes="192x192" type="image/png">
+    <link rel="stylesheet" href="/Css/styles.css?v=20260723-user-classes">
   </head>
   <body class="app-body">
     <main class="workspace-shell">
@@ -22,7 +22,7 @@
           <h1 id="project-title">Project</h1>
         </div>
         <div class="header-actions">
-          <a class="btn btn-icon" id="create-task-link" href="/create-task" aria-label="Create task" title="Create task">+</a>
+          <a class="btn btn-icon" id="create-task-link" href="/create-task" aria-label="Create task" title="Create task" data-management-only>+</a>
           <a class="btn btn-icon" href="/projects" aria-label="Back to projects" title="Back to projects">&larr;</a>
         </div>
       </header>
@@ -46,7 +46,7 @@
             <p class="detail-copy" id="project-watchers"></p>
           </div>
         </div>
-        <form class="project-form inline-editor is-hidden" id="inline-project-form" novalidate>
+        <form class="project-form inline-editor is-hidden" id="inline-project-form" data-management-only novalidate>
           <label for="inline_project_description">
             Description
             <textarea id="inline_project_description" name="description" rows="4"></textarea>
@@ -87,7 +87,7 @@
       </section>
 
     </main>
-    <script src="/Js/config.js?v=20260723-unread-bell-list"></script>
-    <script src="/Js/app.js?v=20260723-unread-bell-list"></script>
+    <script src="/Js/config.js?v=20260723-user-classes"></script>
+    <script src="/Js/app.js?v=20260723-user-classes"></script>
   </body>
 </html>

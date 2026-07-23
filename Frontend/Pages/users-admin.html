@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#2f6f5d">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="Nexora">
+    <title>User Administration | Nexora</title>
+    <link rel="manifest" href="/manifest.webmanifest">
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png?v=20260723-user-classes">
+    <link rel="icon" href="/icons/icon-192.png?v=20260723-user-classes" sizes="192x192" type="image/png">
+    <link rel="stylesheet" href="/Css/styles.css?v=20260723-user-classes">
+  </head>
+  <body class="app-body">
+    <main class="workspace-shell">
+      <header class="workspace-header">
+        <div>
+          <p class="eyebrow">Administration</p>
+          <h1>User management</h1>
+        </div>
+      </header>
+
+      <section class="workspace-panel" aria-labelledby="register-user-title">
+        <div class="section-header">
+          <div>
+            <h2 id="register-user-title">Register a user</h2>
+            <p class="meta-text">New users begin as PENDING with no Auth UID. They complete activation through signup or their first authenticated sign-in.</p>
+          </div>
+        </div>
+        <form class="project-form" id="admin-user-form" novalidate>
+          <div class="form-grid">
+            <div class="form-field">
+              <label for="admin_user_name">Name</label>
+              <input id="admin_user_name" name="user_name" type="text" maxlength="160" required>
+            </div>
+            <div class="form-field">
+              <label for="admin_user_email">Email</label>
+              <input id="admin_user_email" name="email" type="email" maxlength="320" required>
+            </div>
+            <div class="form-field">
+              <label for="admin_user_class">User class</label>
+              <select id="admin_user_class" name="user_class" required>
+                <option value="SENIOR">Senior</option>
+                <option value="JUNIOR">Junior</option>
+              </select>
+            </div>
+          </div>
+          <button class="btn btn-primary" type="submit">Register user</button>
+          <p class="form-message" id="admin-user-message" role="status" aria-live="polite"></p>
+        </form>
+      </section>
+
+      <section class="workspace-panel wide-panel" aria-labelledby="registered-users-title">
+        <div class="section-header">
+          <div>
+            <h2 id="registered-users-title">Registered users</h2>
+            <p class="meta-text">Only SENIOR and JUNIOR classes can be assigned to managed users.</p>
+          </div>
+        </div>
+        <div id="admin-user-list"></div>
+      </section>
+    </main>
+    <script src="/Js/config.js?v=20260723-user-classes"></script>
+    <script src="/Js/app.js?v=20260723-user-classes"></script>
+  </body>
+</html>

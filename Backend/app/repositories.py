@@ -8,6 +8,7 @@ from app.constants import (
     NOTIFICATION_LOG_TABLE,
     NOTIFICATION_STATUS_READ,
     NORMAL_STATUS,
+    USER_CLASS_COLUMN,
     PUSH_SUBSCRIPTIONS_TABLE,
     PROJECT_WATCHERS_TABLE,
     PROJECTS_TABLE,
@@ -117,7 +118,9 @@ def get_ref_user(
                 (
                     app_settings.signup_allowed_users_email_column,
                     app_settings.signup_allowed_users_status_column,
+                    REF_USER_NAME_COLUMN,
                     AUTH_UID_COLUMN,
+                    USER_CLASS_COLUMN,
                 )
             )
         )
@@ -142,6 +145,7 @@ def get_active_ref_users(
                     app_settings.signup_allowed_users_status_column,
                     REF_USER_NAME_COLUMN,
                     AUTH_UID_COLUMN,
+                    USER_CLASS_COLUMN,
                 )
             )
         )
@@ -168,6 +172,7 @@ def get_ref_users_by_auth_uids(
                     app_settings.signup_allowed_users_email_column,
                     REF_USER_NAME_COLUMN,
                     AUTH_UID_COLUMN,
+                    USER_CLASS_COLUMN,
                 )
             )
         )
@@ -202,6 +207,7 @@ def get_ref_users_by_emails(
                     app_settings.signup_allowed_users_status_column,
                     REF_USER_NAME_COLUMN,
                     AUTH_UID_COLUMN,
+                    USER_CLASS_COLUMN,
                 )
             )
         )
@@ -214,6 +220,72 @@ def get_ref_users_by_emails(
         for user in users
         if user.get(app_settings.signup_allowed_users_email_column)
     }
+
+
+def get_all_ref_users(
+    supabase: Client,
+    app_settings: Settings,
+) -> list[dict]:
+    response = (
+        supabase.table(app_settings.signup_allowed_users_table)
+        .select(
+            ",".join(
+                (
+                    "id",
+                    app_settings.signup_allowed_users_email_column,
+                    app_settings.signup_allowed_users_status_column,
+                    REF_USER_NAME_COLUMN,
+                    AUTH_UID_COLUMN,
+                    USER_CLASS_COLUMN,
+                )
+            )
+        )
+        .order("id")
+        .execute()
+    )
+    return getattr(response, "data", None) or []
+
+
+def insert_pending_ref_user(
+    supabase: Client,
+    app_settings: Settings,
+    *,
+    email: str,
+    user_name: str,
+    user_class: str,
+) -> dict:
+    response = (
+        supabase.table(app_settings.signup_allowed_users_table)
+        .insert(
+            {
+                app_settings.signup_allowed_users_email_column: email,
+                app_settings.signup_allowed_users_status_column: "PENDING",
+                REF_USER_NAME_COLUMN: user_name,
+                AUTH_UID_COLUMN: None,
+                USER_CLASS_COLUMN: user_class,
+            }
+        )
+        .execute()
+    )
+    rows = getattr(response, "data", None) or []
+    return rows[0] if rows else {}
+
+
+def update_ref_user_class(
+    supabase: Client,
+    app_settings: Settings,
+    *,
+    user_id: int,
+    user_class: str,
+) -> dict | None:
+    response = (
+        supabase.table(app_settings.signup_allowed_users_table)
+        .update({USER_CLASS_COLUMN: user_class})
+        .eq("id", user_id)
+        .execute()
+    )
+    rows = getattr(response, "data", None) or []
+    return rows[0] if rows else None
 
 
 def get_project_watchers(
@@ -590,6 +662,25 @@ def update_ref_user_status(
     (
         supabase.table(app_settings.signup_allowed_users_table)
         .update({app_settings.signup_allowed_users_status_column: new_status})
+        .eq(app_settings.signup_allowed_users_email_column, email)
+        .execute()
+    )
+
+
+def activate_ref_user(
+    supabase: Client,
+    app_settings: Settings,
+    email: str,
+    auth_uid: str,
+) -> None:
+    (
+        supabase.table(app_settings.signup_allowed_users_table)
+        .update(
+            {
+                app_settings.signup_allowed_users_status_column: NORMAL_STATUS,
+                AUTH_UID_COLUMN: auth_uid,
+            }
+        )
         .eq(app_settings.signup_allowed_users_email_column, email)
         .execute()
     )

@@ -13,11 +13,15 @@ from app.cache import backend_cache
 from app.board_report import build_board_report
 from app.config import Settings, get_settings
 from app.constants import (
+    ASSIGNABLE_USER_CLASSES,
     AUTH_UID_COLUMN,
+    MANAGEMENT_USER_CLASSES,
     NORMAL_STATUS,
+    PENDING_STATUS,
     NOTIFICATION_LOG_TABLE,
     NOTIFICATION_STATUS_READ,
     NOTIFICATION_STATUS_UNREAD,
+    PROJECT_WATCHERS_TABLE,
     PROJECTS_TABLE,
     REF_USER_NAME_COLUMN,
     TASK_COMMENTS_TABLE,
@@ -27,15 +31,21 @@ from app.constants import (
     TASK_STATUS_OPEN,
     TASK_WORK_LOGS_TABLE,
     TASKS_TABLE,
+    USER_CLASS_ADMIN,
+    USER_CLASS_COLUMN,
+    USER_CLASS_JUNIOR,
+    USER_CLASS_SENIOR,
 )
-from app.dependencies import get_current_user
+from app.dependencies import CurrentUser, get_current_user, require_admin
 from app.mappers import build_watcher_responses
 from app.repositories import (
+    activate_ref_user,
     count_unread_notifications_for_user,
     delete_push_subscription_by_endpoint,
     delete_task_access_logs,
     get_active_push_subscriptions_for_users,
     get_active_ref_users,
+    get_all_ref_users,
     get_notifications_for_user,
     get_project_by_id,
     get_project_watchers,
@@ -48,20 +58,24 @@ from app.repositories import (
     get_task_work_logs,
     get_task_work_logs_for_tasks,
     insert_task_access_log,
+    insert_pending_ref_user,
     is_optional_analytics_table_error,
     mark_all_notifications_read,
     mark_notification_read,
     replace_project_watchers,
     sync_ref_user_auth_uid,
-    update_ref_user_auth_uid,
-    update_ref_user_status,
+    update_ref_user_class,
     upsert_push_subscription,
 )
 from app.schemas import (
+    AdminCreateUserRequest,
+    AdminUpdateUserClassRequest,
+    AdminUserResponse,
     CreateTaskCommentRequest,
     CreateTaskWorkLogRequest,
     CreateProjectRequest,
     CreateTaskRequest,
+    CurrentUserResponse,
     ErrorResponse,
     ForgotPasswordRequest,
     LoginRequest,
@@ -213,6 +227,7 @@ def require_active_ref_user(
     app_settings: Settings,
     email: str,
     field_name: str,
+    allowed_user_classes: set[str] | None = None,
 ) -> dict:
     ref_user = get_ref_user(supabase_admin, app_settings, email.strip().lower())
     if not ref_user:
@@ -236,6 +251,13 @@ def require_active_ref_user(
             detail=f"Selected {field_name} must sign in once before assignment.",
         )
 
+    user_class = str(ref_user.get(USER_CLASS_COLUMN) or "").upper()
+    if allowed_user_classes is not None and user_class not in allowed_user_classes:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Selected {field_name} does not have an eligible user class.",
+        )
+
     return ref_user
 
 
@@ -244,6 +266,7 @@ def resolve_active_user_ids(
     app_settings: Settings,
     emails: list[str],
     field_name: str,
+    allowed_user_classes: set[str] | None = None,
 ) -> list[str]:
     normalized_emails = normalize_email_list(emails)
     if not normalized_emails:
@@ -258,7 +281,15 @@ def resolve_active_user_ids(
             (ref_user or {}).get(app_settings.signup_allowed_users_status_column) or ""
         ).upper()
         auth_uid = (ref_user or {}).get(AUTH_UID_COLUMN)
-        if current_status != NORMAL_STATUS or not auth_uid:
+        user_class = str((ref_user or {}).get(USER_CLASS_COLUMN) or "").upper()
+        if (
+            current_status != NORMAL_STATUS
+            or not auth_uid
+            or (
+                allowed_user_classes is not None
+                and user_class not in allowed_user_classes
+            )
+        ):
             invalid_emails.append(email)
             continue
 
@@ -268,12 +299,20 @@ def resolve_active_user_ids(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=(
-                f"These {field_name} users must be active and sign in once first: "
+                f"These {field_name} users must be active, signed in, and eligible: "
                 f"{', '.join(invalid_emails)}"
             ),
         )
 
     return user_ids
+
+
+def require_management_user(current_user: CurrentUser) -> None:
+    if current_user.user_class not in MANAGEMENT_USER_CLASSES:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Junior users can only participate as task assignees.",
+        )
 
 
 def invalidate_user_cache() -> None:
@@ -1007,6 +1046,11 @@ def create_app() -> FastAPI:
         ).upper()
         if current_status == NORMAL_STATUS:
             return MessageResponse(detail="Signup already completed. Please sign in.")
+        if current_status != PENDING_STATUS or ref_user.get(AUTH_UID_COLUMN):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="This user record is not ready for signup. Contact an administrator.",
+            )
 
         try:
             signup_result = supabase.auth.sign_up(
@@ -1019,15 +1063,8 @@ def create_app() -> FastAPI:
         except Exception as exc:
             auth_error = str(exc).lower()
             if "already registered" in auth_error or "already exists" in auth_error:
-                update_ref_user_status(
-                    supabase_admin,
-                    app_settings,
-                    normalized_email,
-                    NORMAL_STATUS,
-                )
-                invalidate_user_cache()
                 return MessageResponse(
-                    detail="Signup already completed. Please sign in."
+                    detail="An authentication account already exists. Please sign in to complete activation."
                 )
 
             raise HTTPException(
@@ -1036,19 +1073,15 @@ def create_app() -> FastAPI:
             ) from exc
 
         try:
-            update_ref_user_status(
-                supabase_admin,
-                app_settings,
-                normalized_email,
-                NORMAL_STATUS,
-            )
             if signup_user and getattr(signup_user, "id", None):
-                update_ref_user_auth_uid(
+                activate_ref_user(
                     supabase_admin,
                     app_settings,
                     normalized_email,
                     signup_user.id,
                 )
+            else:
+                raise RuntimeError("Supabase signup did not return a user id.")
         except Exception as exc:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -1113,7 +1146,7 @@ def create_app() -> FastAPI:
         current_status = str(
             ref_user.get(app_settings.signup_allowed_users_status_column) or ""
         ).upper()
-        if current_status != NORMAL_STATUS:
+        if current_status not in {NORMAL_STATUS, PENDING_STATUS}:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid email or password.",
@@ -1136,6 +1169,25 @@ def create_app() -> FastAPI:
                     detail="Invalid email or password.",
                 )
 
+            if current_status == PENDING_STATUS:
+                if ref_user.get(AUTH_UID_COLUMN):
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail="This pending user record is linked incorrectly. Contact an administrator.",
+                    )
+                activate_ref_user(
+                    supabase_admin,
+                    app_settings,
+                    normalized_email,
+                    user.id,
+                )
+                ref_user = {
+                    **ref_user,
+                    AUTH_UID_COLUMN: user.id,
+                    app_settings.signup_allowed_users_status_column: NORMAL_STATUS,
+                }
+                invalidate_user_cache()
+
             sync_ref_user_auth_uid(
                 supabase_admin,
                 app_settings,
@@ -1149,6 +1201,7 @@ def create_app() -> FastAPI:
                 refresh_token=session.refresh_token,
                 user_id=user.id,
                 email=user.email,
+                user_class=str(ref_user.get(USER_CLASS_COLUMN) or "").upper(),
             )
         except HTTPException:
             raise
@@ -1168,6 +1221,7 @@ def create_app() -> FastAPI:
     def refresh_session(
         payload: RefreshSessionRequest,
         app_settings: Settings = Depends(get_settings),
+        supabase_admin: Client = Depends(get_supabase_admin_client),
     ) -> LoginResponse:
         enforce_rate_limit("refresh-session", payload.refresh_token[:24], limit=60, window_seconds=300)
         try:
@@ -1189,11 +1243,26 @@ def create_app() -> FastAPI:
             ) from exc
 
         user = data.get("user") or {}
+        normalized_email = str(user.get("email") or "").strip().lower()
+        ref_user = get_ref_user(supabase_admin, app_settings, normalized_email)
+        if (
+            not ref_user
+            or str(
+                ref_user.get(app_settings.signup_allowed_users_status_column) or ""
+            ).upper()
+            != NORMAL_STATUS
+            or str(ref_user.get(AUTH_UID_COLUMN) or "") != str(user.get("id") or "")
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Session expired. Please sign in again.",
+            )
         return LoginResponse(
             access_token=data.get("access_token") or "",
             refresh_token=data.get("refresh_token") or payload.refresh_token,
             user_id=user.get("id") or "",
             email=user.get("email"),
+            user_class=str(ref_user.get(USER_CLASS_COLUMN) or "").upper(),
         )
 
     @app.post("/auth/logout", response_model=MessageResponse)
@@ -1240,6 +1309,7 @@ def create_app() -> FastAPI:
             ProjectUserResponse(
                 email=user.get(app_settings.signup_allowed_users_email_column),
                 user_name=user.get(REF_USER_NAME_COLUMN),
+                user_class=str(user.get(USER_CLASS_COLUMN) or "").upper(),
             )
             for user in users
             if user.get(app_settings.signup_allowed_users_email_column)
@@ -1250,6 +1320,189 @@ def create_app() -> FastAPI:
             app_settings.backend_cache_users_ttl_seconds,
         )
         return response
+
+    @app.get("/auth/me", response_model=CurrentUserResponse)
+    def get_my_profile(
+        current_user: CurrentUser = Depends(get_current_user),
+    ) -> CurrentUserResponse:
+        return CurrentUserResponse(
+            email=current_user.email,
+            user_name=current_user.user_name,
+            user_class=current_user.user_class,
+            status=current_user.status,
+        )
+
+    @app.get("/admin/users", response_model=list[AdminUserResponse])
+    def list_admin_users(
+        _current_user: CurrentUser = Depends(require_admin),
+        supabase_admin: Client = Depends(get_supabase_admin_client),
+        app_settings: Settings = Depends(get_settings),
+    ) -> list[AdminUserResponse]:
+        users = get_all_ref_users(supabase_admin, app_settings)
+        return [
+            AdminUserResponse(
+                id=int(user["id"]),
+                email=str(
+                    user.get(app_settings.signup_allowed_users_email_column) or ""
+                ),
+                user_name=user.get(REF_USER_NAME_COLUMN),
+                user_class=str(user.get(USER_CLASS_COLUMN) or "").upper(),
+                status=str(
+                    user.get(app_settings.signup_allowed_users_status_column) or ""
+                ).upper(),
+                auth_uid=(
+                    str(user.get(AUTH_UID_COLUMN))
+                    if user.get(AUTH_UID_COLUMN)
+                    else None
+                ),
+            )
+            for user in users
+        ]
+
+    @app.post("/admin/users", response_model=AdminUserResponse)
+    def register_admin_user(
+        payload: AdminCreateUserRequest,
+        _current_user: CurrentUser = Depends(require_admin),
+        supabase_admin: Client = Depends(get_supabase_admin_client),
+        app_settings: Settings = Depends(get_settings),
+    ) -> AdminUserResponse:
+        normalized_email = payload.email.strip().lower()
+        user_class = payload.user_class.strip().upper()
+        if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", normalized_email):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Enter a valid email address.",
+            )
+        if user_class not in {USER_CLASS_SENIOR, USER_CLASS_JUNIOR}:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="New users must be registered as SENIOR or JUNIOR.",
+            )
+        if get_ref_user(supabase_admin, app_settings, normalized_email):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="A user with this email is already registered.",
+            )
+
+        try:
+            user = insert_pending_ref_user(
+                supabase_admin,
+                app_settings,
+                email=normalized_email,
+                user_name=payload.user_name.strip(),
+                user_class=user_class,
+            )
+        except Exception as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Could not register this user.",
+            ) from exc
+        invalidate_user_cache()
+        return AdminUserResponse(
+            id=int(user["id"]),
+            email=normalized_email,
+            user_name=user.get(REF_USER_NAME_COLUMN),
+            user_class=user_class,
+            status=PENDING_STATUS,
+            auth_uid=None,
+        )
+
+    @app.post(
+        "/admin/users/{ref_user_id}/user-class",
+        response_model=AdminUserResponse,
+    )
+    def change_admin_user_class(
+        ref_user_id: int,
+        payload: AdminUpdateUserClassRequest,
+        current_user: CurrentUser = Depends(require_admin),
+        supabase_admin: Client = Depends(get_supabase_admin_client),
+        app_settings: Settings = Depends(get_settings),
+    ) -> AdminUserResponse:
+        user_class = payload.user_class.strip().upper()
+        if user_class not in {USER_CLASS_SENIOR, USER_CLASS_JUNIOR}:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Managed users can only be SENIOR or JUNIOR.",
+            )
+        matching_users = [
+            user
+            for user in get_all_ref_users(supabase_admin, app_settings)
+            if int(user.get("id") or 0) == ref_user_id
+        ]
+        if not matching_users:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found.",
+            )
+        existing = matching_users[0]
+        if str(existing.get(USER_CLASS_COLUMN) or "").upper() == USER_CLASS_ADMIN:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="The administrator account class cannot be changed here.",
+            )
+        if str(existing.get(AUTH_UID_COLUMN) or "") == current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You cannot change your own user class.",
+            )
+        existing_auth_uid = existing.get(AUTH_UID_COLUMN)
+        if user_class == USER_CLASS_JUNIOR and existing_auth_uid:
+            stakeholder_projects = (
+                supabase_admin.table(PROJECTS_TABLE)
+                .select("id")
+                .eq("stakeholder_id", existing_auth_uid)
+                .limit(1)
+                .execute()
+            )
+            watched_projects = (
+                supabase_admin.table(PROJECT_WATCHERS_TABLE)
+                .select("project_id")
+                .eq("user_id", existing_auth_uid)
+                .eq("status", "ACTIVE")
+                .limit(1)
+                .execute()
+            )
+            if (
+                getattr(stakeholder_projects, "data", None)
+                or getattr(watched_projects, "data", None)
+            ):
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=(
+                        "Remove this user as a project stakeholder or watcher "
+                        "before changing the class to JUNIOR."
+                    ),
+                )
+        updated = update_ref_user_class(
+            supabase_admin,
+            app_settings,
+            user_id=ref_user_id,
+            user_class=user_class,
+        )
+        if not updated:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found.",
+            )
+        invalidate_user_cache()
+        invalidate_project_cache()
+        invalidate_task_cache()
+        return AdminUserResponse(
+            id=ref_user_id,
+            email=str(
+                existing.get(app_settings.signup_allowed_users_email_column) or ""
+            ),
+            user_name=existing.get(REF_USER_NAME_COLUMN),
+            user_class=user_class,
+            status=str(
+                existing.get(app_settings.signup_allowed_users_status_column) or ""
+            ).upper(),
+            auth_uid=(
+                str(existing.get(AUTH_UID_COLUMN))
+                if existing.get(AUTH_UID_COLUMN)
+                else None
+            ),
+        )
 
     @app.get("/push/config", response_model=PushConfigResponse)
     def get_push_config(
@@ -1689,7 +1942,7 @@ def create_app() -> FastAPI:
 
     @app.get("/reports/board.pdf")
     def download_board_report(
-        current_user: object = Depends(get_current_user),
+        current_user: CurrentUser = Depends(require_admin),
         supabase_admin: Client = Depends(get_supabase_admin_client),
         app_settings: Settings = Depends(get_settings),
     ) -> Response:
@@ -1907,6 +2160,7 @@ def create_app() -> FastAPI:
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Session expired. Please sign in again.",
             )
+        require_management_user(current_user)
 
         project = get_project_by_id(supabase_admin, project_id)
         project_watchers = get_project_watchers(supabase_admin, project_id)
@@ -1929,6 +2183,7 @@ def create_app() -> FastAPI:
                 app_settings,
                 stakeholder_email.lower(),
                 "project stakeholder",
+                MANAGEMENT_USER_CLASSES,
             )
             stakeholder_user_id = stakeholder_ref_user[AUTH_UID_COLUMN]
             update_payload["stakeholder_id"] = stakeholder_user_id
@@ -1947,6 +2202,7 @@ def create_app() -> FastAPI:
             app_settings,
             payload.watcher_emails,
             "watcher",
+            MANAGEMENT_USER_CLASSES,
         )
         previous_watcher_user_ids = {
             str(watcher["user_id"])
@@ -1993,6 +2249,7 @@ def create_app() -> FastAPI:
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Session expired. Please sign in again.",
             )
+        require_management_user(current_user)
         cached_response = get_cached_command_response(
             "create-project",
             str(user_id),
@@ -2037,6 +2294,7 @@ def create_app() -> FastAPI:
                 app_settings,
                 stakeholder_email,
                 "project stakeholder",
+                MANAGEMENT_USER_CLASSES,
             )
             stakeholder_user_id = stakeholder_ref_user.get(AUTH_UID_COLUMN)
 
@@ -2045,6 +2303,7 @@ def create_app() -> FastAPI:
             app_settings,
             payload.watcher_emails,
             "watcher",
+            MANAGEMENT_USER_CLASSES,
         )
 
         project_payload = {
@@ -2118,6 +2377,7 @@ def create_app() -> FastAPI:
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Session expired. Please sign in again.",
             )
+        require_management_user(current_user)
         cached_response = get_cached_command_response(
             "create-task",
             str(user_id),
@@ -2136,6 +2396,7 @@ def create_app() -> FastAPI:
                 app_settings,
                 assigned_to_email.lower(),
                 "task assignee",
+                ASSIGNABLE_USER_CLASSES,
             )
             assigned_user_id = assigned_ref_user[AUTH_UID_COLUMN]
 
@@ -2208,6 +2469,7 @@ def create_app() -> FastAPI:
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Session expired. Please sign in again.",
             )
+        require_management_user(current_user)
 
         task = get_task_by_id(supabase_admin, task_id)
         project_id = int(task["project_id"])
@@ -2250,6 +2512,7 @@ def create_app() -> FastAPI:
                 app_settings,
                 assigned_to_email.lower(),
                 "task assignee",
+                ASSIGNABLE_USER_CLASSES,
             )
             assigned_user_id = assigned_ref_user[AUTH_UID_COLUMN]
             update_payload["assigned_to"] = assigned_user_id
@@ -2402,6 +2665,14 @@ def create_app() -> FastAPI:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Only the stakeholder can close this task.",
+            )
+        if (
+            current_user.user_class == USER_CLASS_JUNIOR
+            and not current_user_is_assignee
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Junior users can only act on tasks assigned to them.",
             )
 
         task_name = normalize_optional_text(task.get("task_title")) or f"Task #{task_id}"
@@ -2660,6 +2931,14 @@ def create_app() -> FastAPI:
         project_id = int(task["project_id"])
         project = get_project_by_id(supabase_admin, project_id)
         project_watchers = get_project_watchers(supabase_admin, project_id)
+        if (
+            current_user.user_class == USER_CLASS_JUNIOR
+            and str(task.get("assigned_to") or "") != str(user_id)
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Junior users can only comment on tasks assigned to them.",
+            )
         comment_payload = {
             "task_id": task_id,
             "commented_by": user_id,
@@ -2856,7 +3135,7 @@ def create_app() -> FastAPI:
 
     @app.delete("/access-logs", response_model=MessageResponse)
     def delete_access_logs(
-        current_user: object = Depends(get_current_user),
+        current_user: CurrentUser = Depends(require_admin),
         supabase_admin: Client = Depends(get_supabase_admin_client),
     ) -> MessageResponse:
         user_id = getattr(current_user, "id", None)

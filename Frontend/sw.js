@@ -1,4 +1,4 @@
-const NEXORA_CACHE_VERSION = "nexora-push-app-v7";
+const NEXORA_CACHE_VERSION = "nexora-push-app-v8";
 const STATIC_CACHE = `${NEXORA_CACHE_VERSION}:static`;
 const PAGE_CACHE = `${NEXORA_CACHE_VERSION}:pages`;
 
@@ -6,17 +6,17 @@ const STATIC_ASSETS = [
   "/",
   "/offline.html",
   "/manifest.webmanifest",
-  "/Css/styles.css?v=20260723-unread-bell-list",
-  "/Js/config.js?v=20260723-unread-bell-list",
-  "/Js/app.js?v=20260723-unread-bell-list",
-  "/Js/reset-password.js?v=20260723-unread-bell-list",
-  "/icons/icon-72.png?v=20260723-unread-bell-list",
-  "/icons/icon-96.png?v=20260723-unread-bell-list",
-  "/icons/icon-144.png?v=20260723-unread-bell-list",
-  "/icons/icon-192.png?v=20260723-unread-bell-list",
-  "/icons/icon-384.png?v=20260723-unread-bell-list",
-  "/icons/icon-512.png?v=20260723-unread-bell-list",
-  "/icons/apple-touch-icon.png?v=20260723-unread-bell-list"
+  "/Css/styles.css?v=20260723-user-classes",
+  "/Js/config.js?v=20260723-user-classes",
+  "/Js/app.js?v=20260723-user-classes",
+  "/Js/reset-password.js?v=20260723-user-classes",
+  "/icons/icon-72.png?v=20260723-user-classes",
+  "/icons/icon-96.png?v=20260723-user-classes",
+  "/icons/icon-144.png?v=20260723-user-classes",
+  "/icons/icon-192.png?v=20260723-user-classes",
+  "/icons/icon-384.png?v=20260723-user-classes",
+  "/icons/icon-512.png?v=20260723-user-classes",
+  "/icons/apple-touch-icon.png?v=20260723-user-classes"
 ];
 
 const PAGE_ASSETS = [
@@ -138,8 +138,8 @@ self.addEventListener("push", (event) => {
   const title = payload.title || "Nexora update";
   const options = {
     body: payload.body || "Open Nexora for details.",
-    icon: payload.icon || "/icons/icon-192.png?v=20260723-unread-bell-list",
-    badge: payload.badge || "/icons/icon-192.png?v=20260723-unread-bell-list",
+    icon: payload.icon || "/icons/icon-192.png?v=20260723-user-classes",
+    badge: payload.badge || "/icons/icon-192.png?v=20260723-user-classes",
     tag: payload.tag,
     data: {
       notificationId: payload.notification_id,
