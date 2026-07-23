@@ -1057,9 +1057,13 @@ def create_app() -> FastAPI:
                 {
                     "email": normalized_email,
                     "password": payload.password,
+                    "options": {
+                        "email_redirect_to": app_settings.signup_confirmation_redirect_url,
+                    },
                 }
             )
             signup_user = getattr(signup_result, "user", None)
+            signup_session = getattr(signup_result, "session", None)
         except Exception as exc:
             auth_error = str(exc).lower()
             if "already registered" in auth_error or "already exists" in auth_error:
@@ -1072,16 +1076,28 @@ def create_app() -> FastAPI:
                 detail="Could not create account with this email and password.",
             ) from exc
 
+        if not signup_user or not getattr(signup_user, "id", None):
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Supabase signup did not return a user id.",
+            )
+
+        # With email confirmation enabled, Supabase returns a user but no
+        # session. Keep the approved user PENDING with a NULL auth_uid until
+        # their first successful sign-in proves that confirmation is complete.
+        if not signup_session:
+            return MessageResponse(
+                detail="Account created. Check your email and confirm your address before signing in."
+            )
+
         try:
-            if signup_user and getattr(signup_user, "id", None):
+            if signup_session:
                 activate_ref_user(
                     supabase_admin,
                     app_settings,
                     normalized_email,
                     signup_user.id,
                 )
-            else:
-                raise RuntimeError("Supabase signup did not return a user id.")
         except Exception as exc:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

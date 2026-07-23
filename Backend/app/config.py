@@ -24,6 +24,7 @@ class Settings:
     backend_cache_dashboard_ttl_seconds: int
     backend_cache_tasks_ttl_seconds: int
     backend_cache_notifications_ttl_seconds: int
+    signup_confirmation_redirect_url: str
     password_reset_redirect_url: str
     signup_allowed_users_table: str
     signup_allowed_users_email_column: str
@@ -129,6 +130,10 @@ def get_settings() -> Settings:
         backend_cache_notifications_ttl_seconds=_get_int_config_value(
             "BACKEND_CACHE_NOTIFICATIONS_TTL_SECONDS",
             _get_int_config_value("BACKEND_CACHE_TTL_SECONDS", 8),
+        ),
+        signup_confirmation_redirect_url=_get_config_value(
+            "SIGNUP_CONFIRMATION_REDIRECT_URL",
+            _get_config_value("FRONTEND_ORIGIN", "http://localhost:8000"),
         ),
         password_reset_redirect_url=_get_config_value(
             "PASSWORD_RESET_REDIRECT_URL",

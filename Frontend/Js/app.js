@@ -1811,8 +1811,12 @@ function setupSignupForm() {
     setMessage(messageElement, "Creating account...");
 
     try {
-      await postJson("/auth/signup", getFormValues(form));
-      setMessage(messageElement, "Signup successful. Redirecting to sign in...");
+      const result = await postJson("/auth/signup", getFormValues(form));
+      const detail = result?.detail || "Signup successful.";
+      setMessage(messageElement, detail);
+      if (detail.toLowerCase().includes("check your email")) {
+        return;
+      }
       window.setTimeout(() => {
         window.location.replace("/");
       }, 900);
