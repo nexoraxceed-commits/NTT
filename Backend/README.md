@@ -68,3 +68,17 @@ An administrator-created user starts with `status = 'PENDING'` and
 already-created Supabase Auth account, updates both fields together to
 `status = 'NORMAL'` and the matching Auth UID. Protected API requests reject
 records whose status and Auth UID are not synchronized.
+
+## Mailjet task emails
+
+Configure these only as backend environment variables:
+
+- `MAILJET_API_KEY`
+- `MAILJET_SECRET_KEY`
+- `MAILJET_FROM_EMAIL` (a sender address or domain validated in Mailjet)
+- `MAILJET_FROM_NAME` (optional; defaults to `Nexora`)
+
+Nexora sends transactional email when a user is newly assigned a task and
+when a task-close request is sent to the project stakeholder. In-app and push
+notifications continue independently. A Mailjet delivery failure is logged
+but does not roll back the task action.

@@ -37,6 +37,7 @@ from app.constants import (
     USER_CLASS_SENIOR,
 )
 from app.dependencies import CurrentUser, get_current_user, require_admin
+from app.email_notifications import send_mailjet_notification
 from app.mappers import build_watcher_responses
 from app.repositories import (
     activate_ref_user,
@@ -588,6 +589,7 @@ def notify_user_ids(
     source_id: int,
     target_url: str | None = None,
     exclude_user_ids: set[str] | None = None,
+    send_email: bool = False,
 ) -> set[str]:
     excluded_ids = exclude_user_ids or set()
     recipient_ids = []
@@ -604,9 +606,10 @@ def notify_user_ids(
     if not recipient_ids:
         return set()
 
+    recipient_rows = rows_for_user_ids(supabase_admin, app_settings, recipient_ids)
     queue_notification_log(
         supabase_admin,
-        rows_for_user_ids(supabase_admin, app_settings, recipient_ids),
+        recipient_rows,
         subject,
         body,
         source_type,
@@ -614,6 +617,21 @@ def notify_user_ids(
         app_settings,
         target_url=target_url,
     )
+    if send_email:
+        for recipient in recipient_rows:
+            recipient_email = normalize_optional_text(
+                recipient.get(app_settings.signup_allowed_users_email_column)
+            )
+            if not recipient_email:
+                continue
+            send_mailjet_notification(
+                app_settings,
+                recipient_email,
+                normalize_optional_text(recipient.get(REF_USER_NAME_COLUMN)),
+                subject,
+                body,
+                target_url=target_url,
+            )
     return set(recipient_ids)
 
 
@@ -641,6 +659,7 @@ def notify_task_roles(
                 task_id,
                 target_url=target_url,
                 exclude_user_ids=notified_ids,
+                send_email=True,
             )
         )
 
@@ -2736,6 +2755,7 @@ def create_app() -> FastAPI:
                 task_id,
                 target_url=get_task_target_url(task_id),
                 exclude_user_ids={str(user_id)},
+                send_email=True,
             )
 
         notify_user_ids(

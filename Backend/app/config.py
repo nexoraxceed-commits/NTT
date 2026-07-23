@@ -29,6 +29,10 @@ class Settings:
     signup_allowed_users_table: str
     signup_allowed_users_email_column: str
     signup_allowed_users_status_column: str
+    mailjet_api_key: str | None
+    mailjet_secret_key: str | None
+    mailjet_from_email: str | None
+    mailjet_from_name: str
     vapid_public_key: str | None
     vapid_private_key: str | None
     vapid_subject: str
@@ -148,6 +152,10 @@ def get_settings() -> Settings:
         signup_allowed_users_status_column=_get_config_value(
             "SIGNUP_ALLOWED_USERS_STATUS_COLUMN", "status"
         ),
+        mailjet_api_key=_get_config_value("MAILJET_API_KEY"),
+        mailjet_secret_key=_get_config_value("MAILJET_SECRET_KEY"),
+        mailjet_from_email=_get_config_value("MAILJET_FROM_EMAIL"),
+        mailjet_from_name=_get_config_value("MAILJET_FROM_NAME", "Nexora"),
         vapid_public_key=_get_config_value("VAPID_PUBLIC_KEY"),
         vapid_private_key=_get_config_value("VAPID_PRIVATE_KEY"),
         vapid_subject=_get_config_value(
