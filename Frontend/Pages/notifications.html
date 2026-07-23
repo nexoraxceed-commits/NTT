@@ -10,9 +10,9 @@
     <meta name="apple-mobile-web-app-title" content="Nexora">
     <title>Notifications | Nexora</title>
     <link rel="manifest" href="/manifest.webmanifest">
-    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png?v=20260723-scroll-fix">
-    <link rel="icon" href="/icons/icon-192.png?v=20260723-scroll-fix" sizes="192x192" type="image/png">
-    <link rel="stylesheet" href="/Css/styles.css?v=20260723-scroll-fix">
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png?v=20260723-unread-bell-list">
+    <link rel="icon" href="/icons/icon-192.png?v=20260723-unread-bell-list" sizes="192x192" type="image/png">
+    <link rel="stylesheet" href="/Css/styles.css?v=20260723-unread-bell-list">
   </head>
   <body class="app-body">
     <main class="workspace-shell">
@@ -34,8 +34,16 @@
             >
               Enable push
             </button>
-            <button class="btn btn-secondary btn-sm" id="notifications-read-all" type="button">
-              Read all
+            <button
+              class="btn btn-icon"
+              id="notifications-read-all"
+              type="button"
+              aria-label="Mark all notifications as read"
+              title="Read all"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="m9.2 14.9-3.1-3.1-1.4 1.4 4.5 4.5 9-9-1.4-1.4-7.6 7.6Zm-3.8 0-2-2-1.4 1.4 3.4 3.4 1.4-1.4-1.4-1.4Zm7.6-3.8 1.4 1.4 5.8-5.8-1.4-1.4-5.8 5.8Z"></path>
+              </svg>
             </button>
             <p class="form-message" id="notification-message" role="status" aria-live="polite"></p>
             <p class="form-message" data-push-message role="status" aria-live="polite"></p>
@@ -44,7 +52,7 @@
         <div class="notification-list" id="notification-list"></div>
       </section>
     </main>
-    <script src="/Js/config.js?v=20260723-scroll-fix"></script>
-    <script src="/Js/app.js?v=20260723-scroll-fix"></script>
+    <script src="/Js/config.js?v=20260723-unread-bell-list"></script>
+    <script src="/Js/app.js?v=20260723-unread-bell-list"></script>
   </body>
 </html>

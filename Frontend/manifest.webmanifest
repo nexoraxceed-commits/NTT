@@ -13,37 +13,37 @@
   "prefer_related_applications": false,
   "icons": [
     {
-      "src": "/icons/icon-72.png?v=20260723-scroll-fix",
+      "src": "/icons/icon-72.png?v=20260723-unread-bell-list",
       "sizes": "72x72",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/icons/icon-96.png?v=20260723-scroll-fix",
+      "src": "/icons/icon-96.png?v=20260723-unread-bell-list",
       "sizes": "96x96",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/icons/icon-144.png?v=20260723-scroll-fix",
+      "src": "/icons/icon-144.png?v=20260723-unread-bell-list",
       "sizes": "144x144",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/icons/icon-192.png?v=20260723-scroll-fix",
+      "src": "/icons/icon-192.png?v=20260723-unread-bell-list",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any maskable"
     },
     {
-      "src": "/icons/icon-384.png?v=20260723-scroll-fix",
+      "src": "/icons/icon-384.png?v=20260723-unread-bell-list",
       "sizes": "384x384",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/icons/icon-512.png?v=20260723-scroll-fix",
+      "src": "/icons/icon-512.png?v=20260723-unread-bell-list",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any maskable"
@@ -54,19 +54,19 @@
       "name": "Dashboard",
       "short_name": "Dashboard",
       "url": "/post-login?source=pwa-shortcut",
-      "icons": [{ "src": "/icons/icon-192.png?v=20260723-scroll-fix", "sizes": "192x192" }]
+      "icons": [{ "src": "/icons/icon-192.png?v=20260723-unread-bell-list", "sizes": "192x192" }]
     },
     {
       "name": "Projects",
       "short_name": "Projects",
       "url": "/projects?source=pwa-shortcut",
-      "icons": [{ "src": "/icons/icon-192.png?v=20260723-scroll-fix", "sizes": "192x192" }]
+      "icons": [{ "src": "/icons/icon-192.png?v=20260723-unread-bell-list", "sizes": "192x192" }]
     },
     {
       "name": "Tasks",
       "short_name": "Tasks",
       "url": "/tasks?source=pwa-shortcut",
-      "icons": [{ "src": "/icons/icon-192.png?v=20260723-scroll-fix", "sizes": "192x192" }]
+      "icons": [{ "src": "/icons/icon-192.png?v=20260723-unread-bell-list", "sizes": "192x192" }]
     }
   ]
 }

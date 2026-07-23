@@ -429,9 +429,7 @@ async function enablePushNotifications(statusElement = null) {
   }
 
   await postAuthorizedJson("/push/subscriptions", subscription.toJSON());
-  if (statusElement) {
-    setMessage(statusElement, "Push notifications are enabled.");
-  }
+  setMessage(statusElement, "");
 }
 
 function setupPushNotificationButtons() {
@@ -453,8 +451,11 @@ function setupPushNotificationButtons() {
     }
 
     if (Notification.permission === "granted") {
-      button.textContent = "Push enabled";
-    } else if (Notification.permission === "denied") {
+      button.remove();
+      return;
+    }
+
+    if (Notification.permission === "denied") {
       button.textContent = "Push blocked";
       button.disabled = true;
     }
@@ -468,7 +469,7 @@ function setupPushNotificationButtons() {
       try {
         await enablePushNotifications(statusElement);
         document.querySelectorAll("[data-enable-push-button]").forEach((item) => {
-          item.textContent = "Push enabled";
+          item.remove();
         });
       } catch (error) {
         if (statusElement) {
@@ -610,6 +611,30 @@ function getTaskBoardFilters(root) {
     "[data-task-board-filter]",
     "taskBoardFilter"
   );
+}
+
+function getTaskBoardUrlFilters() {
+  const status = getQueryParam("status");
+  if (!status) {
+    return {};
+  }
+
+  return { status };
+}
+
+function getGlobalTaskBoardFilters(root) {
+  const filters = getTaskBoardFilters(root);
+  if (Object.keys(filters).length) {
+    return filters;
+  }
+
+  return getTaskBoardUrlFilters();
+}
+
+function getTaskStatusFilterUrl(status) {
+  const params = new URLSearchParams();
+  params.set("status", status);
+  return `/tasks?${params.toString()}`;
 }
 
 function setText(selector, text) {
@@ -1285,6 +1310,13 @@ function setupLogoutButtons() {
   });
 }
 
+const notificationActionIcons = {
+  readAll:
+    '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9.2 14.9-3.1-3.1-1.4 1.4 4.5 4.5 9-9-1.4-1.4-7.6 7.6Zm-3.8 0-2-2-1.4 1.4 3.4 3.4 1.4-1.4-1.4-1.4Zm7.6-3.8 1.4 1.4 5.8-5.8-1.4-1.4-5.8 5.8Z"/></svg>',
+  viewAll:
+    '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5h8v2H5V5Zm0 6h8v2H5v-2Zm0 6h6v2H5v-2Zm11.6-7.6L21.2 14l-4.6 4.6-1.4-1.4 2.2-2.2H13v-2h4.4l-2.2-2.2 1.4-1.4Z"/></svg>',
+};
+
 function createNotificationTray(notificationIcon) {
   const tray = document.createElement("div");
   tray.className = "notification-tray";
@@ -1308,12 +1340,17 @@ function createNotificationTray(notificationIcon) {
 
   const viewAll = document.createElement("a");
   viewAll.href = "/notifications";
-  viewAll.textContent = "View all";
+  viewAll.className = "notification-header-icon";
+  viewAll.setAttribute("aria-label", "View all notifications");
+  viewAll.title = "View all";
+  viewAll.innerHTML = notificationActionIcons.viewAll;
 
   const markAll = document.createElement("button");
   markAll.type = "button";
-  markAll.className = "notification-header-action";
-  markAll.textContent = "Read all";
+  markAll.className = "notification-header-action notification-header-icon";
+  markAll.setAttribute("aria-label", "Mark all notifications as read");
+  markAll.title = "Read all";
+  markAll.innerHTML = notificationActionIcons.readAll;
 
   const enablePush = document.createElement("button");
   enablePush.type = "button";
@@ -1356,7 +1393,10 @@ function createNotificationTray(notificationIcon) {
     }
     try {
       const notifications = await getAuthorizedJson("/notifications");
-      renderNotifications(notifications.slice(0, 6), list);
+      const unreadNotifications = notifications.filter(isNotificationUnread);
+      renderNotifications(unreadNotifications.slice(0, 6), list, {
+        emptyText: "No unread notifications."
+      });
       hasLoaded = true;
     } catch (error) {
       renderEmptyState(list, error.message || "Notifications could not be loaded.");
@@ -1366,7 +1406,7 @@ function createNotificationTray(notificationIcon) {
   function openFlyout() {
     tray.classList.add("is-open");
     trigger.setAttribute("aria-expanded", "true");
-    loadFlyoutNotifications();
+    loadFlyoutNotifications(true);
   }
 
   trigger.addEventListener("click", (event) => {
@@ -1393,10 +1433,13 @@ function createNotificationTray(notificationIcon) {
       return;
     }
 
-    await openNotificationTarget(
-      item.dataset.notificationId,
-      item.dataset.targetUrl || "/post-login"
-    );
+    const notificationId = item.dataset.notificationId;
+    const targetUrl = item.dataset.targetUrl || "/post-login";
+    item.remove();
+    if (!list.querySelector("[data-notification-id]")) {
+      renderEmptyState(list, "No unread notifications.");
+    }
+    await openNotificationTarget(notificationId, targetUrl);
   });
 
   markAll.addEventListener("click", async (event) => {
@@ -1405,10 +1448,8 @@ function createNotificationTray(notificationIcon) {
     markAll.disabled = true;
     try {
       await markAllNotificationsRead();
-      list
-        .querySelectorAll(".notification-item.is-unread")
-        .forEach((item) => item.classList.remove("is-unread"));
-      await loadFlyoutNotifications(true);
+      renderEmptyState(list, "No unread notifications.");
+      hasLoaded = true;
     } catch (error) {
       renderEmptyState(list, error.message || "Notifications could not be updated.");
     } finally {
@@ -1532,7 +1573,15 @@ function setupWorkspaceNavigation() {
     event.stopPropagation();
   });
 
-  document.addEventListener("click", closeNavigation);
+  document.addEventListener(
+    "pointerdown",
+    (event) => {
+      if (!nav.contains(event.target)) {
+        closeNavigation();
+      }
+    },
+    true
+  );
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
       closeNavigation();
@@ -1772,6 +1821,39 @@ function getTaskBoardStatus(task) {
   return "OPEN";
 }
 
+function parseDateOnly(value) {
+  if (!value) {
+    return null;
+  }
+
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(String(value))
+    ? new Date(`${value}T00:00:00`)
+    : new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+
+  date.setHours(0, 0, 0, 0);
+  return date;
+}
+
+function isTaskOverdue(task) {
+  const status = String(task.status || "OPEN").toUpperCase();
+  if (status === "CLOSED") {
+    return false;
+  }
+
+  const endDate = parseDateOnly(task.end_date);
+  if (!endDate) {
+    return false;
+  }
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return today > endDate;
+}
+
 function getTaskFilterLabels(tasks, key, options = {}) {
   if (key === "project") {
     return Array.from(
@@ -1792,7 +1874,9 @@ function getTaskFilterLabels(tasks, key, options = {}) {
   }
 
   if (key === "status") {
-    return Array.from(new Set(tasks.map((task) => task.status || "OPEN"))).sort();
+    return Array.from(
+      new Set([...tasks.map((task) => task.status || "OPEN"), "OVERDUE"])
+    ).sort();
   }
 
   return options.values || [];
@@ -1805,14 +1889,18 @@ function filterTasksForBoard(tasks, activeFilters = {}) {
     const assignees = getTaskAssigneeList(task).map(
       (assignee) => assignee.name || assignee.email || "Unassigned"
     );
-    const status = task.status || "OPEN";
+    const status = String(task.status || "OPEN").toUpperCase();
+    const statusFilter = String(activeFilters.status || "").toUpperCase();
 
     return (
       (!activeFilters.title ||
         title.includes(String(activeFilters.title).toLowerCase())) &&
       (!activeFilters.project || projectName === activeFilters.project) &&
       (!activeFilters.assignee || assignees.includes(activeFilters.assignee)) &&
-      (!activeFilters.status || status === activeFilters.status)
+      (!statusFilter ||
+        (statusFilter === "OVERDUE"
+          ? isTaskOverdue(task)
+          : status === statusFilter))
     );
   });
 }
@@ -1891,8 +1979,10 @@ function renderTaskBoardFilters(
       );
       onFilterChange(nextFilters);
     };
-    control.addEventListener("input", applyFilter);
-    control.addEventListener("change", applyFilter);
+    control.addEventListener(
+      control.tagName === "INPUT" ? "input" : "change",
+      applyFilter
+    );
   });
 
   container.append(filterBar);
@@ -2091,16 +2181,7 @@ function setupDashboardProjects() {
       (task) => task.status === "IN PROGRESS"
     ).length;
     const closedTasks = tasks.filter((task) => task.status === "CLOSED").length;
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const overdueTasks = tasks.filter((task) => {
-      if (!task.end_date || task.status === "CLOSED") {
-        return false;
-      }
-      const endDate = new Date(task.end_date);
-      endDate.setHours(0, 0, 0, 0);
-      return endDate < today;
-    }).length;
+    const overdueTasks = tasks.filter(isTaskOverdue).length;
 
     const workload = new Map();
     tasks.forEach((task) => {
@@ -2125,13 +2206,33 @@ function setupDashboardProjects() {
 
     analyticsElement.innerHTML = "";
     [
-      ["Open tasks", openTasks, "Ready for assignment or action", "metric-open"],
-      ["In progress", inProgressTasks, "Currently being worked", "metric-progress"],
-      ["Overdue", overdueTasks, "Past end date and not closed", "metric-overdue"],
-      ["Closed", closedTasks, "Completed tasks", "metric-closed"],
-    ].forEach(([label, value, caption, className]) => {
-      const card = document.createElement("article");
-      card.className = `analytics-card metric-card ${className}`;
+      [
+        "Open tasks",
+        openTasks,
+        "Ready for assignment or action",
+        "metric-open",
+        "OPEN",
+      ],
+      [
+        "In progress",
+        inProgressTasks,
+        "Currently being worked",
+        "metric-progress",
+        "IN PROGRESS",
+      ],
+      [
+        "Overdue",
+        overdueTasks,
+        "Past end date and not closed",
+        "metric-overdue",
+        "OVERDUE",
+      ],
+      ["Closed", closedTasks, "Completed tasks", "metric-closed", "CLOSED"],
+    ].forEach(([label, value, caption, className, status]) => {
+      const card = document.createElement("a");
+      card.href = getTaskStatusFilterUrl(status);
+      card.className = `analytics-card metric-card metric-link ${className}`;
+      card.setAttribute("aria-label", `View ${label.toLowerCase()}`);
       card.innerHTML = `<p>${label}</p><strong>${value}</strong><span>${caption}</span>`;
       analyticsElement.append(card);
     });
@@ -2189,12 +2290,15 @@ function setupDashboardProjects() {
 
   function filterProjectsForTable(projects, activeFilters = {}) {
     return projects.filter((project) => {
+      const title = String(project.project_name || "").toLowerCase();
       const watchers = getProjectWatchers(project).map(
         (watcher) => watcher.name || watcher.email || "No watchers"
       );
       const stakeholder =
         project.stakeholder_name || project.stakeholder_email || "No stakeholder";
       return (
+        (!activeFilters.title ||
+          title.includes(String(activeFilters.title).toLowerCase())) &&
         (!activeFilters.watcher || watchers.includes(activeFilters.watcher)) &&
         (!activeFilters.stakeholder || stakeholder === activeFilters.stakeholder)
       );
@@ -2239,14 +2343,27 @@ function setupDashboardProjects() {
     const thead = document.createElement("thead");
     const headerRow = document.createElement("tr");
     [
-      { label: "Project title" },
+      {
+        label: "Project title",
+        filter: "title",
+        type: "search",
+        placeholder: "Search project title",
+      },
       { label: "Watchers", filter: "watcher", options: watchers },
       { label: "Stakeholder", filter: "stakeholder", options: stakeholders },
     ].forEach((column) => {
       const cell = document.createElement("th");
       cell.scope = "col";
       cell.textContent = column.label;
-      if (column.filter) {
+      if (column.filter && column.type === "search") {
+        const input = document.createElement("input");
+        input.className = "table-filter";
+        input.type = "search";
+        input.placeholder = column.placeholder;
+        input.value = activeFilters[column.filter] || "";
+        input.dataset.projectFilter = column.filter;
+        cell.append(input);
+      } else if (column.filter) {
         const select = document.createElement("select");
         select.className = "table-filter";
         select.dataset.projectFilter = column.filter;
@@ -2266,53 +2383,63 @@ function setupDashboardProjects() {
 
     const tbody = document.createElement("tbody");
 
-    if (!projects.length) {
-      const row = document.createElement("tr");
-      const cell = document.createElement("td");
-      cell.colSpan = 3;
-      cell.textContent = "No projects found.";
-      row.append(cell);
-      tbody.append(row);
-    }
+    function renderProjectTableBody(visibleProjects) {
+      tbody.innerHTML = "";
 
-    projects.forEach((project) => {
-      const row = document.createElement("tr");
-      row.className = "project-row";
-      applyIdentityColor(row, "project", project);
-      row.addEventListener("click", () => {
-        window.location.href = `/project?id=${project.id}`;
+      if (!visibleProjects.length) {
+        const row = document.createElement("tr");
+        const cell = document.createElement("td");
+        cell.colSpan = 3;
+        cell.textContent = "No projects found.";
+        row.append(cell);
+        tbody.append(row);
+        return;
+      }
+
+      visibleProjects.forEach((project) => {
+        const row = document.createElement("tr");
+        row.className = "project-row";
+        applyIdentityColor(row, "project", project);
+        row.addEventListener("click", () => {
+          window.location.href = `/project?id=${project.id}`;
+        });
+
+        const titleCell = document.createElement("td");
+        titleCell.dataset.label = "Project title";
+        const projectLink = document.createElement("a");
+        projectLink.href = `/project?id=${project.id}`;
+        projectLink.textContent = project.project_name;
+        titleCell.append(projectLink);
+
+        const watcherCell = document.createElement("td");
+        watcherCell.dataset.label = "Watchers";
+        watcherCell.textContent = getProjectWatcherLabel(project);
+
+        const stakeholderCell = document.createElement("td");
+        stakeholderCell.dataset.label = "Stakeholder";
+        stakeholderCell.textContent =
+          project.stakeholder_name || project.stakeholder_email || "No stakeholder";
+
+        row.append(titleCell, watcherCell, stakeholderCell);
+        tbody.append(row);
       });
-
-      const titleCell = document.createElement("td");
-      titleCell.dataset.label = "Project title";
-      const projectLink = document.createElement("a");
-      projectLink.href = `/project?id=${project.id}`;
-      projectLink.textContent = project.project_name;
-      titleCell.append(projectLink);
-
-      const watcherCell = document.createElement("td");
-      watcherCell.dataset.label = "Watchers";
-      watcherCell.textContent = getProjectWatcherLabel(project);
-
-      const stakeholderCell = document.createElement("td");
-      stakeholderCell.dataset.label = "Stakeholder";
-      stakeholderCell.textContent =
-        project.stakeholder_name || project.stakeholder_email || "No stakeholder";
-
-      row.append(titleCell, watcherCell, stakeholderCell);
-      tbody.append(row);
-    });
+    }
 
     table.append(thead, tbody);
     tableWrap.append(table);
     projectList.append(tableWrap);
+    renderProjectTableBody(projects);
 
     table.querySelectorAll("[data-project-filter]").forEach((filter) => {
-      filter.addEventListener("change", () => {
+      const applyProjectFilters = () => {
         const activeFilters = getProjectTableFilters(table);
         const filtered = filterProjectsForTable(dashboardProjects, activeFilters);
-        renderProjectRows(filtered, activeFilters);
-      });
+        renderProjectTableBody(filtered);
+      };
+      filter.addEventListener(
+        filter.tagName === "INPUT" ? "input" : "change",
+        applyProjectFilters
+      );
     });
   }
 
@@ -2335,25 +2462,30 @@ function setupDashboardProjects() {
       return;
     }
 
+    const boardResults = document.createElement("div");
+    boardResults.className = "task-board-results";
     renderTaskBoardFilters(
       taskList,
       filterSourceTasks,
       activeFilters,
       (nextFilters) => {
-        renderGlobalTaskRows(
+        boardResults.innerHTML = "";
+        renderTaskBoard(
+          boardResults,
           filterTasksForBoard(filterSourceTasks, nextFilters),
-          nextFilters
+          { showProject: true }
         );
       },
       { showProjectFilter: true }
     );
-    renderTaskBoard(taskList, tasks, { showProject: true });
+    taskList.append(boardResults);
+    renderTaskBoard(boardResults, tasks, { showProject: true });
   }
 
   async function loadProjects(options = {}) {
     const { silent = false } = options;
     const activeProjectFilters = getProjectTableFilters(projectList);
-    const activeTaskFilters = getTaskBoardFilters(taskList);
+    const activeTaskFilters = getGlobalTaskBoardFilters(taskList);
     if (!silent) {
       setMessage(messageElement, "Loading workspace data...");
     }
@@ -2424,16 +2556,7 @@ function setupDashboardProjects() {
         accessLog.event_note || "",
       ])
     );
-    const overdueTasks = tasks.filter(({ status, end_date }) => {
-      if (!end_date || status === "CLOSED") {
-        return false;
-      }
-      const endDate = new Date(end_date);
-      endDate.setHours(0, 0, 0, 0);
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      return endDate < today;
-    });
+    const overdueTasks = tasks.filter(isTaskOverdue);
     const weeklyHours = workLogRows
       .filter((row) => isInCurrentWeek(row[0]))
       .reduce((total, row) => total + Number(row[4] || 0), 0);
@@ -2570,15 +2693,14 @@ function renderTaskList(tasks) {
     return;
   }
 
-  function renderBoard(filteredTasks, activeFilters = {}) {
-    taskList.innerHTML = "";
-    renderTaskBoardFilters(taskList, tasks, activeFilters, (nextFilters) => {
-      renderBoard(filterTasksForBoard(tasks, nextFilters), nextFilters);
-    });
-    renderTaskBoard(taskList, filteredTasks);
-  }
-
-  renderBoard(filterTasksForBoard(tasks, activeFilters), activeFilters);
+  const boardResults = document.createElement("div");
+  boardResults.className = "task-board-results";
+  renderTaskBoardFilters(taskList, tasks, activeFilters, (nextFilters) => {
+    boardResults.innerHTML = "";
+    renderTaskBoard(boardResults, filterTasksForBoard(tasks, nextFilters));
+  });
+  taskList.append(boardResults);
+  renderTaskBoard(boardResults, filterTasksForBoard(tasks, activeFilters));
 }
 
 function setupProjectPage() {
@@ -3052,6 +3174,10 @@ function getNotificationTarget(notification) {
   return "/post-login";
 }
 
+function isNotificationUnread(notification) {
+  return String(notification.status || "").toUpperCase() !== "READ";
+}
+
 async function openNotificationTarget(notificationId, targetUrl) {
   try {
     await postAuthorizedJson(`/notifications/${notificationId}/read`, {});
@@ -3068,7 +3194,7 @@ async function markAllNotificationsRead() {
   await updateNotificationBadge();
 }
 
-function renderNotifications(notifications, targetList = null) {
+function renderNotifications(notifications, targetList = null, options = {}) {
   const list = targetList || document.querySelector("#notification-list");
   if (!list) {
     return;
@@ -3076,7 +3202,7 @@ function renderNotifications(notifications, targetList = null) {
 
   list.innerHTML = "";
   if (!notifications.length) {
-    renderEmptyState(list, "No notifications yet.");
+    renderEmptyState(list, options.emptyText || "No notifications yet.");
     return;
   }
 
@@ -3086,7 +3212,7 @@ function renderNotifications(notifications, targetList = null) {
     item.type = "button";
     item.dataset.notificationId = notification.id;
     item.dataset.targetUrl = getNotificationTarget(notification);
-    if (String(notification.status || "").toUpperCase() !== "READ") {
+    if (isNotificationUnread(notification)) {
       item.classList.add("is-unread");
     }
 
