@@ -1,4 +1,4 @@
-const NEXORA_CACHE_VERSION = "nexora-push-app-v8";
+const NEXORA_CACHE_VERSION = "nexora-push-app-v9";
 const STATIC_CACHE = `${NEXORA_CACHE_VERSION}:static`;
 const PAGE_CACHE = `${NEXORA_CACHE_VERSION}:pages`;
 
@@ -6,7 +6,7 @@ const STATIC_ASSETS = [
   "/",
   "/offline.html",
   "/manifest.webmanifest",
-  "/Css/styles.css?v=20260723-user-classes",
+  "/Css/styles.css?v=20260723-auth-viewport",
   "/Js/config.js?v=20260723-user-classes",
   "/Js/app.js?v=20260723-user-classes",
   "/Js/reset-password.js?v=20260723-user-classes",
