@@ -64,8 +64,7 @@ the user-management code.
   selected as project stakeholders or watchers.
 
 An administrator-created user starts with `status = 'PENDING'` and
-`auth_uid = null`. Successful signup, or the first successful login for an
-already-created Supabase Auth account, updates both fields together to
+`auth_uid = null`. The first successful login updates both fields together to
 `status = 'NORMAL'` and the matching Auth UID. Protected API requests reject
 records whose status and Auth UID are not synchronized.
 

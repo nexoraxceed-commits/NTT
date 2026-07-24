@@ -1234,9 +1234,8 @@ async function getAuthorizedJson(path) {
 
 async function getActiveUsers() {
   if (!activeUsersPromise) {
-    activeUsersPromise = getAuthorizedJson("/users").catch((error) => {
+    activeUsersPromise = getAuthorizedJson("/users").finally(() => {
       activeUsersPromise = null;
-      throw error;
     });
   }
 

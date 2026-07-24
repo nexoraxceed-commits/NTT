@@ -1089,6 +1089,24 @@ def create_app() -> FastAPI:
                 return MessageResponse(
                     detail="An authentication account already exists. Please sign in to complete activation."
                 )
+            if "email address not authorized" in auth_error:
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail=(
+                        "Signup email delivery is unavailable for this address. "
+                        "An administrator must disable email confirmation or configure custom SMTP."
+                    ),
+                ) from exc
+            if "rate limit" in auth_error or "too many requests" in auth_error:
+                raise HTTPException(
+                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                    detail="The signup email limit has been reached. Please try again later.",
+                ) from exc
+            if "signup is disabled" in auth_error:
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="Email signup is currently disabled in Supabase.",
+                ) from exc
 
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -1109,22 +1127,12 @@ def create_app() -> FastAPI:
                 detail="Account created. Check your email and confirm your address before signing in."
             )
 
-        try:
-            if signup_session:
-                activate_ref_user(
-                    supabase_admin,
-                    app_settings,
-                    normalized_email,
-                    signup_user.id,
-                )
-        except Exception as exc:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Account created, but user status could not be updated.",
-            ) from exc
-
-        invalidate_user_cache()
-        return MessageResponse(detail="Signup successful. You can now sign in.")
+        # Even when Supabase does not require confirmation and returns a
+        # session, activation belongs to the first explicit login. This keeps
+        # REF_USERS at PENDING/auth_uid NULL throughout registration.
+        return MessageResponse(
+            detail="Signup successful. Sign in to activate your Nexora account."
+        )
 
     @app.post("/auth/forgot-password", response_model=MessageResponse)
     def forgot_password(
@@ -1327,11 +1335,6 @@ def create_app() -> FastAPI:
         supabase_admin: Client = Depends(get_supabase_admin_client),
         app_settings: Settings = Depends(get_settings),
     ) -> list[ProjectUserResponse]:
-        cache_key = "users:active"
-        cached_users = backend_cache.get(cache_key)
-        if cached_users is not None:
-            return [ProjectUserResponse(**user) for user in cached_users]
-
         try:
             users = get_active_ref_users(supabase_admin, app_settings)
         except Exception as exc:
@@ -1349,11 +1352,6 @@ def create_app() -> FastAPI:
             for user in users
             if user.get(app_settings.signup_allowed_users_email_column)
         ]
-        backend_cache.set(
-            cache_key,
-            [user.model_dump() for user in response],
-            app_settings.backend_cache_users_ttl_seconds,
-        )
         return response
 
     @app.get("/auth/me", response_model=CurrentUserResponse)
