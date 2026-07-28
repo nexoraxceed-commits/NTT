@@ -2359,11 +2359,33 @@ a:focus-visible {
 }
 
 .arcade-shell {
-  gap: 18px;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 10px;
+  width: min(1180px, 100%);
+  min-height: calc(100dvh - 48px);
+  max-height: calc(100dvh - 48px);
+  padding: clamp(16px, 2.5vw, 28px);
+  overflow: hidden;
+}
+
+.arcade-shell .workspace-topbar {
+  min-height: 52px;
+  padding-bottom: 10px;
 }
 
 .arcade-header {
-  margin-bottom: 18px;
+  gap: 0;
+  margin-bottom: 6px;
+}
+
+.arcade-header .eyebrow {
+  margin-bottom: 2px;
+}
+
+.arcade-header h1 {
+  font-size: clamp(1.8rem, 4vw, 2.7rem);
+  line-height: 1;
 }
 
 .arcade-header .workspace-title-block {
@@ -2376,6 +2398,11 @@ a:focus-visible {
 }
 
 .arcade-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  max-width: none;
+  padding: clamp(14px, 2vw, 20px);
   overflow: hidden;
 }
 
@@ -2402,8 +2429,8 @@ a:focus-visible {
 .arcade-game-summary {
   align-items: flex-start;
   flex-direction: column;
-  gap: 4px;
-  margin-bottom: 16px;
+  gap: 2px;
+  margin-bottom: 10px;
 }
 
 .arcade-game-header h2,
@@ -2411,14 +2438,17 @@ a:focus-visible {
 .arcade-catalog-panel h2 {
   margin: 0;
   color: #15211d;
-  font-size: clamp(1.8rem, 4vw, 2.75rem);
+  font-size: clamp(1.35rem, 3vw, 2.05rem);
   letter-spacing: 0;
 }
 
+.arcade-game-summary .meta-text {
+  display: none;
+}
+
 .arcade-kicker,
-.arcade-card-tag,
-.arcade-picker-label {
-  margin: 0 0 8px;
+.arcade-card-tag {
+  margin: 0 0 4px;
   color: #2f6f5d;
   font-size: 0.76rem;
   font-weight: 800;
@@ -2426,16 +2456,12 @@ a:focus-visible {
   text-transform: uppercase;
 }
 
-.arcade-picker-label {
-  flex: 0 0 auto;
-  margin-bottom: 0;
-}
-
 .arcade-pick-strip {
+  flex: 0 0 auto;
   align-items: center;
   gap: 14px;
-  margin: 20px 0 0;
-  padding: 12px 14px;
+  margin: 10px 0 0;
+  padding: 8px 10px;
   border: 1px solid rgba(47, 111, 93, 0.14);
   border-radius: 18px;
   background: rgba(247, 251, 248, 0.72);
@@ -2459,12 +2485,13 @@ a:focus-visible {
 
 .arcade-icon-card {
   align-items: center;
-  gap: 10px;
-  min-width: 128px;
+  gap: 8px;
+  min-width: 112px;
   flex: 0 0 auto;
-  padding: 10px 12px;
+  min-height: 46px;
+  padding: 6px 10px;
   border: 1px solid rgba(47, 111, 93, 0.16);
-  border-radius: 18px;
+  border-radius: 14px;
   background: #fff;
   color: #2f6f5d;
   font: inherit;
@@ -2487,29 +2514,30 @@ a:focus-visible {
 .arcade-icon-card-art {
   align-items: center;
   justify-content: center;
-  width: 42px;
-  height: 42px;
-  flex: 0 0 42px;
-  border-radius: 14px;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  border-radius: 11px;
   background: #efedff;
   color: #6761dd;
 }
 
 .arcade-icon-card-art svg {
-  width: 24px;
-  height: 24px;
+  width: 20px;
+  height: 20px;
   fill: currentColor;
 }
 
 .arcade-scoreboard {
+  flex: 0 0 auto;
   align-items: stretch;
   gap: 12px;
-  margin-bottom: 14px;
+  margin-bottom: 10px;
 }
 
 .arcade-scoreboard span {
-  min-width: 112px;
-  padding: 12px 16px;
+  min-width: 96px;
+  padding: 8px 12px;
   border: 1px solid rgba(47, 111, 93, 0.18);
   border-radius: 16px;
   background: rgba(247, 251, 248, 0.78);
@@ -2524,12 +2552,16 @@ a:focus-visible {
   display: block;
   margin-top: 3px;
   color: #15211d;
-  font-size: 1.5rem;
+  font-size: 1.25rem;
   letter-spacing: 0;
 }
 
 .arcade-stage {
   position: relative;
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 180px;
+  max-height: 48vh;
   overflow: hidden;
   border: 1px solid rgba(47, 111, 93, 0.16);
   border-radius: 24px;
@@ -2542,8 +2574,9 @@ a:focus-visible {
 #arcade-canvas {
   display: block;
   width: 100%;
-  height: auto;
-  aspect-ratio: 960 / 420;
+  height: 100%;
+  aspect-ratio: auto;
+  object-fit: contain;
 }
 
 .arcade-overlay {
@@ -2576,19 +2609,26 @@ a:focus-visible {
 }
 
 .arcade-controls {
+  flex: 0 0 auto;
   align-items: center;
   justify-content: center;
   flex-wrap: wrap;
-  gap: 10px;
-  margin-top: 18px;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.arcade-controls .btn {
+  min-height: 42px;
+  padding: 0 14px;
+  border-radius: 14px;
 }
 
 .arcade-action {
-  min-width: 156px;
+  min-width: 132px;
 }
 
 .arcade-direction {
-  min-width: 110px;
+  min-width: 92px;
 }
 
 .arcade-direction[hidden] {
@@ -2596,9 +2636,10 @@ a:focus-visible {
 }
 
 .arcade-status {
-  margin: 12px 0 0;
+  flex: 0 0 auto;
+  margin: 8px 0 0;
   color: #63746f;
-  font-size: 0.9rem;
+  font-size: 0.82rem;
   text-align: center;
 }
 
@@ -2653,6 +2694,12 @@ a:focus-visible {
 }
 
 @media (max-width: 760px) {
+  .arcade-shell {
+    min-height: calc(100dvh - 24px);
+    max-height: calc(100dvh - 24px);
+    padding: 14px;
+  }
+
   .arcade-game-header {
     flex-direction: column;
   }
@@ -2680,7 +2727,7 @@ a:focus-visible {
   }
 
   .arcade-controls .btn {
-    flex: 1 1 120px;
+    flex: 1 1 96px;
     min-width: 0;
   }
 
@@ -2692,7 +2739,7 @@ a:focus-visible {
 @media (max-width: 480px) {
   .arcade-panel,
   .arcade-catalog-panel {
-    padding-inline: 18px;
+    padding-inline: 12px;
   }
 
   .arcade-game-header h2,
@@ -2702,11 +2749,56 @@ a:focus-visible {
   }
 
   #arcade-canvas {
-    min-height: 250px;
+    min-height: 0;
     object-fit: cover;
   }
 
   .arcade-icon-card {
-    min-width: 112px;
+    min-width: 104px;
+    font-size: 0.84rem;
+  }
+
+  .arcade-icon-card-art {
+    width: 30px;
+    height: 30px;
+    flex-basis: 30px;
+  }
+}
+
+@media (max-height: 760px) {
+  .arcade-stage {
+    min-height: 150px;
+    max-height: 42vh;
+  }
+
+  .arcade-status {
+    display: none;
+  }
+}
+
+@media (max-height: 640px) {
+  .arcade-header {
+    display: none;
+  }
+
+  .arcade-shell .workspace-topbar {
+    min-height: 44px;
+    padding-bottom: 6px;
+  }
+
+  .arcade-scoreboard span {
+    padding-block: 6px;
+  }
+
+  .arcade-pick-strip {
+    margin-top: 8px;
+  }
+
+  .arcade-controls {
+    margin-top: 8px;
+  }
+
+  .arcade-controls .btn {
+    min-height: 38px;
   }
 }
