@@ -5,6 +5,7 @@ from app.config import Settings
 from app.constants import (
     ACTIVE_STATUS,
     AUTH_UID_COLUMN,
+    DELETED_STATUS,
     NOTIFICATION_LOG_TABLE,
     NOTIFICATION_STATUS_READ,
     NORMAL_STATUS,
@@ -14,6 +15,8 @@ from app.constants import (
     PROJECTS_TABLE,
     REF_USER_NAME_COLUMN,
     TASK_ACCESS_LOG_TABLE,
+    TASK_COMMENTS_TABLE,
+    TASK_REMINDER_LOG_TABLE,
     TASK_WORK_LOGS_TABLE,
     TASKS_TABLE,
 )
@@ -24,8 +27,14 @@ def is_optional_analytics_table_error(exc: Exception) -> bool:
     return (
         "task_work_logs" in message
         or "task_access_log" in message
+        or "task_reminder_log" in message
+        or "task_comments" in message
         or "notification_log" in message
         or "push_subscriptions" in message
+        or "close_requested_at" in message
+        or "updated_at" in message
+        or "deleted_at" in message
+        or "deleted_by" in message
         or "description" in message
         or "parent_comment_id" in message
         or "target_url" in message
@@ -288,6 +297,26 @@ def update_ref_user_class(
     return rows[0] if rows else None
 
 
+def update_ref_user(
+    supabase: Client,
+    app_settings: Settings,
+    *,
+    user_id: int,
+    updates: dict,
+) -> dict | None:
+    if not updates:
+        return None
+
+    response = (
+        supabase.table(app_settings.signup_allowed_users_table)
+        .update(updates)
+        .eq("id", user_id)
+        .execute()
+    )
+    rows = getattr(response, "data", None) or []
+    return rows[0] if rows else None
+
+
 def get_project_watchers(
     supabase: Client,
     project_id: int,
@@ -390,7 +419,8 @@ def get_task_by_id(
             supabase.table(TASKS_TABLE)
             .select(
                 "id,created_at,project_id,task_title,task_details,documents,"
-                "assigned_to,created_by,status,due_date,start_date,end_date"
+                "assigned_to,created_by,status,due_date,start_date,end_date,"
+                "close_requested_at"
             )
             .eq("id", task_id)
             .limit(1)
@@ -418,6 +448,39 @@ def get_task_by_id(
         )
 
     return tasks[0]
+
+
+def get_task_comment_by_id(
+    supabase: Client,
+    comment_id: int,
+) -> dict | None:
+    try:
+        response = (
+            supabase.table(TASK_COMMENTS_TABLE)
+            .select(
+                "id,created_at,task_id,parent_comment_id,commented_by,"
+                "comment_text,deliverable_url,updated_at,deleted_at,deleted_by"
+            )
+            .eq("id", comment_id)
+            .limit(1)
+            .execute()
+        )
+    except Exception as exc:
+        if not is_optional_analytics_table_error(exc):
+            raise
+        response = (
+            supabase.table(TASK_COMMENTS_TABLE)
+            .select(
+                "id,created_at,task_id,parent_comment_id,commented_by,"
+                "comment_text,deliverable_url"
+            )
+            .eq("id", comment_id)
+            .limit(1)
+            .execute()
+        )
+
+    comments = getattr(response, "data", None) or []
+    return comments[0] if comments else None
 
 
 def get_task_work_logs(
@@ -503,6 +566,36 @@ def insert_task_access_log(
         if is_optional_analytics_table_error(exc):
             return
         raise
+
+
+def insert_task_reminder_log(
+    supabase: Client,
+    *,
+    task_id: int,
+    project_id: int,
+    recipient_user_id: str,
+    recipient_email: str | None,
+    reminder_type: str,
+    sent_for_date: str,
+) -> bool:
+    try:
+        supabase.table(TASK_REMINDER_LOG_TABLE).insert(
+            {
+                "task_id": task_id,
+                "project_id": project_id,
+                "recipient_user_id": recipient_user_id,
+                "recipient_email": recipient_email,
+                "reminder_type": reminder_type,
+                "sent_for_date": sent_for_date,
+                "status": "SENT",
+            }
+        ).execute()
+    except Exception as exc:
+        if is_optional_analytics_table_error(exc) or "duplicate key" in str(exc).lower():
+            return False
+        raise
+
+    return True
 
 
 def get_task_access_logs_for_tasks(

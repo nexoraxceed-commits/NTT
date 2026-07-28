@@ -70,6 +70,11 @@ class CreateTaskCommentRequest(BaseModel):
     idempotency_key: str | None = Field(default=None, max_length=120)
 
 
+class UpdateTaskCommentRequest(BaseModel):
+    comment_text: str = Field(min_length=1, max_length=1000)
+    deliverable_url: str | None = Field(default=None, max_length=2000)
+
+
 class CreateTaskWorkLogRequest(BaseModel):
     work_note: str = Field(min_length=1, max_length=1000)
     work_date: str | None = Field(default=None, min_length=10, max_length=10)
@@ -98,6 +103,13 @@ class AdminCreateUserRequest(BaseModel):
 
 class AdminUpdateUserClassRequest(BaseModel):
     user_class: str = Field(min_length=1, max_length=20)
+
+
+class AdminUpdateUserRequest(BaseModel):
+    email: str | None = Field(default=None, min_length=3, max_length=320)
+    user_name: str | None = Field(default=None, min_length=1, max_length=160)
+    user_class: str | None = Field(default=None, min_length=1, max_length=20)
+    status: str | None = Field(default=None, min_length=1, max_length=20)
 
 
 class AdminUserResponse(BaseModel):
@@ -165,6 +177,7 @@ class TaskSummaryResponse(BaseModel):
     stakeholder_name: str | None = None
     start_date: str | None = None
     end_date: str | None = None
+    close_requested_at: str | None = None
     watchers: list[WatcherResponse] = Field(default_factory=list)
     work_logs: list[TaskWorkLogResponse] = Field(default_factory=list)
     access_logs: list[TaskAccessLogResponse] = Field(default_factory=list)
@@ -176,9 +189,13 @@ class TaskCommentResponse(BaseModel):
     parent_comment_id: int | None = None
     comment_text: str | None = None
     deliverable_url: str | None = None
+    commented_by_id: str | None = None
     commented_by_email: str | None = None
     commented_by_name: str | None = None
     created_at: str | None = None
+    updated_at: str | None = None
+    deleted_at: str | None = None
+    is_deleted: bool = False
 
 
 class TaskDetailResponse(TaskSummaryResponse):

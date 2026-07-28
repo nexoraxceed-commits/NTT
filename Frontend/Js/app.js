@@ -1251,6 +1251,20 @@ async function getAuthorizedJson(path) {
   return authorizedJson(path, { method: "GET" });
 }
 
+async function patchAuthorizedJson(path, payload) {
+  return authorizedJson(path, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+}
+
+async function deleteAuthorizedJson(path) {
+  return authorizedJson(path, { method: "DELETE" });
+}
+
 async function getActiveUsers() {
   if (!activeUsersPromise) {
     activeUsersPromise = getAuthorizedJson("/users").finally(() => {
@@ -1889,7 +1903,7 @@ function setupForgotPasswordForm() {
   });
 }
 
-function setupAdminUsersPage() {
+function setupLegacyAdminUsersPage() {
   const form = document.querySelector("#admin-user-form");
   const list = document.querySelector("#admin-user-list");
   const messageElement = document.querySelector("#admin-user-message");
@@ -1927,7 +1941,7 @@ function setupAdminUsersPage() {
     users.forEach((user) => {
       const row = document.createElement("tr");
       const values = [
-        user.user_name || "—",
+        user.user_name || "-",
         user.email,
         user.status,
         user.auth_uid ? "Linked" : "Pending",
@@ -1970,6 +1984,204 @@ function setupAdminUsersPage() {
         classCell.append(select);
       }
       row.append(classCell);
+      body.append(row);
+    });
+
+    table.append(header, body);
+    wrapper.append(table);
+    list.append(wrapper);
+  }
+
+  async function loadUsers() {
+    try {
+      renderUsers(await getAuthorizedJson("/admin/users"));
+    } catch (error) {
+      setMessage(messageElement, error.message, true);
+      renderEmptyState(list, "Users could not be loaded.");
+    }
+  }
+
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (!form.checkValidity()) {
+      form.reportValidity();
+      return;
+    }
+    const submitButton = event.submitter || form.querySelector("[type='submit']");
+    const formData = new FormData(form);
+    setButtonBusy(submitButton, true);
+    setMessage(messageElement, "Registering user...");
+    try {
+      await postAuthorizedJson("/admin/users", {
+        email: String(formData.get("email") || "").trim(),
+        user_name: String(formData.get("user_name") || "").trim(),
+        user_class: String(formData.get("user_class") || "").toUpperCase(),
+      });
+      form.reset();
+      activeUsersPromise = null;
+      setMessage(messageElement, "User registered as PENDING.");
+      await loadUsers();
+    } catch (error) {
+      setMessage(messageElement, error.message, true);
+    } finally {
+      setButtonBusy(submitButton, false);
+    }
+  });
+
+  loadUsers();
+}
+
+function setupAdminUsersPage() {
+  const form = document.querySelector("#admin-user-form");
+  const list = document.querySelector("#admin-user-list");
+  const messageElement = document.querySelector("#admin-user-message");
+  if (!form || !list) {
+    return;
+  }
+
+  if (String(getSession()?.userClass || "").toUpperCase() !== "ADMIN") {
+    window.location.replace("/post-login");
+    return;
+  }
+
+  function renderUsers(users) {
+    list.innerHTML = "";
+    if (!users.length) {
+      renderEmptyState(list, "No registered users found.");
+      return;
+    }
+
+    const wrapper = document.createElement("div");
+    wrapper.className = "data-table-wrap";
+    const table = document.createElement("table");
+    table.className = "data-table";
+    const header = document.createElement("thead");
+    const headerRow = document.createElement("tr");
+    ["Name", "Email", "Status", "Auth link", "User class", "Actions"].forEach(
+      (label) => {
+        const cell = document.createElement("th");
+        cell.scope = "col";
+        cell.textContent = label;
+        headerRow.append(cell);
+      }
+    );
+    header.append(headerRow);
+    const body = document.createElement("tbody");
+
+    users.forEach((user) => {
+      const isAdminRow = user.user_class === "ADMIN";
+      const row = document.createElement("tr");
+      row.dataset.userId = user.id;
+
+      const nameCell = document.createElement("td");
+      const nameInput = document.createElement("input");
+      nameInput.type = "text";
+      nameInput.value = user.user_name || "";
+      nameInput.maxLength = 160;
+      nameInput.disabled = isAdminRow;
+      nameInput.setAttribute("aria-label", `Name for ${user.email}`);
+      nameCell.append(nameInput);
+      row.append(nameCell);
+
+      const emailCell = document.createElement("td");
+      const emailInput = document.createElement("input");
+      emailInput.type = "email";
+      emailInput.value = user.email || "";
+      emailInput.maxLength = 320;
+      emailInput.disabled = isAdminRow;
+      emailInput.setAttribute("aria-label", `Email for ${user.email}`);
+      emailCell.append(emailInput);
+      row.append(emailCell);
+
+      const statusCell = document.createElement("td");
+      const statusSelect = document.createElement("select");
+      statusSelect.disabled = isAdminRow;
+      statusSelect.setAttribute("aria-label", `Status for ${user.email}`);
+      ["NORMAL", "PENDING", "DELETED"].forEach((userStatus) => {
+        const option = document.createElement("option");
+        option.value = userStatus;
+        option.textContent = userStatus;
+        option.selected = String(user.status || "").toUpperCase() === userStatus;
+        statusSelect.append(option);
+      });
+      statusCell.append(statusSelect);
+      row.append(statusCell);
+
+      const authCell = document.createElement("td");
+      authCell.textContent = user.auth_uid ? "Linked" : "Pending";
+      row.append(authCell);
+
+      const classCell = document.createElement("td");
+      const classSelect = document.createElement("select");
+      classSelect.setAttribute("aria-label", `User class for ${user.email}`);
+      ["SENIOR", "JUNIOR"].forEach((userClass) => {
+        const option = document.createElement("option");
+        option.value = userClass;
+        option.textContent = userClass === "SENIOR" ? "Senior" : "Junior";
+        option.selected = user.user_class === userClass;
+        classSelect.append(option);
+      });
+      if (isAdminRow) {
+        classCell.textContent = "ADMIN";
+      } else {
+        classCell.append(classSelect);
+      }
+      row.append(classCell);
+
+      const actionCell = document.createElement("td");
+      if (isAdminRow) {
+        actionCell.textContent = "Protected";
+      } else {
+        actionCell.className = "admin-action-group";
+        const saveButton = document.createElement("button");
+        saveButton.type = "button";
+        saveButton.className = "btn btn-secondary btn-sm";
+        saveButton.textContent = "Save";
+        saveButton.addEventListener("click", async () => {
+          setButtonBusy(saveButton, true);
+          setMessage(messageElement, `Saving ${emailInput.value}...`);
+          try {
+            await patchAuthorizedJson(`/admin/users/${user.id}`, {
+              email: emailInput.value.trim(),
+              user_name: nameInput.value.trim(),
+              status: statusSelect.value,
+              user_class: classSelect.value,
+            });
+            activeUsersPromise = null;
+            setMessage(messageElement, "User saved.");
+            await loadUsers();
+          } catch (error) {
+            setMessage(messageElement, error.message, true);
+          } finally {
+            setButtonBusy(saveButton, false);
+          }
+        });
+
+        const deleteButton = document.createElement("button");
+        deleteButton.type = "button";
+        deleteButton.className = "btn btn-secondary btn-sm";
+        deleteButton.textContent = "Delete";
+        deleteButton.addEventListener("click", async () => {
+          if (!window.confirm(`Delete ${user.email}?`)) {
+            return;
+          }
+          setButtonBusy(deleteButton, true);
+          setMessage(messageElement, `Deleting ${user.email}...`);
+          try {
+            await deleteAuthorizedJson(`/admin/users/${user.id}`);
+            activeUsersPromise = null;
+            setMessage(messageElement, "User deleted.");
+            await loadUsers();
+          } catch (error) {
+            setMessage(messageElement, error.message, true);
+          } finally {
+            setButtonBusy(deleteButton, false);
+          }
+        });
+
+        actionCell.append(saveButton, deleteButton);
+      }
+      row.append(actionCell);
       body.append(row);
     });
 
@@ -3209,13 +3421,17 @@ function setTaskWorkflowVisibility(task) {
   const assignedEmail = String(task.assigned_to_email || "").toLowerCase();
   const stakeholderEmail = String(task.stakeholder_email || "").toLowerCase();
   const status = String(task.status || "OPEN").toUpperCase();
+  const isAdmin = String(session?.userClass || "").toUpperCase() === "ADMIN";
   const isAssignee = Boolean(currentEmail && currentEmail === assignedEmail);
   const isStakeholder = Boolean(currentEmail && currentEmail === stakeholderEmail);
-  const canUseAssigneeWorkflow = isAssignee;
+  const canUseAssigneeWorkflow = isAssignee || isAdmin;
+  const canUseStakeholderWorkflow = isStakeholder || isAdmin;
 
   const startWorkButton = document.querySelector("#start-work-button");
   const requestCloseButton = document.querySelector("#request-close-button");
+  const withdrawCloseButton = document.querySelector("#withdraw-close-button");
   const closeTaskButton = document.querySelector("#close-task-button");
+  const reopenTaskButton = document.querySelector("#reopen-task-button");
 
   if (startWorkButton) {
     startWorkButton.classList.toggle(
@@ -3231,11 +3447,25 @@ function setTaskWorkflowVisibility(task) {
     );
   }
 
+  if (withdrawCloseButton) {
+    withdrawCloseButton.classList.toggle(
+      "is-hidden",
+      !canUseAssigneeWorkflow || status !== "CLOSE REQUESTED"
+    );
+  }
+
   if (closeTaskButton) {
     closeTaskButton.classList.toggle(
       "is-hidden",
-      !isStakeholder ||
+      !canUseStakeholderWorkflow ||
         !["IN PROGRESS", "CLOSE REQUESTED"].includes(status)
+    );
+  }
+
+  if (reopenTaskButton) {
+    reopenTaskButton.classList.toggle(
+      "is-hidden",
+      !canUseStakeholderWorkflow || status !== "CLOSED"
     );
   }
 }
@@ -3253,6 +3483,7 @@ function renderComments(comments) {
     return;
   }
 
+  const sessionEmail = String(getSession()?.email || "").toLowerCase();
   const repliesByParent = new Map();
   const rootComments = [];
   comments.forEach((comment) => {
@@ -3277,14 +3508,30 @@ function renderComments(comments) {
     const author = document.createElement("p");
     author.className = "meta-text";
     author.textContent = comment.commented_by_name || comment.commented_by_email || "User";
+
+    const isDeleted = Boolean(comment.is_deleted || comment.deleted_at);
+    const isOwnComment =
+      Boolean(sessionEmail) &&
+      String(comment.commented_by_email || "").toLowerCase() === sessionEmail;
+
     const body = document.createElement("p");
-    body.textContent = comment.comment_text || "";
+    body.textContent = isDeleted ? "Comment deleted." : comment.comment_text || "";
 
     card.append(author, body);
-    if (comment.deliverable_url) {
+    if (comment.updated_at && !isDeleted) {
+      const edited = document.createElement("p");
+      edited.className = "meta-text";
+      edited.textContent = "Edited";
+      card.append(edited);
+    }
+    if (comment.deliverable_url && !isDeleted) {
       const url = document.createElement("p");
       url.append(createTextLink(comment.deliverable_url, comment.deliverable_url));
       card.append(url);
+    }
+
+    if (isDeleted) {
+      return card;
     }
 
     const actions = document.createElement("div");
@@ -3296,6 +3543,25 @@ function renderComments(comments) {
     replyButton.dataset.replyCommentAuthor = author.textContent;
     replyButton.textContent = "Reply";
     actions.append(replyButton);
+
+    if (isOwnComment) {
+      const editButton = document.createElement("button");
+      editButton.className = "link-button";
+      editButton.type = "button";
+      editButton.dataset.editCommentId = comment.id;
+      editButton.dataset.editCommentText = comment.comment_text || "";
+      editButton.dataset.editCommentUrl = comment.deliverable_url || "";
+      editButton.textContent = "Edit";
+      actions.append(editButton);
+
+      const deleteButton = document.createElement("button");
+      deleteButton.className = "link-button";
+      deleteButton.type = "button";
+      deleteButton.dataset.deleteCommentId = comment.id;
+      deleteButton.textContent = "Delete";
+      actions.append(deleteButton);
+    }
+
     card.append(actions);
 
     return card;
@@ -3511,9 +3777,17 @@ function setupTaskPage() {
   const commentTextInput = document.querySelector("#comment_text");
   const mentionSuggestions = document.querySelector("#mention-suggestions");
   const parentCommentInput = document.querySelector("#parent_comment_id");
+  const editingCommentInput = document.querySelector("#editing_comment_id");
   const replyContext = document.querySelector("#reply-context");
   const replyTarget = document.querySelector("#reply-target");
+  const editContext = document.querySelector("#edit-context");
   const cancelReplyButton = document.querySelector("#cancel-reply-button");
+  const cancelEditButton = document.querySelector("#cancel-edit-button");
+  const commentSubmitButton = document.querySelector("#comment-submit-button");
+  const deliverableUrlInput = document.querySelector("#deliverable_url");
+  const taskTitleInput = document.querySelector("#task_edit_title");
+  const taskDetailsInput = document.querySelector("#task_edit_details");
+  const taskDocumentsInput = document.querySelector("#task_edit_documents");
   const taskAssigneeSelect = document.querySelector("#task_edit_assigned_to_email");
   const taskEndDateInput = document.querySelector("#task_edit_end_date");
   const taskId = getQueryParam("id");
@@ -3539,7 +3813,18 @@ function setupTaskPage() {
     replyContext?.classList.add("is-hidden");
   }
 
+  function clearEditTarget() {
+    if (editingCommentInput) {
+      editingCommentInput.value = "";
+    }
+    editContext?.classList.add("is-hidden");
+    if (commentSubmitButton) {
+      commentSubmitButton.textContent = "Add Comment";
+    }
+  }
+
   function setReplyTarget(commentId, authorName) {
+    clearEditTarget();
     if (parentCommentInput) {
       parentCommentInput.value = commentId;
     }
@@ -3548,6 +3833,24 @@ function setupTaskPage() {
     }
     replyContext?.classList.remove("is-hidden");
     document.querySelector("#comment_text")?.focus();
+  }
+
+  function setEditTarget(commentId, commentText, deliverableUrl) {
+    clearReplyTarget();
+    if (editingCommentInput) {
+      editingCommentInput.value = commentId;
+    }
+    if (commentTextInput) {
+      commentTextInput.value = commentText || "";
+      commentTextInput.focus();
+    }
+    if (deliverableUrlInput) {
+      deliverableUrlInput.value = deliverableUrl || "";
+    }
+    editContext?.classList.remove("is-hidden");
+    if (commentSubmitButton) {
+      commentSubmitButton.textContent = "Save Comment";
+    }
   }
 
   async function loadTask(options = {}) {
@@ -3563,19 +3866,37 @@ function setupTaskPage() {
       renderComments(task.comments || []);
       renderWorkLogs(task.work_logs || []);
       await populateUserSelect(taskAssigneeSelect, { includeCurrentUser: true });
+      if (taskTitleInput) {
+        taskTitleInput.value = task.task_title || "";
+      }
+      if (taskDetailsInput) {
+        taskDetailsInput.value = task.task_details || "";
+      }
+      if (taskDocumentsInput) {
+        taskDocumentsInput.value = task.documents || "";
+      }
       if (taskAssigneeSelect && task.assigned_to_email) {
         taskAssigneeSelect.value = task.assigned_to_email;
       }
       const session = getSession();
       const currentEmail = String(session?.email || "").toLowerCase();
+      const isAdmin = String(session?.userClass || "").toUpperCase() === "ADMIN";
       const assignedEmail = String(task.assigned_to_email || "").toLowerCase();
       const stakeholderEmail = String(task.stakeholder_email || "").toLowerCase();
       const canChangeAssignee =
-        Boolean(currentEmail) &&
-        (currentEmail === assignedEmail || currentEmail === stakeholderEmail);
+        isAdmin ||
+        (Boolean(currentEmail) &&
+          (currentEmail === assignedEmail || currentEmail === stakeholderEmail));
       if (taskAssigneeSelect) {
         taskAssigneeSelect.disabled = !canChangeAssignee;
       }
+      [taskTitleInput, taskDetailsInput, taskDocumentsInput, taskEndDateInput].forEach(
+        (field) => {
+          if (field) {
+            field.disabled = !canChangeAssignee;
+          }
+        }
+      );
       if (taskEndDateInput) {
         taskEndDateInput.value = task.end_date || "";
       }
@@ -3592,6 +3913,9 @@ function setupTaskPage() {
     setButtonBusy(button, true);
     try {
       const data = await postAuthorizedJson(`/tasks/${taskId}/update`, {
+        task_title: taskTitleInput?.value?.trim() || null,
+        task_details: taskDetailsInput?.value?.trim() || null,
+        documents: taskDocumentsInput?.value?.trim() || null,
         assigned_to_email: taskAssigneeSelect?.value || "",
         end_date: taskEndDateInput?.value || null,
       });
@@ -3632,6 +3956,21 @@ function setupTaskPage() {
       }
     });
 
+  document
+    .querySelector("#withdraw-close-button")
+    ?.addEventListener("click", async () => {
+      setMessage(taskActionMessage, "Withdrawing close request...");
+      try {
+        const data = await postAuthorizedJson(`/tasks/${taskId}/status`, {
+          status: "IN PROGRESS",
+        });
+        setMessage(taskActionMessage, data.detail || "Close request withdrawn.");
+        await loadTask();
+      } catch (error) {
+        setMessage(taskActionMessage, error.message, true);
+      }
+    });
+
   document.querySelector("#close-task-button")?.addEventListener("click", async () => {
     setMessage(taskActionMessage, "Closing task...");
     try {
@@ -3645,19 +3984,69 @@ function setupTaskPage() {
     }
   });
 
+  document.querySelector("#reopen-task-button")?.addEventListener("click", async () => {
+    setMessage(taskActionMessage, "Reopening task...");
+    try {
+      const data = await postAuthorizedJson(`/tasks/${taskId}/status`, {
+        status: "OPEN",
+      });
+      setMessage(taskActionMessage, data.detail || "Task reopened.");
+      await loadTask();
+    } catch (error) {
+      setMessage(taskActionMessage, error.message, true);
+    }
+  });
+
   commentList?.addEventListener("click", (event) => {
     const replyButton = event.target.closest("[data-reply-comment-id]");
-    if (!replyButton) {
+    if (replyButton) {
+      setReplyTarget(
+        replyButton.dataset.replyCommentId,
+        replyButton.dataset.replyCommentAuthor
+      );
       return;
     }
 
-    setReplyTarget(
-      replyButton.dataset.replyCommentId,
-      replyButton.dataset.replyCommentAuthor
-    );
+    const editButton = event.target.closest("[data-edit-comment-id]");
+    if (editButton) {
+      setEditTarget(
+        editButton.dataset.editCommentId,
+        editButton.dataset.editCommentText,
+        editButton.dataset.editCommentUrl
+      );
+      return;
+    }
+
+    const deleteButton = event.target.closest("[data-delete-comment-id]");
+    if (!deleteButton) {
+      return;
+    }
+
+    const commentId = deleteButton.dataset.deleteCommentId;
+    if (!commentId || !window.confirm("Delete this comment?")) {
+      return;
+    }
+
+    setMessage(messageElement, "Deleting comment...");
+    deleteButton.disabled = true;
+    deleteAuthorizedJson(`/tasks/${taskId}/comments/${commentId}`)
+      .then((data) => {
+        setMessage(messageElement, data.detail || "Comment deleted.");
+        return loadTask();
+      })
+      .catch((error) => {
+        setMessage(messageElement, error.message, true);
+      })
+      .finally(() => {
+        deleteButton.disabled = false;
+      });
   });
 
   cancelReplyButton?.addEventListener("click", clearReplyTarget);
+  cancelEditButton?.addEventListener("click", () => {
+    clearEditTarget();
+    commentForm?.reset();
+  });
 
   commentForm?.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -3669,22 +4058,35 @@ function setupTaskPage() {
 
     const formData = new FormData(commentForm);
     const submitButton = commentForm.querySelector("button[type='submit']");
-    setMessage(messageElement, "Adding comment...");
+    const editingCommentId = editingCommentInput?.value || "";
+    setMessage(messageElement, editingCommentId ? "Saving comment..." : "Adding comment...");
     setButtonBusy(submitButton, true);
 
     try {
-      const data = await postAuthorizedJson(`/tasks/${taskId}/comments`, {
+      const payload = {
         comment_text: String(formData.get("comment_text") ?? "").trim(),
         deliverable_url:
           String(formData.get("deliverable_url") ?? "").trim() || null,
-        parent_comment_id: parentCommentInput?.value
-          ? Number(parentCommentInput.value)
-          : null,
-        idempotency_key: createIdempotencyKey("task-comment"),
-      });
+      };
+      const data = editingCommentId
+        ? await patchAuthorizedJson(
+            `/tasks/${taskId}/comments/${editingCommentId}`,
+            payload
+          )
+        : await postAuthorizedJson(`/tasks/${taskId}/comments`, {
+            ...payload,
+            parent_comment_id: parentCommentInput?.value
+              ? Number(parentCommentInput.value)
+              : null,
+            idempotency_key: createIdempotencyKey("task-comment"),
+          });
       commentForm.reset();
       clearReplyTarget();
-      setMessage(messageElement, data.detail || "Comment added successfully.");
+      clearEditTarget();
+      setMessage(
+        messageElement,
+        data.detail || (editingCommentId ? "Comment saved." : "Comment added successfully.")
+      );
       await loadTask();
     } catch (error) {
       setMessage(messageElement, error.message, true);

@@ -36,6 +36,7 @@ class Settings:
     vapid_public_key: str | None
     vapid_private_key: str | None
     vapid_subject: str
+    scheduler_secret: str | None
 
 
 def _load_properties_file(path: Path) -> dict[str, str]:
@@ -161,4 +162,5 @@ def get_settings() -> Settings:
         vapid_subject=_get_config_value(
             "VAPID_SUBJECT", "mailto:noreply@nexora.local"
         ),
+        scheduler_secret=_get_config_value("SCHEDULER_SECRET"),
     )

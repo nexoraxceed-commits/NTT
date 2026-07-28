@@ -69,13 +69,27 @@
           <div class="workflow-actions">
             <button class="btn btn-primary" type="button" id="start-work-button">Start work</button>
             <button type="button" class="btn btn-secondary" id="request-close-button">Request to close</button>
+            <button type="button" class="btn btn-secondary" id="withdraw-close-button">Withdraw close request</button>
             <button type="button" class="btn btn-secondary" id="close-task-button">Close Task</button>
+            <button type="button" class="btn btn-secondary" id="reopen-task-button">Reopen Task</button>
             <p class="form-message" id="task-action-message" role="status" aria-live="polite"></p>
           </div>
 
           <details class="task-edit-details">
             <summary>Edit task details</summary>
             <form class="project-form" id="task-update-form" data-management-only novalidate>
+              <div class="field-group">
+                <label for="task_edit_title">Task name</label>
+                <input id="task_edit_title" name="task_title" type="text" maxlength="160">
+              </div>
+              <div class="field-group">
+                <label for="task_edit_details">Task description</label>
+                <textarea id="task_edit_details" name="task_details" rows="4" maxlength="1000"></textarea>
+              </div>
+              <div class="field-group">
+                <label for="task_edit_documents">Task documents</label>
+                <input id="task_edit_documents" name="documents" type="url" maxlength="2000">
+              </div>
               <div class="field-group">
                 <label for="task_edit_assigned_to_email">Task assignee</label>
                 <select id="task_edit_assigned_to_email" name="assigned_to_email">
@@ -116,9 +130,14 @@
           <h2 id="comment-title">Add comment</h2>
           <form class="project-form" id="task-comment-form" novalidate>
             <input id="parent_comment_id" name="parent_comment_id" type="hidden">
+            <input id="editing_comment_id" name="editing_comment_id" type="hidden">
             <div class="reply-context is-hidden" id="reply-context">
               <span>Replying to <strong id="reply-target"></strong></span>
               <button class="btn btn-secondary btn-sm" type="button" id="cancel-reply-button">Cancel</button>
+            </div>
+            <div class="reply-context is-hidden" id="edit-context">
+              <span>Editing your comment</span>
+              <button class="btn btn-secondary btn-sm" type="button" id="cancel-edit-button">Cancel</button>
             </div>
             <div class="field-group">
               <label for="comment_text">Comment</label>
@@ -131,7 +150,7 @@
               <label for="deliverable_url">Deliverable URL</label>
               <input id="deliverable_url" name="deliverable_url" type="url" maxlength="2000">
             </div>
-            <button class="btn btn-primary" type="submit">Add Comment</button>
+            <button class="btn btn-primary" type="submit" id="comment-submit-button">Add Comment</button>
             <p class="form-message" id="comment-message" role="status" aria-live="polite"></p>
           </form>
 

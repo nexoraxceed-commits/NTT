@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta, timezone
+from html import escape
 from io import BytesIO
 from typing import Any
 
@@ -35,6 +36,22 @@ MUTED = colors.HexColor("#637083")
 PALE = colors.HexColor("#F2F5F9")
 WHITE = colors.white
 
+TABLE_HEADER_STYLE = ParagraphStyle(
+    "table-header",
+    fontName="Helvetica-Bold",
+    fontSize=7.2,
+    leading=9.3,
+    textColor=WHITE,
+)
+TABLE_CELL_STYLE = ParagraphStyle(
+    "table-cell",
+    fontName="Helvetica",
+    fontSize=7.2,
+    leading=9.3,
+    textColor=INK,
+    wordWrap="CJK",
+)
+
 
 def _parse_datetime(value: Any) -> datetime | None:
     if not value:
@@ -66,7 +83,12 @@ def _name(item: dict, prefix: str) -> str:
 
 def _truncate(value: Any, limit: int = 44) -> str:
     text = " ".join(str(value or "").split())
-    return text if len(text) <= limit else f"{text[: limit - 1]}…"
+    return text or "-"
+
+
+def _table_cell(value: Any, *, header: bool = False) -> Paragraph:
+    text = escape(_truncate(value))
+    return Paragraph(text, TABLE_HEADER_STYLE if header else TABLE_CELL_STYLE)
 
 
 def _flatten(data: dict) -> tuple[list[dict], list[dict]]:
@@ -142,19 +164,18 @@ def _activity_chart(activity_by_day: Counter, period_start: datetime, generated_
     chart.categoryAxis.labels.fontSize = 6.5
     chart.valueAxis.labels.fontSize = 6.5
     drawing.add(chart)
-    drawing.add(String(10, 136, "Recorded delivery events — last 30 days", fontName="Helvetica-Bold", fontSize=10, fillColor=NAVY))
+    drawing.add(String(10, 136, "Recorded delivery events - last 30 days", fontName="Helvetica-Bold", fontSize=10, fillColor=NAVY))
     return drawing
 
 
 def _data_table(rows: list[list[Any]], widths: list[float], repeat_rows: int = 1) -> Table:
-    table = Table(rows, colWidths=widths, repeatRows=repeat_rows, hAlign="LEFT")
+    wrapped_rows = [
+        [_table_cell(cell, header=row_index < repeat_rows) for cell in row]
+        for row_index, row in enumerate(rows)
+    ]
+    table = Table(wrapped_rows, colWidths=widths, repeatRows=repeat_rows, hAlign="LEFT")
     table.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), NAVY),
-        ("TEXTCOLOR", (0, 0), (-1, 0), WHITE),
-        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-        ("FONTNAME", (0, 1), (-1, -1), "Helvetica"),
-        ("FONTSIZE", (0, 0), (-1, -1), 7.2),
-        ("LEADING", (0, 0), (-1, -1), 9.3),
         ("ROWBACKGROUNDS", (0, 1), (-1, -1), [WHITE, PALE]),
         ("GRID", (0, 0), (-1, -1), 0.35, colors.HexColor("#D8E0EA")),
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
@@ -223,7 +244,7 @@ def build_board_report(data: dict, generated_for: str | None = None) -> bytes:
         canvas.line(15 * mm, 13 * mm, 195 * mm, 13 * mm)
         canvas.setFont("Helvetica", 7)
         canvas.setFillColor(MUTED)
-        canvas.drawString(15 * mm, 8.5 * mm, "NEXORA  •  BOARD DELIVERY REPORT  •  INTERNAL")
+        canvas.drawString(15 * mm, 8.5 * mm, "NEXORA  -  BOARD DELIVERY REPORT  -  INTERNAL")
         canvas.drawRightString(195 * mm, 8.5 * mm, f"Page {doc.page}")
         canvas.restoreState()
 
@@ -234,7 +255,7 @@ def build_board_report(data: dict, generated_for: str | None = None) -> bytes:
         [Paragraph("Board Delivery<br/>Report", title)],
         [Paragraph("Evidence of work, execution momentum and delivery health", subtitle)],
         [Spacer(1, 15 * mm)],
-        [Paragraph(f"REPORTING WINDOW<br/><b>{period_start:%d %B %Y} — {generated_at:%d %B %Y}</b>", ParagraphStyle("period", fontName="Helvetica", fontSize=8, leading=14, textColor=WHITE))],
+        [Paragraph(f"REPORTING WINDOW<br/><b>{period_start:%d %B %Y} - {generated_at:%d %B %Y}</b>", ParagraphStyle("period", fontName="Helvetica", fontSize=8, leading=14, textColor=WHITE))],
         [Spacer(1, 46 * mm)],
         [Paragraph(f"Generated {generated_at:%d %B %Y, %H:%M UTC}" + (f"<br/>Prepared for {generated_for}" if generated_for else ""), subtitle)],
     ], colWidths=[180 * mm], rowHeights=[8 * mm, 15 * mm, 35 * mm, 18 * mm, 15 * mm, 20 * mm, 46 * mm, 20 * mm])
@@ -287,9 +308,9 @@ def build_board_report(data: dict, generated_for: str | None = None) -> bytes:
             signals_for_task.append("Overdue")
         if task in unassigned:
             signals_for_task.append("Unassigned")
-        exception_rows.append([_truncate(task.get("project_name"), 24), _truncate(task.get("task_title"), 34), _truncate(_name(task, "assigned_to"), 24), task.get("status") or "OPEN", str(task.get("end_date") or "—"), ", ".join(signals_for_task)])
+        exception_rows.append([_truncate(task.get("project_name"), 24), _truncate(task.get("task_title"), 34), _truncate(_name(task, "assigned_to"), 24), task.get("status") or "OPEN", str(task.get("end_date") or "-"), ", ".join(signals_for_task)])
     if len(exception_rows) == 1:
-        exception_rows.append(["—", "No overdue or unassigned tasks", "—", "—", "—", "No current exception"])
+        exception_rows.append(["-", "No overdue or unassigned tasks", "-", "-", "-", "No current exception"])
     story.append(_data_table(exception_rows, [28 * mm, 48 * mm, 31 * mm, 24 * mm, 22 * mm, 27 * mm]))
 
     story += [PageBreak(), Paragraph("People and participation", h1)]
@@ -314,7 +335,7 @@ def build_board_report(data: dict, generated_for: str | None = None) -> bytes:
         watchers = project.get("watchers") or []
         project_rows.append([_truncate(project.get("project_name"), 32), project.get("status") or "ACTIVE", _truncate(_name(project, "stakeholder"), 26), str(len(watchers)), str(len(project_tasks)), str(sum(1 for task in project_tasks if str(task.get("status") or "").upper() == "CLOSED")), str(exceptions)])
     if len(project_rows) == 1:
-        project_rows.append(["No projects visible", "—", "—", "0", "0", "0", "0"])
+        project_rows.append(["No projects visible", "-", "-", "0", "0", "0", "0"])
     story.append(_data_table(project_rows, [43 * mm, 22 * mm, 43 * mm, 18 * mm, 17 * mm, 17 * mm, 20 * mm]))
 
     story += [PageBreak(), Paragraph("Evidence register", h1)]
@@ -323,7 +344,7 @@ def build_board_report(data: dict, generated_for: str | None = None) -> bytes:
     for task, log, parsed in sorted(delivery_events, key=lambda item: item[2], reverse=True)[:40]:
         event_rows.append([parsed.strftime("%d %b %Y\n%H:%M"), _truncate(task.get("project_name"), 22), _truncate(task.get("task_title"), 27), _truncate(str(log.get("event_type") or "").replace("_", " ").title(), 24), _truncate(_name(log, "actor"), 22), _truncate(log.get("event_note"), 38)])
     if len(event_rows) == 1:
-        event_rows.append(["—", "—", "No events in period", "—", "—", "—"])
+        event_rows.append(["-", "-", "No events in period", "-", "-", "-"])
     story.append(_data_table(event_rows, [23 * mm, 31 * mm, 39 * mm, 31 * mm, 29 * mm, 27 * mm]))
 
     story += [PageBreak(), Paragraph("Metric definitions and data assurance", h1)]
@@ -346,7 +367,7 @@ def build_board_report(data: dict, generated_for: str | None = None) -> bytes:
         "Status and due-date accuracy depends on timely user updates. Board interpretation should be accompanied by management commentary for material projects.",
     ]
     for note in notes:
-        story.append(Paragraph(f"• {note}", body))
+        story.append(Paragraph(f"- {note}", body))
     story += [Spacer(1, 5 * mm), Paragraph("Recommended next reporting capabilities", h2), Paragraph("Add strategic objective, sponsor, accountable owner, planned/actual milestone dates, priority, health/RAG, budget/forecast/actual, expected benefit, realized outcome, dependency, risk, issue and quality fields. Preserve immutable lifecycle timestamps and publish a server-side reporting API with explicit period and portfolio filters. These additions would move the report from evidence of activity to evidence of strategic execution and value.", body)]
 
     document.build(story, onFirstPage=footer, onLaterPages=footer)

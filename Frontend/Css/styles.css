@@ -1496,6 +1496,8 @@ a:focus-visible {
 
 .comment-actions {
   display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
   justify-content: flex-end;
 }
 
@@ -1512,6 +1514,16 @@ a:focus-visible {
 
 .link-button:hover {
   text-decoration: underline;
+}
+
+.link-button[data-delete-comment-id] {
+  color: var(--danger);
+}
+
+.admin-action-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
 }
 
 .reply-context {

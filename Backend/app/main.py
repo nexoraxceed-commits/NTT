@@ -1,7 +1,8 @@
 import json
 import re
 import time
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
+from hmac import compare_digest
 
 import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException, status
@@ -15,6 +16,8 @@ from app.config import Settings, get_settings
 from app.constants import (
     ASSIGNABLE_USER_CLASSES,
     AUTH_UID_COLUMN,
+    ACTIVE_STATUS,
+    DELETED_STATUS,
     MANAGEMENT_USER_CLASSES,
     NORMAL_STATUS,
     PENDING_STATUS,
@@ -56,20 +59,24 @@ from app.repositories import (
     get_ref_users_by_auth_uids,
     get_task_access_logs_for_tasks,
     get_task_by_id,
+    get_task_comment_by_id,
     get_task_work_logs,
     get_task_work_logs_for_tasks,
     insert_task_access_log,
     insert_pending_ref_user,
+    insert_task_reminder_log,
     is_optional_analytics_table_error,
     mark_all_notifications_read,
     mark_notification_read,
     replace_project_watchers,
     sync_ref_user_auth_uid,
+    update_ref_user,
     update_ref_user_class,
     upsert_push_subscription,
 )
 from app.schemas import (
     AdminCreateUserRequest,
+    AdminUpdateUserRequest,
     AdminUpdateUserClassRequest,
     AdminUserResponse,
     CreateTaskCommentRequest,
@@ -98,6 +105,7 @@ from app.schemas import (
     TaskSummaryResponse,
     TaskWorkLogResponse,
     UpdateProjectRequest,
+    UpdateTaskCommentRequest,
     UpdateTaskRequest,
     UpdateTaskStatusRequest,
 )
@@ -223,6 +231,10 @@ def can_change_task_assignee(project: dict, task: dict, user_id: object) -> bool
     )
 
 
+def is_task_assignee(task: dict, user_id: object) -> bool:
+    return bool(task.get("assigned_to")) and str(task.get("assigned_to")) == str(user_id)
+
+
 def require_active_ref_user(
     supabase_admin: Client,
     app_settings: Settings,
@@ -314,6 +326,53 @@ def require_management_user(current_user: CurrentUser) -> None:
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Junior users can only participate as task assignees.",
         )
+
+
+def is_admin_user(current_user: object) -> bool:
+    return str(getattr(current_user, "user_class", "") or "").upper() == USER_CLASS_ADMIN
+
+
+def ensure_project_is_active(project: dict) -> None:
+    project_status = str(project.get("status") or ACTIVE_STATUS).upper()
+    if project_status == DELETED_STATUS:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Project not found.",
+        )
+
+
+def admin_user_response_from_row(
+    row: dict,
+    app_settings: Settings,
+) -> AdminUserResponse:
+    return AdminUserResponse(
+        id=row["id"],
+        email=row.get(app_settings.signup_allowed_users_email_column) or "",
+        user_name=row.get(REF_USER_NAME_COLUMN),
+        user_class=str(row.get(USER_CLASS_COLUMN) or USER_CLASS_JUNIOR).upper(),
+        status=str(
+            row.get(app_settings.signup_allowed_users_status_column) or PENDING_STATUS
+        ).upper(),
+        auth_uid=row.get(AUTH_UID_COLUMN),
+    )
+
+
+def get_ref_user_by_id(
+    supabase_admin: Client,
+    app_settings: Settings,
+    ref_user_id: int,
+) -> dict:
+    matching_users = [
+        user
+        for user in get_all_ref_users(supabase_admin, app_settings)
+        if int(user.get("id") or 0) == ref_user_id
+    ]
+    if not matching_users:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found.",
+        )
+    return matching_users[0]
 
 
 def invalidate_user_cache() -> None:
@@ -731,6 +790,114 @@ def notify_project_roles(
     )
 
 
+def authorize_admin_or_scheduler(
+    authorization: str | None,
+    scheduler_secret: str | None,
+    supabase_admin: Client,
+    app_settings: Settings,
+) -> None:
+    configured_secret = app_settings.scheduler_secret
+    if (
+        configured_secret
+        and scheduler_secret
+        and compare_digest(configured_secret, scheduler_secret)
+    ):
+        return
+
+    current_user = get_current_user(
+        authorization=authorization,
+        supabase_admin=supabase_admin,
+        app_settings=app_settings,
+    )
+    if current_user.user_class != USER_CLASS_ADMIN:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Administrator access is required.",
+        )
+
+
+def send_due_soon_reminders(
+    supabase_admin: Client,
+    app_settings: Settings,
+) -> int:
+    reminder_date = today_utc() + timedelta(days=2)
+    try:
+        response = (
+            supabase_admin.table(TASKS_TABLE)
+            .select("id,project_id,task_title,end_date,status,assigned_to")
+            .eq("end_date", reminder_date.isoformat())
+            .neq("status", TASK_STATUS_CLOSED)
+            .execute()
+        )
+    except Exception as exc:
+        if is_optional_analytics_table_error(exc):
+            return 0
+        raise
+
+    sent_count = 0
+    tasks = getattr(response, "data", None) or []
+    for task in tasks:
+        task_id = int(task["id"])
+        project_id = int(task["project_id"])
+        try:
+            project = get_project_by_id(supabase_admin, project_id)
+            ensure_project_is_active(project)
+        except HTTPException:
+            continue
+
+        recipient_ids: set[str] = set()
+        if task.get("assigned_to"):
+            recipient_ids.add(str(task["assigned_to"]))
+        if project.get("stakeholder_id"):
+            recipient_ids.add(str(project["stakeholder_id"]))
+        recipient_ids.update(
+            project_watcher_user_ids(get_project_watchers(supabase_admin, project_id))
+        )
+        if not recipient_ids:
+            continue
+
+        users_by_id = get_ref_users_by_auth_uids(
+            supabase_admin,
+            app_settings,
+            list(recipient_ids),
+        )
+        task_name = normalize_optional_text(task.get("task_title")) or f"Task #{task_id}"
+        subject = f"Task due in 2 days: {task_name}"
+        body = (
+            f'"{task_name}" is due on {reminder_date.isoformat()}. '
+            "Please review the task in Nexora."
+        )
+        for recipient_id, ref_user in users_by_id.items():
+            recipient_email = normalize_optional_text(
+                ref_user.get(app_settings.signup_allowed_users_email_column)
+            )
+            if not insert_task_reminder_log(
+                supabase_admin,
+                task_id=task_id,
+                project_id=project_id,
+                recipient_user_id=recipient_id,
+                recipient_email=recipient_email,
+                reminder_type="DUE_IN_2_DAYS",
+                sent_for_date=reminder_date.isoformat(),
+            ):
+                continue
+
+            notify_user_ids(
+                supabase_admin,
+                app_settings,
+                [recipient_id],
+                subject,
+                body,
+                "TASK",
+                task_id,
+                target_url=get_task_target_url(task_id),
+                send_email=True,
+            )
+            sent_count += 1
+
+    return sent_count
+
+
 def extract_mentioned_user_ids(
     comment_text: str,
     active_users: list[dict],
@@ -1001,6 +1168,7 @@ def build_task_summary_response(
             app_settings,
         ),
         status=task.get("status") or TASK_STATUS_OPEN,
+        close_requested_at=task.get("close_requested_at"),
     )
 
 
@@ -1020,7 +1188,7 @@ def create_app() -> FastAPI:
         CORSMiddleware,
         allow_origins=[settings.frontend_origin],
         allow_credentials=True,
-        allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+        allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
         allow_headers=["Content-Type", "Authorization", "Idempotency-Key"],
         expose_headers=["Content-Disposition"],
     )
@@ -1457,17 +1625,7 @@ def create_app() -> FastAPI:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Managed users can only be SENIOR or JUNIOR.",
             )
-        matching_users = [
-            user
-            for user in get_all_ref_users(supabase_admin, app_settings)
-            if int(user.get("id") or 0) == ref_user_id
-        ]
-        if not matching_users:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="User not found.",
-            )
-        existing = matching_users[0]
+        existing = get_ref_user_by_id(supabase_admin, app_settings, ref_user_id)
         if str(existing.get(USER_CLASS_COLUMN) or "").upper() == USER_CLASS_ADMIN:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -1536,6 +1694,152 @@ def create_app() -> FastAPI:
                 else None
             ),
         )
+
+    @app.patch("/admin/users/{ref_user_id}", response_model=AdminUserResponse)
+    def update_admin_user(
+        ref_user_id: int,
+        payload: AdminUpdateUserRequest,
+        current_user: CurrentUser = Depends(require_admin),
+        supabase_admin: Client = Depends(get_supabase_admin_client),
+        app_settings: Settings = Depends(get_settings),
+    ) -> AdminUserResponse:
+        existing = get_ref_user_by_id(supabase_admin, app_settings, ref_user_id)
+        if str(existing.get(USER_CLASS_COLUMN) or "").upper() == USER_CLASS_ADMIN:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="The administrator account cannot be edited here.",
+            )
+        if str(existing.get(AUTH_UID_COLUMN) or "") == current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You cannot edit your own admin user record.",
+            )
+
+        updates: dict[str, str] = {}
+        if payload.email is not None:
+            normalized_email = payload.email.strip().lower()
+            if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", normalized_email):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Enter a valid email address.",
+                )
+            existing_email = str(
+                existing.get(app_settings.signup_allowed_users_email_column) or ""
+            ).lower()
+            if normalized_email != existing_email and get_ref_user(
+                supabase_admin,
+                app_settings,
+                normalized_email,
+            ):
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="A user with this email is already registered.",
+                )
+            updates[app_settings.signup_allowed_users_email_column] = normalized_email
+
+        if payload.user_name is not None:
+            updates[REF_USER_NAME_COLUMN] = payload.user_name.strip()
+
+        if payload.user_class is not None:
+            user_class = payload.user_class.strip().upper()
+            if user_class not in {USER_CLASS_SENIOR, USER_CLASS_JUNIOR}:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Managed users can only be SENIOR or JUNIOR.",
+                )
+            existing_auth_uid = existing.get(AUTH_UID_COLUMN)
+            if user_class == USER_CLASS_JUNIOR and existing_auth_uid:
+                stakeholder_projects = (
+                    supabase_admin.table(PROJECTS_TABLE)
+                    .select("id")
+                    .eq("stakeholder_id", existing_auth_uid)
+                    .neq("status", DELETED_STATUS)
+                    .limit(1)
+                    .execute()
+                )
+                watched_projects = (
+                    supabase_admin.table(PROJECT_WATCHERS_TABLE)
+                    .select("project_id")
+                    .eq("user_id", existing_auth_uid)
+                    .eq("status", ACTIVE_STATUS)
+                    .limit(1)
+                    .execute()
+                )
+                if (
+                    getattr(stakeholder_projects, "data", None)
+                    or getattr(watched_projects, "data", None)
+                ):
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail=(
+                            "Remove this user as a project stakeholder or watcher "
+                            "before changing the class to JUNIOR."
+                        ),
+                    )
+            updates[USER_CLASS_COLUMN] = user_class
+
+        if payload.status is not None:
+            user_status = payload.status.strip().upper()
+            if user_status not in {NORMAL_STATUS, PENDING_STATUS, DELETED_STATUS}:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="User status must be NORMAL, PENDING, or DELETED.",
+                )
+            updates[app_settings.signup_allowed_users_status_column] = user_status
+
+        updated = update_ref_user(
+            supabase_admin,
+            app_settings,
+            user_id=ref_user_id,
+            updates=updates,
+        )
+        row = {**existing, **updates, **(updated or {})}
+        invalidate_user_cache()
+        invalidate_project_cache()
+        invalidate_task_cache()
+        return admin_user_response_from_row(row, app_settings)
+
+    @app.delete("/admin/users/{ref_user_id}", response_model=MessageResponse)
+    def delete_admin_user(
+        ref_user_id: int,
+        current_user: CurrentUser = Depends(require_admin),
+        supabase_admin: Client = Depends(get_supabase_admin_client),
+        app_settings: Settings = Depends(get_settings),
+    ) -> MessageResponse:
+        existing = get_ref_user_by_id(supabase_admin, app_settings, ref_user_id)
+        existing_auth_uid = existing.get(AUTH_UID_COLUMN)
+        if str(existing.get(USER_CLASS_COLUMN) or "").upper() == USER_CLASS_ADMIN:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="The administrator account cannot be deleted here.",
+            )
+        if existing_auth_uid and str(existing_auth_uid) == str(current_user.id):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You cannot delete your own user record.",
+            )
+
+        update_ref_user(
+            supabase_admin,
+            app_settings,
+            user_id=ref_user_id,
+            updates={app_settings.signup_allowed_users_status_column: DELETED_STATUS},
+        )
+        if existing_auth_uid:
+            supabase_admin.table(PROJECT_WATCHERS_TABLE).update(
+                {"status": DELETED_STATUS}
+            ).eq("user_id", existing_auth_uid).execute()
+            supabase_admin.table(PROJECTS_TABLE).update(
+                {"stakeholder_id": None}
+            ).eq("stakeholder_id", existing_auth_uid).execute()
+            supabase_admin.table(TASKS_TABLE).update(
+                {"assigned_to": None}
+            ).eq("assigned_to", existing_auth_uid).execute()
+
+        invalidate_user_cache()
+        invalidate_project_cache()
+        invalidate_task_cache()
+        return MessageResponse(detail="User deleted successfully.")
 
     @app.get("/push/config", response_model=PushConfigResponse)
     def get_push_config(
@@ -1739,6 +2043,11 @@ def create_app() -> FastAPI:
             .execute()
         )
         projects = getattr(project_response, "data", None) or []
+        projects = [
+            project
+            for project in projects
+            if str(project.get("status") or ACTIVE_STATUS).upper() != DELETED_STATUS
+        ]
         loaded_project_ids = [int(project["id"]) for project in projects]
         watchers_by_project = get_project_watchers_for_projects(
             supabase_admin,
@@ -1795,7 +2104,8 @@ def create_app() -> FastAPI:
                     project,
                     watchers_by_project.get(int(project["id"]), []),
                     user_id,
-                ),
+                )
+                or is_admin_user(current_user),
             )
             for project in projects
         ]
@@ -1834,6 +2144,11 @@ def create_app() -> FastAPI:
             .execute()
         )
         projects = getattr(project_response, "data", None) or []
+        projects = [
+            project
+            for project in projects
+            if str(project.get("status") or ACTIVE_STATUS).upper() != DELETED_STATUS
+        ]
         project_ids = [int(project["id"]) for project in projects]
 
         project_watchers_by_project = get_project_watchers_for_projects(
@@ -1847,8 +2162,8 @@ def create_app() -> FastAPI:
             task_response = (
                 supabase_admin.table(TASKS_TABLE)
                 .select(
-                    "id,project_id,task_title,task_details,documents,assigned_to,"
-                    "status,start_date,end_date"
+                "id,project_id,task_title,task_details,documents,assigned_to,"
+                    "status,start_date,end_date,close_requested_at"
                 )
                 .in_("project_id", project_ids)
                 .order("created_at", desc=True)
@@ -1930,7 +2245,8 @@ def create_app() -> FastAPI:
                     project,
                     project_watchers_by_project.get(int(project["id"]), []),
                     user_id,
-                ),
+                )
+                or is_admin_user(current_user),
             )
             for project in projects
         ]
@@ -2006,6 +2322,7 @@ def create_app() -> FastAPI:
             )
 
         project = get_project_by_id(supabase_admin, project_id)
+        ensure_project_is_active(project)
         project_watchers = get_project_watchers(supabase_admin, project_id)
 
         cache_key = f"projects:detail:{project_id}:{user_id}"
@@ -2018,7 +2335,7 @@ def create_app() -> FastAPI:
                 supabase_admin.table(TASKS_TABLE)
                 .select(
                     "id,project_id,task_title,task_details,documents,assigned_to,"
-                    "status,start_date,end_date"
+                    "status,start_date,end_date,close_requested_at"
                 )
                 .eq("project_id", project_id)
                 .order("created_at", desc=True)
@@ -2103,7 +2420,8 @@ def create_app() -> FastAPI:
                 users_by_auth_uid,
                 app_settings,
             ),
-            can_edit=is_project_editor(project, project_watchers, user_id),
+            can_edit=is_project_editor(project, project_watchers, user_id)
+            or is_admin_user(current_user),
             tasks=[
                 TaskSummaryResponse(
                     id=task["id"],
@@ -2141,6 +2459,7 @@ def create_app() -> FastAPI:
                     ),
                     start_date=task.get("start_date"),
                     end_date=task.get("end_date"),
+                    close_requested_at=task.get("close_requested_at"),
                     watchers=build_watcher_responses(
                         task_watchers_by_task.get(int(task["id"]), []),
                         users_by_auth_uid,
@@ -2196,8 +2515,12 @@ def create_app() -> FastAPI:
         require_management_user(current_user)
 
         project = get_project_by_id(supabase_admin, project_id)
+        ensure_project_is_active(project)
         project_watchers = get_project_watchers(supabase_admin, project_id)
-        if not is_project_editor(project, project_watchers, user_id):
+        if not (
+            is_project_editor(project, project_watchers, user_id)
+            or is_admin_user(current_user)
+        ):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Only the project stakeholder or watcher can edit this project.",
@@ -2266,6 +2589,28 @@ def create_app() -> FastAPI:
 
         invalidate_project_cache(project_id)
         return MessageResponse(detail="Project updated successfully.")
+
+    @app.delete("/projects/{project_id}", response_model=MessageResponse)
+    def delete_project(
+        project_id: int,
+        current_user: CurrentUser = Depends(require_admin),
+        supabase_admin: Client = Depends(get_supabase_admin_client),
+    ) -> MessageResponse:
+        user_id = getattr(current_user, "id", None)
+        if not user_id:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Session expired. Please sign in again.",
+            )
+
+        project = get_project_by_id(supabase_admin, project_id)
+        ensure_project_is_active(project)
+        supabase_admin.table(PROJECTS_TABLE).update(
+            {"status": DELETED_STATUS}
+        ).eq("id", project_id).execute()
+        invalidate_project_cache(project_id)
+        invalidate_task_cache(project_id=project_id)
+        return MessageResponse(detail="Project deleted successfully.")
 
     @app.post("/projects", response_model=MessageResponse)
     def create_project(
@@ -2420,6 +2765,7 @@ def create_app() -> FastAPI:
             return cached_response
 
         project = get_project_by_id(supabase_admin, project_id)
+        ensure_project_is_active(project)
         project_watchers = get_project_watchers(supabase_admin, project_id)
         assigned_user_id = None
         assigned_to_email = normalize_optional_text(payload.assigned_to_email)
@@ -2502,13 +2848,12 @@ def create_app() -> FastAPI:
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Session expired. Please sign in again.",
             )
-        require_management_user(current_user)
-
         task = get_task_by_id(supabase_admin, task_id)
         project_id = int(task["project_id"])
         project = get_project_by_id(supabase_admin, project_id)
+        ensure_project_is_active(project)
         project_watchers = get_project_watchers(supabase_admin, project_id)
-        if not can_change_task_assignee(project, task, user_id):
+        if not (can_change_task_assignee(project, task, user_id) or is_admin_user(current_user)):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=(
@@ -2518,6 +2863,15 @@ def create_app() -> FastAPI:
             )
 
         update_payload = {}
+        task_status = str(task.get("status") or TASK_STATUS_OPEN).upper()
+        if task_status == TASK_STATUS_CLOSED and not (
+            is_project_stakeholder(project, user_id) or is_admin_user(current_user)
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Closed tasks can only be edited by the stakeholder or admin.",
+            )
+
         if payload.task_title is not None:
             update_payload["task_title"] = payload.task_title.strip()
         if payload.task_details is not None:
@@ -2532,7 +2886,7 @@ def create_app() -> FastAPI:
         assigned_user_id = None
         assigned_to_email = normalize_optional_text(payload.assigned_to_email)
         if assigned_to_email:
-            if not can_change_task_assignee(project, task, user_id):
+            if not (can_change_task_assignee(project, task, user_id) or is_admin_user(current_user)):
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
                     detail=(
@@ -2550,7 +2904,7 @@ def create_app() -> FastAPI:
             assigned_user_id = assigned_ref_user[AUTH_UID_COLUMN]
             update_payload["assigned_to"] = assigned_user_id
         elif payload.assigned_to_email == "":
-            if not can_change_task_assignee(project, task, user_id):
+            if not (can_change_task_assignee(project, task, user_id) or is_admin_user(current_user)):
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
                     detail=(
@@ -2636,6 +2990,7 @@ def create_app() -> FastAPI:
         task = get_task_by_id(supabase_admin, task_id)
         project_id = int(task["project_id"])
         project = get_project_by_id(supabase_admin, project_id)
+        ensure_project_is_active(project)
         project_watchers = get_project_watchers(supabase_admin, project_id)
         requested_status = payload.status.strip().upper()
         allowed_statuses = {
@@ -2657,78 +3012,92 @@ def create_app() -> FastAPI:
                 detail="Task is already in this status.",
             )
 
-        if requested_status == TASK_STATUS_IN_PROGRESS and current_status != TASK_STATUS_OPEN:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Only open tasks can be moved to in progress.",
-            )
-
-        if (
-            requested_status == TASK_STATUS_CLOSE_REQUESTED
-            and current_status != TASK_STATUS_IN_PROGRESS
-        ):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Only in-progress tasks can be sent for close review.",
-            )
-
-        if requested_status == TASK_STATUS_CLOSED and current_status not in {
-            TASK_STATUS_IN_PROGRESS,
-            TASK_STATUS_CLOSE_REQUESTED,
-        }:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Only in-progress or close-requested tasks can be closed.",
-            )
-
-        current_user_is_assignee = str(task.get("assigned_to")) == str(user_id)
+        current_user_is_assignee = is_task_assignee(task, user_id)
         current_user_is_stakeholder = is_project_stakeholder(project, user_id)
+        current_user_is_admin = is_admin_user(current_user)
+        assignee_or_admin = current_user_is_assignee or current_user_is_admin
+        stakeholder_or_admin = current_user_is_stakeholder or current_user_is_admin
 
-        if requested_status in {
-            TASK_STATUS_IN_PROGRESS,
-            TASK_STATUS_CLOSE_REQUESTED,
-        }:
-            if not current_user_is_assignee:
+        if requested_status == TASK_STATUS_IN_PROGRESS:
+            if current_status not in {TASK_STATUS_OPEN, TASK_STATUS_CLOSE_REQUESTED}:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Only open or close-requested tasks can move to in progress.",
+                )
+            if not assignee_or_admin:
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
-                    detail="Only the assignee can move this task to that status.",
+                    detail="Only the assignee can start or withdraw close review.",
                 )
 
-        if requested_status == TASK_STATUS_CLOSED and not current_user_is_stakeholder:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Only the stakeholder can close this task.",
-            )
-        if (
-            current_user.user_class == USER_CLASS_JUNIOR
-            and not current_user_is_assignee
-        ):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Junior users can only act on tasks assigned to them.",
-            )
+        if requested_status == TASK_STATUS_CLOSE_REQUESTED:
+            if current_status != TASK_STATUS_IN_PROGRESS:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Only in-progress tasks can be sent for close review.",
+                )
+            if not assignee_or_admin:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Only the assignee can request task closure.",
+                )
+
+        if requested_status == TASK_STATUS_CLOSED:
+            if current_status not in {
+                TASK_STATUS_IN_PROGRESS,
+                TASK_STATUS_CLOSE_REQUESTED,
+            }:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Only in-progress or close-requested tasks can be closed.",
+                )
+            if not stakeholder_or_admin:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Only the stakeholder can close this task.",
+                )
+
+        if requested_status == TASK_STATUS_OPEN:
+            if current_status != TASK_STATUS_CLOSED:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Only closed tasks can be reopened.",
+                )
+            if not stakeholder_or_admin:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Only the stakeholder can reopen this task.",
+                )
 
         task_name = normalize_optional_text(task.get("task_title")) or f"Task #{task_id}"
         actor_name = get_actor_display_name(supabase_admin, app_settings, user_id)
         status_payload = {"status": requested_status}
         if requested_status == TASK_STATUS_IN_PROGRESS and not task.get("start_date"):
             status_payload["start_date"] = datetime.now(timezone.utc).isoformat()
+        if requested_status == TASK_STATUS_CLOSE_REQUESTED:
+            status_payload["close_requested_at"] = datetime.now(timezone.utc).isoformat()
+        if requested_status in {TASK_STATUS_OPEN, TASK_STATUS_IN_PROGRESS}:
+            status_payload["close_requested_at"] = None
 
         supabase_admin.table(TASKS_TABLE).update(status_payload).eq("id", task_id).execute()
         event_type_by_status = {
             TASK_STATUS_IN_PROGRESS: "TASK_WORK_STARTED",
             TASK_STATUS_CLOSE_REQUESTED: "TASK_CLOSE_REQUESTED",
             TASK_STATUS_CLOSED: "TASK_CLOSED",
+            TASK_STATUS_OPEN: "TASK_REOPENED",
         }
+        event_type = event_type_by_status.get(requested_status, "TASK_STATUS_CHANGED")
+        if (
+            requested_status == TASK_STATUS_IN_PROGRESS
+            and current_status == TASK_STATUS_CLOSE_REQUESTED
+        ):
+            event_type = "TASK_CLOSE_REQUEST_WITHDRAWN"
         insert_task_access_log(
             supabase_admin,
             task_id=task_id,
             project_id=project_id,
             actor_user_id=str(user_id),
-            event_type=event_type_by_status.get(
-                requested_status,
-                "TASK_STATUS_CHANGED",
-            ),
+            event_type=event_type,
             previous_status=task.get("status"),
             new_status=requested_status,
             previous_assignee_id=(
@@ -2793,6 +3162,7 @@ def create_app() -> FastAPI:
             return TaskDetailResponse(**cached_task)
 
         project = get_project_by_id(supabase_admin, project_id)
+        ensure_project_is_active(project)
         project_watchers = get_project_watchers(supabase_admin, project_id)
         task = task_with_project_roles(task, project)
 
@@ -2801,7 +3171,7 @@ def create_app() -> FastAPI:
                 supabase_admin.table(TASK_COMMENTS_TABLE)
                 .select(
                     "id,created_at,task_id,parent_comment_id,commented_by,"
-                    "comment_text,deliverable_url"
+                    "comment_text,deliverable_url,updated_at,deleted_at,deleted_by"
                 )
                 .eq("task_id", task_id)
                 .order("created_at", desc=False)
@@ -2880,6 +3250,7 @@ def create_app() -> FastAPI:
             stakeholder_name=stakeholder_ref_user.get(REF_USER_NAME_COLUMN),
             start_date=task.get("start_date"),
             end_date=task.get("end_date"),
+            close_requested_at=task.get("close_requested_at"),
             watchers=build_watcher_responses(
                 project_watchers,
                 users_by_auth_uid,
@@ -2892,6 +3263,11 @@ def create_app() -> FastAPI:
                     parent_comment_id=comment.get("parent_comment_id"),
                     comment_text=comment.get("comment_text"),
                     deliverable_url=comment.get("deliverable_url"),
+                    commented_by_id=(
+                        str(comment.get("commented_by"))
+                        if comment.get("commented_by")
+                        else None
+                    ),
                     commented_by_email=(
                         users_by_auth_uid.get(
                             str(comment.get("commented_by")), {}
@@ -2903,6 +3279,9 @@ def create_app() -> FastAPI:
                         ).get(REF_USER_NAME_COLUMN)
                     ),
                     created_at=comment.get("created_at"),
+                    updated_at=comment.get("updated_at"),
+                    deleted_at=comment.get("deleted_at"),
+                    is_deleted=bool(comment.get("deleted_at")),
                 )
                 for comment in comments
             ],
@@ -2964,6 +3343,7 @@ def create_app() -> FastAPI:
         task = get_task_by_id(supabase_admin, task_id)
         project_id = int(task["project_id"])
         project = get_project_by_id(supabase_admin, project_id)
+        ensure_project_is_active(project)
         project_watchers = get_project_watchers(supabase_admin, project_id)
         if (
             current_user.user_class == USER_CLASS_JUNIOR
@@ -3067,6 +3447,147 @@ def create_app() -> FastAPI:
         )
         return response
 
+    @app.patch(
+        "/tasks/{task_id}/comments/{comment_id}",
+        response_model=MessageResponse,
+    )
+    def update_task_comment(
+        task_id: int,
+        comment_id: int,
+        payload: UpdateTaskCommentRequest,
+        current_user: object = Depends(get_current_user),
+        supabase_admin: Client = Depends(get_supabase_admin_client),
+        app_settings: Settings = Depends(get_settings),
+    ) -> MessageResponse:
+        user_id = getattr(current_user, "id", None)
+        if not user_id:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Session expired. Please sign in again.",
+            )
+
+        task = get_task_by_id(supabase_admin, task_id)
+        project_id = int(task["project_id"])
+        project = get_project_by_id(supabase_admin, project_id)
+        ensure_project_is_active(project)
+        comment = get_task_comment_by_id(supabase_admin, comment_id)
+        if not comment or int(comment.get("task_id") or 0) != task_id:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Comment not found.",
+            )
+        if comment.get("deleted_at"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Deleted comments cannot be edited.",
+            )
+        if str(comment.get("commented_by") or "") != str(user_id):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only the commenter can edit this comment.",
+            )
+
+        updated_at = datetime.now(timezone.utc).isoformat()
+        supabase_admin.table(TASK_COMMENTS_TABLE).update(
+            {
+                "comment_text": payload.comment_text.strip(),
+                "deliverable_url": normalize_optional_text(payload.deliverable_url),
+                "updated_at": updated_at,
+            }
+        ).eq("id", comment_id).execute()
+        insert_task_access_log(
+            supabase_admin,
+            task_id=task_id,
+            project_id=project_id,
+            actor_user_id=str(user_id),
+            event_type="TASK_COMMENT_UPDATED",
+            previous_status=task.get("status"),
+            new_status=task.get("status"),
+            previous_assignee_id=(
+                str(task.get("assigned_to")) if task.get("assigned_to") else None
+            ),
+            new_assignee_id=(
+                str(task.get("assigned_to")) if task.get("assigned_to") else None
+            ),
+            event_note="Comment updated.",
+        )
+        task_name = normalize_optional_text(task.get("task_title")) or f"Task #{task_id}"
+        active_users = get_active_ref_users(supabase_admin, app_settings)
+        mentioned_user_ids = extract_mentioned_user_ids(
+            payload.comment_text,
+            active_users,
+            app_settings,
+        )
+        notify_user_ids(
+            supabase_admin,
+            app_settings,
+            [str(value) for value in mentioned_user_ids],
+            f"{get_actor_display_name(supabase_admin, app_settings, user_id)} mentioned you",
+            f'You were mentioned in "{task_name}".',
+            "TASK",
+            task_id,
+            target_url=get_task_target_url(task_id),
+            exclude_user_ids={str(user_id)},
+        )
+        invalidate_task_cache(task_id, project_id)
+        return MessageResponse(detail="Comment updated successfully.")
+
+    @app.delete(
+        "/tasks/{task_id}/comments/{comment_id}",
+        response_model=MessageResponse,
+    )
+    def delete_task_comment(
+        task_id: int,
+        comment_id: int,
+        current_user: object = Depends(get_current_user),
+        supabase_admin: Client = Depends(get_supabase_admin_client),
+    ) -> MessageResponse:
+        user_id = getattr(current_user, "id", None)
+        if not user_id:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Session expired. Please sign in again.",
+            )
+
+        task = get_task_by_id(supabase_admin, task_id)
+        project_id = int(task["project_id"])
+        project = get_project_by_id(supabase_admin, project_id)
+        ensure_project_is_active(project)
+        comment = get_task_comment_by_id(supabase_admin, comment_id)
+        if not comment or int(comment.get("task_id") or 0) != task_id:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Comment not found.",
+            )
+        if str(comment.get("commented_by") or "") != str(user_id):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only the commenter can delete this comment.",
+            )
+
+        deleted_at = datetime.now(timezone.utc).isoformat()
+        supabase_admin.table(TASK_COMMENTS_TABLE).update(
+            {"deleted_at": deleted_at, "deleted_by": str(user_id)}
+        ).eq("id", comment_id).execute()
+        insert_task_access_log(
+            supabase_admin,
+            task_id=task_id,
+            project_id=project_id,
+            actor_user_id=str(user_id),
+            event_type="TASK_COMMENT_DELETED",
+            previous_status=task.get("status"),
+            new_status=task.get("status"),
+            previous_assignee_id=(
+                str(task.get("assigned_to")) if task.get("assigned_to") else None
+            ),
+            new_assignee_id=(
+                str(task.get("assigned_to")) if task.get("assigned_to") else None
+            ),
+            event_note="Comment deleted.",
+        )
+        invalidate_task_cache(task_id, project_id)
+        return MessageResponse(detail="Comment deleted successfully.")
+
     @app.post("/tasks/{task_id}/work-logs", response_model=MessageResponse)
     def create_task_work_log(
         task_id: int,
@@ -3092,6 +3613,7 @@ def create_app() -> FastAPI:
         task = get_task_by_id(supabase_admin, task_id)
         project_id = int(task["project_id"])
         project = get_project_by_id(supabase_admin, project_id)
+        ensure_project_is_active(project)
 
         if str(task.get("assigned_to") or "") != str(user_id):
             raise HTTPException(
@@ -3099,10 +3621,17 @@ def create_app() -> FastAPI:
                 detail="Only the task assignee can log work on this task.",
             )
 
-        if str(task.get("status") or "").upper() != TASK_STATUS_IN_PROGRESS:
+        task_status = str(task.get("status") or "").upper()
+        if task_status not in {
+            TASK_STATUS_IN_PROGRESS,
+            TASK_STATUS_CLOSE_REQUESTED,
+        }:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Work can only be logged while the task is in progress.",
+                detail=(
+                    "Work can only be logged while the task is in progress "
+                    "or close review."
+                ),
             )
 
         parsed_work_date = (
@@ -3115,6 +3644,24 @@ def create_app() -> FastAPI:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Work date cannot be in the future.",
             )
+        if task_status == TASK_STATUS_CLOSE_REQUESTED:
+            close_requested_at = parse_event_datetime(task.get("close_requested_at"))
+            if not close_requested_at:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=(
+                        "Work cannot be logged after close review because the "
+                        "close request date is missing."
+                    ),
+                )
+            if parsed_work_date > close_requested_at.date():
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=(
+                        "After a close request, work can only be logged for dates "
+                        "on or before the close request date."
+                    ),
+                )
         work_date = parsed_work_date.isoformat()
 
         supabase_admin.table(TASK_WORK_LOGS_TABLE).insert(
@@ -3166,6 +3713,22 @@ def create_app() -> FastAPI:
             response,
         )
         return response
+
+    @app.post("/tasks/reminders/due-soon", response_model=MessageResponse)
+    def send_due_soon_task_reminders(
+        authorization: str | None = Header(default=None),
+        x_scheduler_secret: str | None = Header(default=None),
+        supabase_admin: Client = Depends(get_supabase_admin_client),
+        app_settings: Settings = Depends(get_settings),
+    ) -> MessageResponse:
+        authorize_admin_or_scheduler(
+            authorization,
+            x_scheduler_secret,
+            supabase_admin,
+            app_settings,
+        )
+        sent_count = send_due_soon_reminders(supabase_admin, app_settings)
+        return MessageResponse(detail=f"Due-soon reminders sent: {sent_count}.")
 
     @app.delete("/access-logs", response_model=MessageResponse)
     def delete_access_logs(
