@@ -4,47 +4,65 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <meta name="theme-color" content="#2f6f5d">
-    <title>Dino Run | Nexora</title>
+    <title>Game of the Day | Nexora</title>
     <link rel="manifest" href="/manifest.webmanifest">
     <link rel="icon" href="/icons/icon-192.png" sizes="192x192" type="image/png">
-    <link rel="stylesheet" href="/Css/styles.css?v=20260728-dino-game">
+    <link rel="stylesheet" href="/Css/styles.css?v=20260728-game-of-the-day">
   </head>
   <body class="app-body">
-    <main class="workspace-shell">
+    <main class="workspace-shell arcade-shell">
       <header class="workspace-header">
         <div>
-          <p class="eyebrow">Admin arcade</p>
-          <h1>Dino Run</h1>
+          <p class="eyebrow">Workspace arcade</p>
+          <h1>Game of the Day</h1>
         </div>
       </header>
-      <section class="workspace-panel dino-panel" aria-labelledby="dino-title">
-        <div class="dino-game-header">
+
+      <section class="workspace-panel arcade-panel" aria-labelledby="arcade-title">
+        <div class="arcade-game-header">
           <div>
-            <h2 id="dino-title">Outrun the cacti</h2>
-            <p class="meta-text">Press Space, ↑, W, or tap the game to jump.</p>
+            <p class="arcade-kicker" id="arcade-kicker">Today's game</p>
+            <h2 id="arcade-title">Loading game</h2>
+            <p class="meta-text" id="arcade-description">Preparing the arcade.</p>
           </div>
-          <div class="dino-scoreboard" aria-live="polite">
-            <span>Score <strong id="dino-score">0</strong></span>
-            <span>Best <strong id="dino-best">0</strong></span>
-          </div>
-        </div>
-        <div class="dino-stage" id="dino-stage">
-          <canvas id="dino-canvas" width="900" height="320" aria-label="Dino running game"></canvas>
-          <div class="dino-overlay" id="dino-overlay">
-            <p class="dino-overlay-title" id="dino-overlay-title">Ready to run?</p>
-            <p id="dino-overlay-copy">Jump over cacti and survive as the game speeds up.</p>
-            <button class="btn btn-primary" id="dino-start" type="button">Start game</button>
+          <div class="arcade-scoreboard" aria-live="polite">
+            <span>Score <strong id="arcade-score">0</strong></span>
+            <span>Best <strong id="arcade-best">0</strong></span>
           </div>
         </div>
-        <div class="dino-controls">
-          <button class="btn btn-primary dino-jump-button" id="dino-jump" type="button">Jump</button>
-          <button class="btn btn-secondary" id="dino-pause" type="button" disabled>Pause</button>
+
+        <div class="arcade-stage" id="arcade-stage">
+          <canvas id="arcade-canvas" width="960" height="420" aria-label="Game of the day canvas"></canvas>
+          <div class="arcade-overlay" id="arcade-overlay">
+            <p class="arcade-overlay-title" id="arcade-overlay-title">Ready?</p>
+            <p id="arcade-overlay-copy">Pick up the controls and start the run.</p>
+            <button class="btn btn-primary" id="arcade-start" type="button">Start game</button>
+          </div>
         </div>
-        <p class="dino-status" id="dino-status" role="status" aria-live="polite">Game ready.</p>
+
+        <div class="arcade-controls" aria-label="Game controls">
+          <button class="btn btn-secondary arcade-direction" id="arcade-left" type="button">Left</button>
+          <button class="btn btn-primary arcade-action" id="arcade-action" type="button">Action</button>
+          <button class="btn btn-secondary arcade-direction" id="arcade-right" type="button">Right</button>
+          <button class="btn btn-secondary" id="arcade-pause" type="button" disabled>Pause</button>
+        </div>
+        <p class="arcade-status" id="arcade-status" role="status" aria-live="polite">Game ready.</p>
+      </section>
+
+      <section class="workspace-panel arcade-catalog-panel" aria-labelledby="arcade-catalog-title">
+        <div class="section-heading-row">
+          <div>
+            <p class="eyebrow">Daily rotation</p>
+            <h2 id="arcade-catalog-title">Pick another game</h2>
+          </div>
+          <p class="meta-text" id="arcade-next-copy">A new featured game appears every day.</p>
+        </div>
+        <div class="arcade-catalog" id="arcade-catalog" aria-label="Game list"></div>
       </section>
     </main>
+
     <script src="/Js/config.js?v=20260723-user-classes"></script>
-    <script src="/Js/app.js?v=20260728-dino-game"></script>
-    <script src="/Js/dino-game.js?v=20260728-dino-game"></script>
+    <script src="/Js/app.js?v=20260728-game-of-the-day"></script>
+    <script src="/Js/dino-game.js?v=20260728-game-of-the-day"></script>
   </body>
 </html>
