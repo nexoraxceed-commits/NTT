@@ -2221,3 +2221,120 @@ a:focus-visible {
     height: 44px;
   }
 }
+
+.dino-panel {
+  overflow: hidden;
+}
+
+.dino-game-header,
+.dino-scoreboard,
+.dino-controls {
+  display: flex;
+  align-items: center;
+}
+
+.dino-game-header {
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 20px;
+}
+
+.dino-scoreboard {
+  gap: 12px;
+}
+
+.dino-scoreboard span {
+  min-width: 88px;
+  padding: 10px 14px;
+  border: 1px solid rgba(47, 111, 93, 0.2);
+  border-radius: 12px;
+  background: rgba(234, 245, 239, 0.72);
+  color: #41635a;
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.dino-scoreboard strong {
+  display: block;
+  color: #173e34;
+  font-size: 1.35rem;
+  letter-spacing: normal;
+}
+
+.dino-stage {
+  position: relative;
+  overflow: hidden;
+  border: 2px solid rgba(47, 111, 93, 0.18);
+  border-radius: 18px;
+  background: #eaf5ef;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+#dino-canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 900 / 320;
+}
+
+.dino-overlay {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  padding: 24px;
+  background: rgba(247, 251, 248, 0.82);
+  text-align: center;
+  backdrop-filter: blur(3px);
+}
+
+.dino-overlay[hidden] {
+  display: none;
+}
+
+.dino-overlay-title {
+  margin: 0 0 6px;
+  color: #173e34;
+  font-size: clamp(1.5rem, 4vw, 2.35rem);
+  font-weight: 800;
+}
+
+.dino-overlay p:not(.dino-overlay-title) {
+  margin: 0 0 20px;
+  color: #41635a;
+}
+
+.dino-controls {
+  justify-content: center;
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.dino-jump-button {
+  min-width: 150px;
+}
+
+.dino-status {
+  margin: 12px 0 0;
+  color: #587068;
+  font-size: 0.85rem;
+  text-align: center;
+}
+
+@media (max-width: 640px) {
+  .dino-game-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .dino-scoreboard {
+    width: 100%;
+  }
+
+  .dino-scoreboard span {
+    flex: 1;
+  }
+}

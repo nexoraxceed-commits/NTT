@@ -1,4 +1,4 @@
-const NEXORA_CACHE_VERSION = "nexora-push-app-v12";
+const NEXORA_CACHE_VERSION = "nexora-push-app-v13";
 const STATIC_CACHE = `${NEXORA_CACHE_VERSION}:static`;
 const PAGE_CACHE = `${NEXORA_CACHE_VERSION}:pages`;
 
@@ -27,6 +27,7 @@ const PAGE_ASSETS = [
   "/projects",
   "/tasks",
   "/notifications",
+  "/dino-game",
   "/create-project",
   "/edit-project",
   "/create-task",

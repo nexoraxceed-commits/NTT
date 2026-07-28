@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#2f6f5d">
+    <title>Dino Run | Nexora</title>
+    <link rel="manifest" href="/manifest.webmanifest">
+    <link rel="icon" href="/icons/icon-192.png" sizes="192x192" type="image/png">
+    <link rel="stylesheet" href="/Css/styles.css?v=20260728-dino-game">
+  </head>
+  <body class="app-body">
+    <main class="workspace-shell">
+      <header class="workspace-header">
+        <div>
+          <p class="eyebrow">Admin arcade</p>
+          <h1>Dino Run</h1>
+        </div>
+      </header>
+      <section class="workspace-panel dino-panel" aria-labelledby="dino-title">
+        <div class="dino-game-header">
+          <div>
+            <h2 id="dino-title">Outrun the cacti</h2>
+            <p class="meta-text">Press Space, ↑, W, or tap the game to jump.</p>
+          </div>
+          <div class="dino-scoreboard" aria-live="polite">
+            <span>Score <strong id="dino-score">0</strong></span>
+            <span>Best <strong id="dino-best">0</strong></span>
+          </div>
+        </div>
+        <div class="dino-stage" id="dino-stage">
+          <canvas id="dino-canvas" width="900" height="320" aria-label="Dino running game"></canvas>
+          <div class="dino-overlay" id="dino-overlay">
+            <p class="dino-overlay-title" id="dino-overlay-title">Ready to run?</p>
+            <p id="dino-overlay-copy">Jump over cacti and survive as the game speeds up.</p>
+            <button class="btn btn-primary" id="dino-start" type="button">Start game</button>
+          </div>
+        </div>
+        <div class="dino-controls">
+          <button class="btn btn-primary dino-jump-button" id="dino-jump" type="button">Jump</button>
+          <button class="btn btn-secondary" id="dino-pause" type="button" disabled>Pause</button>
+        </div>
+        <p class="dino-status" id="dino-status" role="status" aria-live="polite">Game ready.</p>
+      </section>
+    </main>
+    <script src="/Js/config.js?v=20260723-user-classes"></script>
+    <script src="/Js/app.js?v=20260728-dino-game"></script>
+    <script src="/Js/dino-game.js?v=20260728-dino-game"></script>
+  </body>
+</html>

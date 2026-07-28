@@ -58,6 +58,9 @@ const dashboardPages = new Set([
   "/users-admin",
   "/users-admin.html",
   "/Pages/users-admin.html",
+  "/dino-game",
+  "/dino-game.html",
+  "/Pages/dino-game.html",
 ]);
 
 function normalizePath(pathname) {
@@ -173,6 +176,22 @@ function applyRoleVisibility() {
     "/create-task.html",
     "/Pages/create-task.html",
   ]);
+  const adminOnlyPaths = new Set([
+    "/users-admin",
+    "/users-admin.html",
+    "/Pages/users-admin.html",
+    "/dino-game",
+    "/dino-game.html",
+    "/Pages/dino-game.html",
+  ]);
+  if (
+    userClass &&
+    !isAdmin &&
+    adminOnlyPaths.has(normalizePath(window.location.pathname))
+  ) {
+    window.location.replace("/post-login");
+    return;
+  }
   if (
     userClass &&
     !canManageWork &&
@@ -1612,6 +1631,9 @@ function setupWorkspaceNavigation() {
     if (navPath === "/users-admin") {
       return "users";
     }
+    if (navPath === "/dino-game") {
+      return "game";
+    }
     if (["/projects", "/project", "/create-project", "/edit-project"].includes(navPath)) {
       return "projects";
     }
@@ -1629,6 +1651,8 @@ function setupWorkspaceNavigation() {
       '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.1 7.9 4.7 6.5 3.3 7.9l2.8 2.8 4.8-4.8-1.4-1.4-3.4 3.4ZM13 7h8v2h-8V7Zm-6.9 8.9-1.4-1.4-1.4 1.4 2.8 2.8 4.8-4.8-1.4-1.4-3.4 3.4ZM13 15h8v2h-8v-2Z"/></svg>',
     users:
       '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm6.5-1a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM2 20a7 7 0 0 1 14 0H2Zm14.5-6c3.04 0 5.5 2.24 5.5 5v1h-4a9 9 0 0 0-2.17-5.86c.22-.09.44-.14.67-.14Z"/></svg>',
+    game:
+      '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 6h10a5 5 0 0 1 4.78 6.48l-1.35 4.37A3 3 0 0 1 15.2 18l-1.1-1.47A1.34 1.34 0 0 0 13.03 16h-2.06c-.42 0-.82.2-1.07.53L8.8 18a3 3 0 0 1-5.23-1.15l-1.35-4.37A5 5 0 0 1 7 6Zm-1 4v2H4v2h2v2h2v-2h2v-2H8v-2H6Zm10.5 1a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3Z"/></svg>',
     notifications:
       '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 22a2.4 2.4 0 0 0 2.3-1.7H9.7A2.4 2.4 0 0 0 12 22Zm7-6.2V11a7 7 0 0 0-5-6.7V3a2 2 0 0 0-4 0v1.3A7 7 0 0 0 5 11v4.8L3.5 18v1h17v-1L19 15.8ZM7 17l.9-1.3V11a4.1 4.1 0 0 1 8.2 0v4.7L17 17H7Z"/></svg>',
     logout:
@@ -1641,6 +1665,7 @@ function setupWorkspaceNavigation() {
   ];
   if (String(getSession()?.userClass || "").toUpperCase() === "ADMIN") {
     links.push({ href: "/users-admin", label: "Users", key: "users" });
+    links.push({ href: "/dino-game", label: "Dino Run", key: "game" });
   }
   const nav = document.createElement("nav");
   nav.className = "workspace-nav";
