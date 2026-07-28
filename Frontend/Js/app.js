@@ -180,9 +180,6 @@ const adminOnlyPaths = new Set([
   "/users-admin",
   "/users-admin.html",
   "/Pages/users-admin.html",
-  "/dino-game",
-  "/dino-game.html",
-  "/Pages/dino-game.html",
 ]);
   if (
     userClass &&
@@ -1676,10 +1673,10 @@ function setupWorkspaceNavigation() {
     { href: "/post-login", label: "Dashboard", key: "dashboard" },
     { href: "/projects", label: "Projects", key: "projects" },
     { href: "/tasks", label: "Tasks", key: "tasks" },
+    { href: "/dino-game", label: "Game of the Day", key: "game" },
   ];
   if (String(getSession()?.userClass || "").toUpperCase() === "ADMIN") {
     links.push({ href: "/users-admin", label: "Users", key: "users" });
-    links.push({ href: "/dino-game", label: "Game of the Day", key: "game" });
   }
   const nav = document.createElement("nav");
   nav.className = "workspace-nav";
@@ -2621,7 +2618,7 @@ function setupDashboardProjects() {
     metricMap.set(label, (metricMap.get(label) || 0) + amount);
   }
 
-  function isInCurrentWeek(dateValue) {
+  function isInCurrentMonth(dateValue) {
     if (!dateValue) {
       return false;
     }
@@ -2630,17 +2627,8 @@ function setupDashboardProjects() {
     if (!year || !month || !day) {
       return false;
     }
-    const date = Date.UTC(year, month - 1, day);
     const now = new Date();
-    const today = Date.UTC(
-      now.getUTCFullYear(),
-      now.getUTCMonth(),
-      now.getUTCDate()
-    );
-    const mondayOffset = (new Date(today).getUTCDay() + 6) % 7;
-    const weekStart = today - mondayOffset * 24 * 60 * 60 * 1000;
-    const weekEnd = weekStart + 7 * 24 * 60 * 60 * 1000;
-    return date >= weekStart && date < weekEnd;
+    return year === now.getFullYear() && month === now.getMonth() + 1;
   }
 
   function appendBarRow(container, label, value, maxValue, suffix = "") {
@@ -2685,18 +2673,18 @@ function setupDashboardProjects() {
     });
     const maxWorkload = Math.max(...workload.values(), 1);
 
-    const weeklyHours = new Map();
+    const monthlyHours = new Map();
     tasks.forEach((task) => {
       (task.work_logs || []).forEach((workLog) => {
-        if (!isInCurrentWeek(workLog.work_date)) {
+        if (!isInCurrentMonth(workLog.work_date)) {
           return;
         }
         const loggedBy =
           workLog.logged_by_name || workLog.logged_by_email || "Unknown";
-        incrementMetric(weeklyHours, loggedBy, Number(workLog.hours || 0));
+        incrementMetric(monthlyHours, loggedBy, Number(workLog.hours || 0));
       });
     });
-    const maxWeeklyHours = Math.max(...weeklyHours.values(), 1);
+    const maxMonthlyHours = Math.max(...monthlyHours.values(), 1);
 
     analyticsElement.innerHTML = "";
     [
@@ -2753,33 +2741,36 @@ function setupDashboardProjects() {
     workloadCard.append(title, bars);
     analyticsElement.append(workloadCard);
 
-    const weeklyHoursCard = document.createElement("article");
-    weeklyHoursCard.className = "analytics-card analytics-chart-card";
-    const weeklyHoursTitle = document.createElement("p");
-    weeklyHoursTitle.className = "chart-title";
-    weeklyHoursTitle.textContent = "Work log by assignee";
-    const weeklyHoursBars = document.createElement("div");
-    weeklyHoursBars.className = "bar-list";
-    const weeklyHourEntries = Array.from(weeklyHours.entries()).sort(
+    const monthlyHoursCard = document.createElement("article");
+    monthlyHoursCard.className = "analytics-card analytics-chart-card";
+    const monthlyHoursTitle = document.createElement("p");
+    monthlyHoursTitle.className = "chart-title";
+    monthlyHoursTitle.textContent = "Work log info";
+    const monthlyHoursSubtitle = document.createElement("p");
+    monthlyHoursSubtitle.className = "chart-subtitle";
+    monthlyHoursSubtitle.textContent = "Hours logged from the 1st through the last day of this month.";
+    const monthlyHoursBars = document.createElement("div");
+    monthlyHoursBars.className = "bar-list";
+    const monthlyHourEntries = Array.from(monthlyHours.entries()).sort(
       (a, b) => b[1] - a[1]
     );
-    if (!weeklyHourEntries.length) {
+    if (!monthlyHourEntries.length) {
       const emptyState = document.createElement("span");
       emptyState.className = "empty-state compact";
-      emptyState.textContent = "No work hours logged this week.";
-      weeklyHoursBars.append(emptyState);
+      emptyState.textContent = "No work hours logged this month.";
+      monthlyHoursBars.append(emptyState);
     }
-    weeklyHourEntries.slice(0, 8).forEach(([name, hours]) => {
+    monthlyHourEntries.forEach(([name, hours]) => {
       appendBarRow(
-        weeklyHoursBars,
+        monthlyHoursBars,
         name,
         Number(hours.toFixed(2)),
-        maxWeeklyHours,
+        maxMonthlyHours,
         "h"
       );
     });
-    weeklyHoursCard.append(weeklyHoursTitle, weeklyHoursBars);
-    analyticsElement.append(weeklyHoursCard);
+    monthlyHoursCard.append(monthlyHoursTitle, monthlyHoursSubtitle, monthlyHoursBars);
+    analyticsElement.append(monthlyHoursCard);
   }
 
   function filterProjectsForTable(projects, activeFilters = {}) {

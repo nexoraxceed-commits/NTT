@@ -7,36 +7,27 @@
     <title>Game of the Day | Nexora</title>
     <link rel="manifest" href="/manifest.webmanifest">
     <link rel="icon" href="/icons/icon-192.png" sizes="192x192" type="image/png">
-    <link rel="stylesheet" href="/Css/styles.css?v=20260728-stable-arcade">
+    <link rel="stylesheet" href="/Css/styles.css?v=20260728-arcade-layout">
   </head>
   <body class="app-body">
     <main class="workspace-shell arcade-shell">
-      <header class="workspace-header">
+      <header class="workspace-header arcade-header">
         <div>
           <p class="eyebrow">Workspace arcade</p>
-          <h1>Game of the Day</h1>
+          <h1>Arcade</h1>
         </div>
       </header>
 
       <section class="workspace-panel arcade-panel" aria-labelledby="arcade-title">
-        <div class="arcade-game-header">
-          <div>
-            <p class="arcade-kicker" id="arcade-kicker">Today's game</p>
-            <h2 id="arcade-title">Loading game</h2>
-            <p class="meta-text" id="arcade-description">Preparing today's game.</p>
-          </div>
-          <div class="arcade-scoreboard" aria-live="polite">
-            <span>Score <strong id="arcade-score">0</strong></span>
-            <span>Best <strong id="arcade-best">0</strong></span>
-          </div>
+        <div class="arcade-game-summary">
+          <p class="arcade-kicker" id="arcade-kicker">Today's game</p>
+          <h2 id="arcade-title">Loading game</h2>
+          <p class="meta-text" id="arcade-description">Preparing today's game.</p>
         </div>
 
-        <div class="arcade-pick-strip" aria-label="Other games">
-          <div>
-            <p class="arcade-picker-label">Other games</p>
-            <p class="meta-text">Switch anytime with these quick picks.</p>
-          </div>
-          <div class="arcade-game-picker" id="arcade-game-picker"></div>
+        <div class="arcade-scoreboard" aria-live="polite">
+          <span>Score <strong id="arcade-score">0</strong></span>
+          <span>Best <strong id="arcade-best">0</strong></span>
         </div>
 
         <div class="arcade-stage" id="arcade-stage">
@@ -55,11 +46,16 @@
           <button class="btn btn-secondary" id="arcade-pause" type="button" disabled>Pause</button>
         </div>
         <p class="arcade-status" id="arcade-status" role="status" aria-live="polite">Game ready.</p>
+
+        <div class="arcade-pick-strip" aria-label="Other games">
+          <p class="arcade-picker-label">Other games</p>
+          <div class="arcade-game-picker" id="arcade-game-picker"></div>
+        </div>
       </section>
     </main>
 
     <script src="/Js/config.js?v=20260723-user-classes"></script>
-    <script src="/Js/app.js?v=20260728-stable-arcade"></script>
-    <script src="/Js/dino-game.js?v=20260728-stable-arcade"></script>
+    <script src="/Js/app.js?v=20260728-public-arcade-worklog-month"></script>
+    <script src="/Js/dino-game.js?v=20260728-arcade-layout"></script>
   </body>
 </html>

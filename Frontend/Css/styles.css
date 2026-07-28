@@ -783,6 +783,13 @@ a:focus-visible {
   font-weight: 800;
 }
 
+.chart-subtitle {
+  margin-top: 6px !important;
+  color: var(--muted) !important;
+  font-size: 0.84rem !important;
+  line-height: 1.4 !important;
+}
+
 .bar-list {
   display: grid;
   gap: 10px;
@@ -2352,7 +2359,20 @@ a:focus-visible {
 }
 
 .arcade-shell {
-  gap: 26px;
+  gap: 18px;
+}
+
+.arcade-header {
+  margin-bottom: 18px;
+}
+
+.arcade-header .workspace-title-block {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
 }
 
 .arcade-panel {
@@ -2360,6 +2380,7 @@ a:focus-visible {
 }
 
 .arcade-game-header,
+.arcade-game-summary,
 .arcade-scoreboard,
 .arcade-controls,
 .arcade-catalog,
@@ -2378,11 +2399,19 @@ a:focus-visible {
   margin-bottom: 20px;
 }
 
+.arcade-game-summary {
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 16px;
+}
+
 .arcade-game-header h2,
+.arcade-game-summary h2,
 .arcade-catalog-panel h2 {
   margin: 0;
   color: #15211d;
-  font-size: clamp(2rem, 5vw, 3.25rem);
+  font-size: clamp(1.8rem, 4vw, 2.75rem);
   letter-spacing: 0;
 }
 
@@ -2397,12 +2426,16 @@ a:focus-visible {
   text-transform: uppercase;
 }
 
+.arcade-picker-label {
+  flex: 0 0 auto;
+  margin-bottom: 0;
+}
+
 .arcade-pick-strip {
   align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  margin: 0 0 18px;
-  padding: 14px 16px;
+  gap: 14px;
+  margin: 20px 0 0;
+  padding: 12px 14px;
   border: 1px solid rgba(47, 111, 93, 0.14);
   border-radius: 18px;
   background: rgba(247, 251, 248, 0.72);
@@ -2414,15 +2447,21 @@ a:focus-visible {
 
 .arcade-game-picker {
   align-items: center;
-  justify-content: flex-end;
-  flex-wrap: wrap;
+  flex: 1 1 auto;
+  justify-content: flex-start;
+  flex-wrap: nowrap;
   gap: 10px;
+  min-width: 0;
+  overflow-x: auto;
+  padding: 2px;
+  scrollbar-width: thin;
 }
 
 .arcade-icon-card {
   align-items: center;
   gap: 10px;
   min-width: 128px;
+  flex: 0 0 auto;
   padding: 10px 12px;
   border: 1px solid rgba(47, 111, 93, 0.16);
   border-radius: 18px;
@@ -2465,10 +2504,11 @@ a:focus-visible {
 .arcade-scoreboard {
   align-items: stretch;
   gap: 12px;
+  margin-bottom: 14px;
 }
 
 .arcade-scoreboard span {
-  min-width: 96px;
+  min-width: 112px;
   padding: 12px 16px;
   border: 1px solid rgba(47, 111, 93, 0.18);
   border-radius: 16px;
@@ -2622,8 +2662,8 @@ a:focus-visible {
   }
 
   .arcade-pick-strip {
-    align-items: stretch;
-    flex-direction: column;
+    align-items: center;
+    flex-direction: row;
   }
 
   .arcade-game-picker {
@@ -2656,8 +2696,9 @@ a:focus-visible {
   }
 
   .arcade-game-header h2,
+  .arcade-game-summary h2,
   .arcade-catalog-panel h2 {
-    font-size: 2rem;
+    font-size: 1.85rem;
   }
 
   #arcade-canvas {
@@ -2666,6 +2707,6 @@ a:focus-visible {
   }
 
   .arcade-icon-card {
-    min-width: 0;
+    min-width: 112px;
   }
 }
