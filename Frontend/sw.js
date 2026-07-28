@@ -1,4 +1,4 @@
-const NEXORA_CACHE_VERSION = "nexora-push-app-v14";
+const NEXORA_CACHE_VERSION = "nexora-push-app-v15";
 const STATIC_CACHE = `${NEXORA_CACHE_VERSION}:static`;
 const PAGE_CACHE = `${NEXORA_CACHE_VERSION}:pages`;
 
@@ -6,10 +6,10 @@ const STATIC_ASSETS = [
   "/",
   "/offline.html",
   "/manifest.webmanifest",
-  "/Css/styles.css?v=20260728-game-of-the-day",
+  "/Css/styles.css?v=20260728-dino-run",
   "/Js/config.js?v=20260723-user-classes",
-  "/Js/app.js?v=20260728-game-of-the-day",
-  "/Js/dino-game.js?v=20260728-game-of-the-day",
+  "/Js/app.js?v=20260728-dino-run",
+  "/Js/dino-game.js?v=20260728-dino-run",
   "/Js/reset-password.js?v=20260723-user-classes",
   "/icons/icon-72.png?v=20260723-user-classes",
   "/icons/icon-96.png?v=20260723-user-classes",
@@ -28,7 +28,6 @@ const PAGE_ASSETS = [
   "/projects",
   "/tasks",
   "/notifications",
-  "/game-of-the-day",
   "/dino-game",
   "/create-project",
   "/edit-project",

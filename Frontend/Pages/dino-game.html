@@ -4,17 +4,17 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <meta name="theme-color" content="#2f6f5d">
-    <title>Game of the Day | Nexora</title>
+    <title>Dino Run | Nexora</title>
     <link rel="manifest" href="/manifest.webmanifest">
     <link rel="icon" href="/icons/icon-192.png" sizes="192x192" type="image/png">
-    <link rel="stylesheet" href="/Css/styles.css?v=20260728-game-of-the-day">
+    <link rel="stylesheet" href="/Css/styles.css?v=20260728-dino-run">
   </head>
   <body class="app-body">
     <main class="workspace-shell arcade-shell">
       <header class="workspace-header">
         <div>
           <p class="eyebrow">Workspace arcade</p>
-          <h1>Game of the Day</h1>
+          <h1>Dino Run</h1>
         </div>
       </header>
 
@@ -23,7 +23,7 @@
           <div>
             <p class="arcade-kicker" id="arcade-kicker">Today's game</p>
             <h2 id="arcade-title">Loading game</h2>
-            <p class="meta-text" id="arcade-description">Preparing the arcade.</p>
+            <p class="meta-text" id="arcade-description">Preparing Dino Run.</p>
           </div>
           <div class="arcade-scoreboard" aria-live="polite">
             <span>Score <strong id="arcade-score">0</strong></span>
@@ -32,7 +32,7 @@
         </div>
 
         <div class="arcade-stage" id="arcade-stage">
-          <canvas id="arcade-canvas" width="960" height="420" aria-label="Game of the day canvas"></canvas>
+          <canvas id="arcade-canvas" width="960" height="420" aria-label="Dino Run canvas"></canvas>
           <div class="arcade-overlay" id="arcade-overlay">
             <p class="arcade-overlay-title" id="arcade-overlay-title">Ready?</p>
             <p id="arcade-overlay-copy">Pick up the controls and start the run.</p>
@@ -48,21 +48,10 @@
         </div>
         <p class="arcade-status" id="arcade-status" role="status" aria-live="polite">Game ready.</p>
       </section>
-
-      <section class="workspace-panel arcade-catalog-panel" aria-labelledby="arcade-catalog-title">
-        <div class="section-heading-row">
-          <div>
-            <p class="eyebrow">Daily rotation</p>
-            <h2 id="arcade-catalog-title">Pick another game</h2>
-          </div>
-          <p class="meta-text" id="arcade-next-copy">A new featured game appears every day.</p>
-        </div>
-        <div class="arcade-catalog" id="arcade-catalog" aria-label="Game list"></div>
-      </section>
     </main>
 
     <script src="/Js/config.js?v=20260723-user-classes"></script>
-    <script src="/Js/app.js?v=20260728-game-of-the-day"></script>
-    <script src="/Js/dino-game.js?v=20260728-game-of-the-day"></script>
+    <script src="/Js/app.js?v=20260728-dino-run"></script>
+    <script src="/Js/dino-game.js?v=20260728-dino-run"></script>
   </body>
 </html>

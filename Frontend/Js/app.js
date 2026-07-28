@@ -58,8 +58,6 @@ const dashboardPages = new Set([
   "/users-admin",
   "/users-admin.html",
   "/Pages/users-admin.html",
-  "/game-of-the-day",
-  "/game-of-the-day.html",
   "/dino-game",
   "/dino-game.html",
   "/Pages/dino-game.html",
@@ -182,8 +180,6 @@ const adminOnlyPaths = new Set([
   "/users-admin",
   "/users-admin.html",
   "/Pages/users-admin.html",
-  "/game-of-the-day",
-  "/game-of-the-day.html",
   "/dino-game",
   "/dino-game.html",
   "/Pages/dino-game.html",
@@ -1649,7 +1645,7 @@ function setupWorkspaceNavigation() {
     if (navPath === "/users-admin") {
       return "users";
     }
-    if (navPath === "/dino-game" || navPath === "/game-of-the-day") {
+    if (navPath === "/dino-game") {
       return "game";
     }
     if (["/projects", "/project", "/create-project", "/edit-project"].includes(navPath)) {
@@ -1683,7 +1679,7 @@ function setupWorkspaceNavigation() {
   ];
   if (String(getSession()?.userClass || "").toUpperCase() === "ADMIN") {
     links.push({ href: "/users-admin", label: "Users", key: "users" });
-    links.push({ href: "/game-of-the-day", label: "Game of the Day", key: "game" });
+    links.push({ href: "/dino-game", label: "Dino Run", key: "game" });
   }
   const nav = document.createElement("nav");
   nav.className = "workspace-nav";
