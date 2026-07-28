@@ -4,17 +4,17 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <meta name="theme-color" content="#2f6f5d">
-    <title>Dino Run | Nexora</title>
+    <title>Game of the Day | Nexora</title>
     <link rel="manifest" href="/manifest.webmanifest">
     <link rel="icon" href="/icons/icon-192.png" sizes="192x192" type="image/png">
-    <link rel="stylesheet" href="/Css/styles.css?v=20260728-dino-run">
+    <link rel="stylesheet" href="/Css/styles.css?v=20260728-stable-arcade">
   </head>
   <body class="app-body">
     <main class="workspace-shell arcade-shell">
       <header class="workspace-header">
         <div>
           <p class="eyebrow">Workspace arcade</p>
-          <h1>Dino Run</h1>
+          <h1>Game of the Day</h1>
         </div>
       </header>
 
@@ -23,7 +23,7 @@
           <div>
             <p class="arcade-kicker" id="arcade-kicker">Today's game</p>
             <h2 id="arcade-title">Loading game</h2>
-            <p class="meta-text" id="arcade-description">Preparing Dino Run.</p>
+            <p class="meta-text" id="arcade-description">Preparing today's game.</p>
           </div>
           <div class="arcade-scoreboard" aria-live="polite">
             <span>Score <strong id="arcade-score">0</strong></span>
@@ -31,8 +31,16 @@
           </div>
         </div>
 
+        <div class="arcade-pick-strip" aria-label="Other games">
+          <div>
+            <p class="arcade-picker-label">Other games</p>
+            <p class="meta-text">Switch anytime with these quick picks.</p>
+          </div>
+          <div class="arcade-game-picker" id="arcade-game-picker"></div>
+        </div>
+
         <div class="arcade-stage" id="arcade-stage">
-          <canvas id="arcade-canvas" width="960" height="420" aria-label="Dino Run canvas"></canvas>
+          <canvas id="arcade-canvas" width="960" height="420" aria-label="Game of the Day canvas"></canvas>
           <div class="arcade-overlay" id="arcade-overlay">
             <p class="arcade-overlay-title" id="arcade-overlay-title">Ready?</p>
             <p id="arcade-overlay-copy">Pick up the controls and start the run.</p>
@@ -51,7 +59,7 @@
     </main>
 
     <script src="/Js/config.js?v=20260723-user-classes"></script>
-    <script src="/Js/app.js?v=20260728-dino-run"></script>
-    <script src="/Js/dino-game.js?v=20260728-dino-run"></script>
+    <script src="/Js/app.js?v=20260728-stable-arcade"></script>
+    <script src="/Js/dino-game.js?v=20260728-stable-arcade"></script>
   </body>
 </html>

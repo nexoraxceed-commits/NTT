@@ -2363,7 +2363,11 @@ a:focus-visible {
 .arcade-scoreboard,
 .arcade-controls,
 .arcade-catalog,
-.arcade-card {
+.arcade-card,
+.arcade-pick-strip,
+.arcade-game-picker,
+.arcade-icon-card,
+.arcade-icon-card-art {
   display: flex;
 }
 
@@ -2383,13 +2387,79 @@ a:focus-visible {
 }
 
 .arcade-kicker,
-.arcade-card-tag {
+.arcade-card-tag,
+.arcade-picker-label {
   margin: 0 0 8px;
   color: #2f6f5d;
   font-size: 0.76rem;
   font-weight: 800;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+}
+
+.arcade-pick-strip {
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 0 0 18px;
+  padding: 14px 16px;
+  border: 1px solid rgba(47, 111, 93, 0.14);
+  border-radius: 18px;
+  background: rgba(247, 251, 248, 0.72);
+}
+
+.arcade-pick-strip .meta-text {
+  margin: 0;
+}
+
+.arcade-game-picker {
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.arcade-icon-card {
+  align-items: center;
+  gap: 10px;
+  min-width: 128px;
+  padding: 10px 12px;
+  border: 1px solid rgba(47, 111, 93, 0.16);
+  border-radius: 18px;
+  background: #fff;
+  color: #2f6f5d;
+  font: inherit;
+  font-size: 0.92rem;
+  font-weight: 900;
+  text-align: left;
+  box-shadow: 0 14px 32px rgba(31, 50, 44, 0.06);
+  cursor: pointer;
+}
+
+.arcade-icon-card:hover,
+.arcade-icon-card:focus-visible {
+  border-color: rgba(103, 97, 221, 0.42);
+  background: #f7f6ff;
+  color: #6761dd;
+  outline: none;
+  transform: translateY(-1px);
+}
+
+.arcade-icon-card-art {
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  flex: 0 0 42px;
+  border-radius: 14px;
+  background: #efedff;
+  color: #6761dd;
+}
+
+.arcade-icon-card-art svg {
+  width: 24px;
+  height: 24px;
+  fill: currentColor;
 }
 
 .arcade-scoreboard {
@@ -2551,6 +2621,19 @@ a:focus-visible {
     width: 100%;
   }
 
+  .arcade-pick-strip {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .arcade-game-picker {
+    justify-content: flex-start;
+  }
+
+  .arcade-icon-card {
+    flex: 1 1 140px;
+  }
+
   .arcade-scoreboard span {
     flex: 1;
     min-width: 0;
@@ -2580,5 +2663,9 @@ a:focus-visible {
   #arcade-canvas {
     min-height: 250px;
     object-fit: cover;
+  }
+
+  .arcade-icon-card {
+    min-width: 0;
   }
 }

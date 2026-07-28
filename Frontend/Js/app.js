@@ -1679,7 +1679,7 @@ function setupWorkspaceNavigation() {
   ];
   if (String(getSession()?.userClass || "").toUpperCase() === "ADMIN") {
     links.push({ href: "/users-admin", label: "Users", key: "users" });
-    links.push({ href: "/dino-game", label: "Dino Run", key: "game" });
+    links.push({ href: "/dino-game", label: "Game of the Day", key: "game" });
   }
   const nav = document.createElement("nav");
   nav.className = "workspace-nav";
