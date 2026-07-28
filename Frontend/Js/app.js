@@ -1673,7 +1673,7 @@ function setupWorkspaceNavigation() {
     { href: "/post-login", label: "Dashboard", key: "dashboard" },
     { href: "/projects", label: "Projects", key: "projects" },
     { href: "/tasks", label: "Tasks", key: "tasks" },
-    { href: "/dino-game", label: "Game of the Day", key: "game" },
+    //{ href: "/dino-game", label: "Game of the Day", key: "game" },
   ];
   if (String(getSession()?.userClass || "").toUpperCase() === "ADMIN") {
     links.push({ href: "/users-admin", label: "Users", key: "users" });
