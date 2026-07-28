@@ -45,10 +45,10 @@
   let obstacles = [];
   let dust = [];
   const player = {
-    x: 88,
-    y: ground - 56,
-    width: 44,
-    height: 56,
+    x: 82,
+    y: ground - 70,
+    width: 74,
+    height: 70,
     vy: 0,
   };
 
@@ -106,17 +106,56 @@
   }
 
   function drawDino() {
-    ctx.fillStyle = colors.green;
-    ctx.fillRect(player.x + 8, player.y + 14, 30, 34);
-    ctx.fillRect(player.x + 28, player.y, 24, 30);
-    ctx.fillRect(player.x, player.y + 30, 18, 10);
+    const x = player.x;
+    const y = player.y;
+    const runningStep = Math.floor(score * 1.8) % 2;
 
-    const footOffset = Math.floor(score) % 2 === 0 ? 0 : 6;
-    ctx.fillRect(player.x + 11, player.y + 48, 8, 10 + footOffset);
-    ctx.fillRect(player.x + 29, player.y + 48, 8, 16 - footOffset);
+    ctx.fillStyle = "rgba(21, 33, 29, 0.12)";
+    ctx.beginPath();
+    ctx.ellipse(x + 42, ground + 4, 42, 8, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = colors.green;
+    ctx.beginPath();
+    ctx.moveTo(x + 10, y + 44);
+    ctx.lineTo(x + 2, y + 35);
+    ctx.lineTo(x + 18, y + 38);
+    ctx.quadraticCurveTo(x + 24, y + 19, x + 45, y + 22);
+    ctx.lineTo(x + 47, y + 7);
+    ctx.quadraticCurveTo(x + 48, y + 1, x + 56, y + 1);
+    ctx.lineTo(x + 70, y + 1);
+    ctx.quadraticCurveTo(x + 76, y + 1, x + 76, y + 8);
+    ctx.lineTo(x + 76, y + 20);
+    ctx.lineTo(x + 62, y + 20);
+    ctx.lineTo(x + 62, y + 27);
+    ctx.quadraticCurveTo(x + 62, y + 37, x + 50, y + 39);
+    ctx.lineTo(x + 48, y + 50);
+    ctx.lineTo(x + 36, y + 50);
+    ctx.quadraticCurveTo(x + 26, y + 51, x + 10, y + 44);
+    ctx.fill();
 
     ctx.fillStyle = "#ffffff";
-    ctx.fillRect(player.x + 42, player.y + 8, 4, 4);
+    ctx.fillRect(x + 63, y + 7, 5, 5);
+
+    ctx.fillStyle = colors.ink;
+    ctx.fillRect(x + 68, y + 19, 8, 4);
+
+    ctx.fillStyle = colors.green;
+    if (runningStep === 0) {
+      ctx.fillRect(x + 25, y + 48, 10, 20);
+      ctx.fillRect(x + 25, y + 64, 20, 7);
+      ctx.fillRect(x + 45, y + 48, 10, 15);
+      ctx.fillRect(x + 45, y + 60, 17, 7);
+    } else {
+      ctx.fillRect(x + 26, y + 48, 10, 15);
+      ctx.fillRect(x + 18, y + 60, 18, 7);
+      ctx.fillRect(x + 46, y + 48, 10, 20);
+      ctx.fillRect(x + 46, y + 64, 20, 7);
+    }
+
+    ctx.fillStyle = "rgba(255, 255, 255, 0.2)";
+    ctx.fillRect(x + 33, y + 28, 10, 4);
+    ctx.fillRect(x + 43, y + 33, 8, 4);
   }
 
   function drawObstacles() {
@@ -235,10 +274,10 @@
     updateScore(score);
 
     const hitbox = {
-      x: player.x + 8,
-      y: player.y + 8,
-      width: player.width - 14,
-      height: player.height - 10,
+      x: player.x + 13,
+      y: player.y + 6,
+      width: player.width - 16,
+      height: player.height - 6,
     };
 
     if (obstacles.some((item) => intersects(hitbox, item))) {
