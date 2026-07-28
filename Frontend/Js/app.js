@@ -178,11 +178,16 @@ function applyRoleVisibility() {
     "/create-task.html",
     "/Pages/create-task.html",
   ]);
-  const adminOnlyPaths = new Set([
-    "/users-admin",
-    "/users-admin.html",
-    "/Pages/users-admin.html",
-  ]);
+const adminOnlyPaths = new Set([
+  "/users-admin",
+  "/users-admin.html",
+  "/Pages/users-admin.html",
+  "/game-of-the-day",
+  "/game-of-the-day.html",
+  "/dino-game",
+  "/dino-game.html",
+  "/Pages/dino-game.html",
+]);
   if (
     userClass &&
     !isAdmin &&
@@ -1678,8 +1683,8 @@ function setupWorkspaceNavigation() {
   ];
   if (String(getSession()?.userClass || "").toUpperCase() === "ADMIN") {
     links.push({ href: "/users-admin", label: "Users", key: "users" });
+    links.push({ href: "/game-of-the-day", label: "Game of the Day", key: "game" });
   }
-  links.push({ href: "/game-of-the-day", label: "Game of the Day", key: "game" });
   const nav = document.createElement("nav");
   nav.className = "workspace-nav";
   nav.setAttribute("aria-label", "Workspace navigation");
