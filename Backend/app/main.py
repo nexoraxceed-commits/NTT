@@ -12,7 +12,8 @@ from supabase import Client
 
 from app.cache import backend_cache
 from app.board_report import build_board_report
-from app.config import Settings, get_settings
+from app.backlog_service import BacklogService, load_backlog_config
+from app.config import RESOURCES_ROOT, Settings, get_settings
 from app.constants import (
     ASSIGNABLE_USER_CLASSES,
     AUTH_UID_COLUMN,
@@ -898,6 +899,79 @@ def send_due_soon_reminders(
     return sent_count
 
 
+def send_backlog_reminders(
+    supabase_admin: Client,
+    app_settings: Settings,
+    current_date: date | None = None,
+) -> int:
+    reminder_date = current_date or date.today()
+    response = (
+        supabase_admin.table(TASKS_TABLE)
+        .select("id,project_id,task_title,end_date,status,assigned_to")
+        .lt("end_date", reminder_date.isoformat())
+        .neq("status", TASK_STATUS_CLOSED)
+        .execute()
+    )
+
+    sent_count = 0
+    for task in getattr(response, "data", None) or []:
+        task_id = int(task["id"])
+        project_id = int(task["project_id"])
+        try:
+            project = get_project_by_id(supabase_admin, project_id)
+            ensure_project_is_active(project)
+        except HTTPException:
+            continue
+
+        recipient_ids: set[str] = set()
+        if task.get("assigned_to"):
+            recipient_ids.add(str(task["assigned_to"]))
+        if project.get("stakeholder_id"):
+            recipient_ids.add(str(project["stakeholder_id"]))
+        recipient_ids.update(
+            project_watcher_user_ids(get_project_watchers(supabase_admin, project_id))
+        )
+
+        users_by_id = get_ref_users_by_auth_uids(
+            supabase_admin, app_settings, list(recipient_ids)
+        )
+        task_name = normalize_optional_text(task.get("task_title")) or f"Task #{task_id}"
+        end_date = normalize_optional_text(task.get("end_date")) or "an earlier date"
+        subject = f"Overdue task reminder: {task_name}"
+        body = (
+            f'"{task_name}" was due on {end_date} and is still not closed. '
+            "Please review the task in Nexora."
+        )
+        for recipient_id, ref_user in users_by_id.items():
+            recipient_email = normalize_optional_text(
+                ref_user.get(app_settings.signup_allowed_users_email_column)
+            )
+            if not insert_task_reminder_log(
+                supabase_admin,
+                task_id=task_id,
+                project_id=project_id,
+                recipient_user_id=recipient_id,
+                recipient_email=recipient_email,
+                reminder_type="OVERDUE",
+                sent_for_date=reminder_date.isoformat(),
+            ):
+                continue
+            notify_user_ids(
+                supabase_admin,
+                app_settings,
+                [recipient_id],
+                subject,
+                body,
+                "TASK",
+                task_id,
+                target_url=get_task_target_url(task_id),
+                send_email=True,
+            )
+            sent_count += 1
+
+    return sent_count
+
+
 def extract_mentioned_user_ids(
     comment_text: str,
     active_users: list[dict],
@@ -1175,6 +1249,16 @@ def build_task_summary_response(
 def create_app() -> FastAPI:
     settings = get_settings()
 
+    backlog_config = load_backlog_config(
+        RESOURCES_ROOT / "service.properties"
+    )
+    backlog_service = BacklogService(
+        backlog_config,
+        lambda current_date: send_backlog_reminders(
+            get_supabase_admin_client(), settings, current_date
+        ),
+    )
+
     app = FastAPI(
         title="NTT Backend",
         version="0.1.0",
@@ -1183,6 +1267,14 @@ def create_app() -> FastAPI:
             status.HTTP_500_INTERNAL_SERVER_ERROR: {"model": ErrorResponse},
         },
     )
+
+    @app.on_event("startup")
+    def start_backlog_service() -> None:
+        backlog_service.start()
+
+    @app.on_event("shutdown")
+    def stop_backlog_service() -> None:
+        backlog_service.stop()
 
     app.add_middleware(
         CORSMiddleware,
