@@ -940,7 +940,8 @@ def send_backlog_reminders(
         subject = f"Overdue task reminder: {task_name}"
         body = (
             f'"{task_name}" was due on {end_date} and is still not closed. '
-            "Please review the task in Nexora."
+            "Please review the task in Nexora. "
+            "This is an automated email from NTT."
         )
         for recipient_id, ref_user in users_by_id.items():
             recipient_email = normalize_optional_text(
