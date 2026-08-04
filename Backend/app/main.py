@@ -3262,7 +3262,6 @@ def create_app() -> FastAPI:
                 "TASK",
                 task_id,
                 target_url=get_task_target_url(task_id),
-                exclude_user_ids={str(user_id)},
                 send_email=True,
             )
 
