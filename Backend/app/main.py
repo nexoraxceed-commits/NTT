@@ -5,7 +5,7 @@ from datetime import date, datetime, timedelta, timezone
 from hmac import compare_digest
 
 import httpx
-from fastapi import Depends, FastAPI, Header, HTTPException, status
+from fastapi import Depends, FastAPI, Header, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from supabase import Client
@@ -38,6 +38,7 @@ from app.constants import (
     USER_CLASS_ADMIN,
     USER_CLASS_COLUMN,
     USER_CLASS_JUNIOR,
+    USER_CLASS_REDUNDANT,
     USER_CLASS_SENIOR,
 )
 from app.dependencies import CurrentUser, get_current_user, require_admin
@@ -794,6 +795,7 @@ def notify_project_roles(
 
 
 def authorize_admin_or_scheduler(
+    request: Request,
     authorization: str | None,
     scheduler_secret: str | None,
     supabase_admin: Client,
@@ -808,6 +810,7 @@ def authorize_admin_or_scheduler(
         return
 
     current_user = get_current_user(
+        request=request,
         authorization=authorization,
         supabase_admin=supabase_admin,
         app_settings=app_settings,
@@ -1676,10 +1679,14 @@ def create_app() -> FastAPI:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Enter a valid email address.",
             )
-        if user_class not in {USER_CLASS_SENIOR, USER_CLASS_JUNIOR}:
+        if user_class not in {
+            USER_CLASS_SENIOR,
+            USER_CLASS_JUNIOR,
+            USER_CLASS_REDUNDANT,
+        }:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="New users must be registered as SENIOR or JUNIOR.",
+                detail="New users must be registered as SENIOR, JUNIOR, or REDUNDANT_USER.",
             )
         if get_ref_user(supabase_admin, app_settings, normalized_email):
             raise HTTPException(
@@ -1722,10 +1729,14 @@ def create_app() -> FastAPI:
         app_settings: Settings = Depends(get_settings),
     ) -> AdminUserResponse:
         user_class = payload.user_class.strip().upper()
-        if user_class not in {USER_CLASS_SENIOR, USER_CLASS_JUNIOR}:
+        if user_class not in {
+            USER_CLASS_SENIOR,
+            USER_CLASS_JUNIOR,
+            USER_CLASS_REDUNDANT,
+        }:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Managed users can only be SENIOR or JUNIOR.",
+                detail="Managed users can only be SENIOR, JUNIOR, or REDUNDANT_USER.",
             )
         existing = get_ref_user_by_id(supabase_admin, app_settings, ref_user_id)
         if str(existing.get(USER_CLASS_COLUMN) or "").upper() == USER_CLASS_ADMIN:
@@ -1739,7 +1750,7 @@ def create_app() -> FastAPI:
                 detail="You cannot change your own user class.",
             )
         existing_auth_uid = existing.get(AUTH_UID_COLUMN)
-        if user_class == USER_CLASS_JUNIOR and existing_auth_uid:
+        if user_class in {USER_CLASS_JUNIOR, USER_CLASS_REDUNDANT} and existing_auth_uid:
             stakeholder_projects = (
                 supabase_admin.table(PROJECTS_TABLE)
                 .select("id")
@@ -1755,15 +1766,27 @@ def create_app() -> FastAPI:
                 .limit(1)
                 .execute()
             )
+            assigned_tasks = []
+            if user_class == USER_CLASS_REDUNDANT:
+                assigned_response = (
+                    supabase_admin.table(TASKS_TABLE)
+                    .select("id")
+                    .eq("assigned_to", existing_auth_uid)
+                    .neq("status", TASK_STATUS_CLOSED)
+                    .limit(1)
+                    .execute()
+                )
+                assigned_tasks = getattr(assigned_response, "data", None) or []
             if (
                 getattr(stakeholder_projects, "data", None)
                 or getattr(watched_projects, "data", None)
+                or assigned_tasks
             ):
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
                     detail=(
-                        "Remove this user as a project stakeholder or watcher "
-                        "before changing the class to JUNIOR."
+                        "Remove this user as a project stakeholder or watcher, and "
+                        "unassign any open tasks before changing to this user class."
                     ),
                 )
         updated = update_ref_user_class(
@@ -1844,13 +1867,17 @@ def create_app() -> FastAPI:
 
         if payload.user_class is not None:
             user_class = payload.user_class.strip().upper()
-            if user_class not in {USER_CLASS_SENIOR, USER_CLASS_JUNIOR}:
+            if user_class not in {
+                USER_CLASS_SENIOR,
+                USER_CLASS_JUNIOR,
+                USER_CLASS_REDUNDANT,
+            }:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="Managed users can only be SENIOR or JUNIOR.",
+                    detail="Managed users can only be SENIOR, JUNIOR, or REDUNDANT_USER.",
                 )
             existing_auth_uid = existing.get(AUTH_UID_COLUMN)
-            if user_class == USER_CLASS_JUNIOR and existing_auth_uid:
+            if user_class in {USER_CLASS_JUNIOR, USER_CLASS_REDUNDANT} and existing_auth_uid:
                 stakeholder_projects = (
                     supabase_admin.table(PROJECTS_TABLE)
                     .select("id")
@@ -1867,15 +1894,27 @@ def create_app() -> FastAPI:
                     .limit(1)
                     .execute()
                 )
+                assigned_tasks = []
+                if user_class == USER_CLASS_REDUNDANT:
+                    assigned_response = (
+                        supabase_admin.table(TASKS_TABLE)
+                        .select("id")
+                        .eq("assigned_to", existing_auth_uid)
+                        .neq("status", TASK_STATUS_CLOSED)
+                        .limit(1)
+                        .execute()
+                    )
+                    assigned_tasks = getattr(assigned_response, "data", None) or []
                 if (
                     getattr(stakeholder_projects, "data", None)
                     or getattr(watched_projects, "data", None)
+                    or assigned_tasks
                 ):
                     raise HTTPException(
                         status_code=status.HTTP_409_CONFLICT,
                         detail=(
-                            "Remove this user as a project stakeholder or watcher "
-                            "before changing the class to JUNIOR."
+                            "Remove this user as a project stakeholder or watcher, and "
+                            "unassign any open tasks before changing to this user class."
                         ),
                     )
             updates[USER_CLASS_COLUMN] = user_class
@@ -3818,12 +3857,14 @@ def create_app() -> FastAPI:
 
     @app.post("/tasks/reminders/due-soon", response_model=MessageResponse)
     def send_due_soon_task_reminders(
+        request: Request,
         authorization: str | None = Header(default=None),
         x_scheduler_secret: str | None = Header(default=None),
         supabase_admin: Client = Depends(get_supabase_admin_client),
         app_settings: Settings = Depends(get_settings),
     ) -> MessageResponse:
         authorize_admin_or_scheduler(
+            request,
             authorization,
             x_scheduler_secret,
             supabase_admin,

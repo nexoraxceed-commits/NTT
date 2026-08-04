@@ -167,7 +167,9 @@ function clearSession() {
 function applyRoleVisibility() {
   const userClass = String(getSession()?.userClass || "").toUpperCase();
   const isAdmin = userClass === "ADMIN";
+  const isReadOnly = userClass === "REDUNDANT_USER";
   const canManageWork = ["ADMIN", "SENIOR"].includes(userClass);
+  document.body.classList.toggle("read-only-user", isReadOnly);
   const managementOnlyPaths = new Set([
     "/create-project",
     "/create-project.html",
@@ -456,6 +458,9 @@ function urlBase64ToUint8Array(base64String) {
 }
 
 async function enablePushNotifications(statusElement = null) {
+  if (String(getSession()?.userClass || "").toUpperCase() === "REDUNDANT_USER") {
+    return false;
+  }
   if (!isPushNotificationSupported()) {
     throw new Error("Push notifications are not supported in this browser.");
   }
@@ -2034,10 +2039,15 @@ function setupLegacyAdminUsersPage() {
       } else {
         const select = document.createElement("select");
         select.setAttribute("aria-label", `User class for ${user.email}`);
-        ["SENIOR", "JUNIOR"].forEach((userClass) => {
+        ["SENIOR", "JUNIOR", "REDUNDANT_USER"].forEach((userClass) => {
           const option = document.createElement("option");
           option.value = userClass;
-          option.textContent = userClass === "SENIOR" ? "Senior" : "Junior";
+          option.textContent =
+            userClass === "SENIOR"
+              ? "Senior"
+              : userClass === "JUNIOR"
+                ? "Junior"
+                : "Redundant user (view only)";
           option.selected = user.user_class === userClass;
           select.append(option);
         });
@@ -2190,10 +2200,15 @@ function setupAdminUsersPage() {
       const classCell = document.createElement("td");
       const classSelect = document.createElement("select");
       classSelect.setAttribute("aria-label", `User class for ${user.email}`);
-      ["SENIOR", "JUNIOR"].forEach((userClass) => {
+      ["SENIOR", "JUNIOR", "REDUNDANT_USER"].forEach((userClass) => {
         const option = document.createElement("option");
         option.value = userClass;
-        option.textContent = userClass === "SENIOR" ? "Senior" : "Junior";
+        option.textContent =
+          userClass === "SENIOR"
+            ? "Senior"
+            : userClass === "JUNIOR"
+              ? "Junior"
+              : "Redundant user (view only)";
         option.selected = user.user_class === userClass;
         classSelect.append(option);
       });

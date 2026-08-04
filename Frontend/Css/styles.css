@@ -1078,6 +1078,14 @@ a:focus-visible {
   display: none !important;
 }
 
+.read-only-user .workspace-shell form,
+.read-only-user .workflow-actions,
+.read-only-user .task-edit-details,
+.read-only-user .comment-actions,
+.read-only-user #notifications-read-all {
+  display: none !important;
+}
+
 .checkbox-list {
   display: grid;
   max-height: 180px;

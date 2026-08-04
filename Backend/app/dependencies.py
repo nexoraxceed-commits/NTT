@@ -1,11 +1,13 @@
 from dataclasses import dataclass
 
-from fastapi import Depends, Header, HTTPException, status
+from fastapi import Depends, Header, HTTPException, Request, status
 from supabase import Client
 
+from app.access_policy import is_request_allowed_for_user_class
 from app.config import Settings, get_settings
 from app.constants import (
     AUTH_UID_COLUMN,
+    ACTIVE_USER_CLASSES,
     NORMAL_STATUS,
     USER_CLASS_ADMIN,
     USER_CLASS_COLUMN,
@@ -41,6 +43,7 @@ def get_bearer_token(authorization: str | None) -> str:
 
 
 def get_current_user(
+    request: Request,
     authorization: str | None = Header(default=None),
     supabase_admin: Client = Depends(get_supabase_admin_client),
     app_settings: Settings = Depends(get_settings),
@@ -75,20 +78,34 @@ def get_current_user(
         or current_status != NORMAL_STATUS
         or not linked_auth_uid
         or linked_auth_uid != user_id
-        or user_class not in {"ADMIN", "SENIOR", "JUNIOR"}
+        or user_class not in ACTIVE_USER_CLASSES
     ):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="This account is not active or is not linked correctly.",
         )
 
-    return CurrentUser(
+    current_user = CurrentUser(
         id=user_id,
         email=email,
         user_class=user_class,
         status=current_status,
         user_name=ref_user.get("user_name"),
     )
+    enforce_read_only_access(current_user, request.method, request.url.path)
+    return current_user
+
+
+def enforce_read_only_access(
+    current_user: CurrentUser,
+    method: str,
+    path: str,
+) -> None:
+    if not is_request_allowed_for_user_class(current_user.user_class, method, path):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="REDUNDANT_USER accounts have view-only access.",
+        )
 
 
 def require_admin(current_user: CurrentUser = Depends(get_current_user)) -> CurrentUser:

@@ -62,6 +62,8 @@ the user-management code.
 - `SENIOR` can manage projects and tasks and can be assigned work.
 - `JUNIOR` can only participate as a task assignee. Junior users cannot be
   selected as project stakeholders or watchers.
+- `REDUNDANT_USER` has view-only access. These users cannot be assigned as a
+  stakeholder, watcher, or task assignee and cannot perform write operations.
 
 An administrator-created user starts with `status = 'PENDING'` and
 `auth_uid = null`. The first successful login updates both fields together to
