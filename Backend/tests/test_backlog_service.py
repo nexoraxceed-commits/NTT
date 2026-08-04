@@ -22,6 +22,7 @@ class BacklogServiceTests(unittest.TestCase):
         self.assertEqual(config.service_name, "backlog")
         self.assertEqual(config.run_time.strftime("%H:%M"), "23:59")
         self.assertEqual(config.weekdays, frozenset({0, 2}))
+        self.assertEqual(config.timezone_name, "Asia/Kolkata")
 
     def test_next_run_skips_unconfigured_days(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -34,7 +35,8 @@ class BacklogServiceTests(unittest.TestCase):
 
         result = next_run_at(config, datetime(2026, 8, 3, 23, 59))
 
-        self.assertEqual(result, datetime(2026, 8, 5, 23, 59))
+        self.assertEqual(result.replace(tzinfo=None), datetime(2026, 8, 5, 23, 59))
+        self.assertEqual(result.utcoffset().total_seconds(), 5.5 * 60 * 60)
 
     def test_rejects_non_24_hour_time(self):
         with tempfile.TemporaryDirectory() as directory:

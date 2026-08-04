@@ -80,6 +80,7 @@ from app.schemas import (
     AdminUpdateUserRequest,
     AdminUpdateUserClassRequest,
     AdminUserResponse,
+    BatchCatalogResponse,
     CreateTaskCommentRequest,
     CreateTaskWorkLogRequest,
     CreateProjectRequest,
@@ -100,6 +101,7 @@ from app.schemas import (
     PushSubscriptionRequest,
     RefreshSessionRequest,
     SignupRequest,
+    RunBatchRequest,
     TaskAccessLogResponse,
     TaskCommentResponse,
     TaskDetailResponse,
@@ -903,6 +905,7 @@ def send_backlog_reminders(
     supabase_admin: Client,
     app_settings: Settings,
     current_date: date | None = None,
+    user_classes: set[str] | None = None,
 ) -> int:
     reminder_date = current_date or date.today()
     response = (
@@ -935,6 +938,12 @@ def send_backlog_reminders(
         users_by_id = get_ref_users_by_auth_uids(
             supabase_admin, app_settings, list(recipient_ids)
         )
+        if user_classes is not None:
+            users_by_id = {
+                user_id: user
+                for user_id, user in users_by_id.items()
+                if str(user.get(USER_CLASS_COLUMN) or "").upper() in user_classes
+            }
         task_name = normalize_optional_text(task.get("task_title")) or f"Task #{task_id}"
         end_date = normalize_optional_text(task.get("end_date")) or "an earlier date"
         subject = f"Overdue task reminder: {task_name}"
@@ -3822,6 +3831,47 @@ def create_app() -> FastAPI:
         )
         sent_count = send_due_soon_reminders(supabase_admin, app_settings)
         return MessageResponse(detail=f"Due-soon reminders sent: {sent_count}.")
+
+    @app.get("/admin/batches", response_model=BatchCatalogResponse)
+    def list_batches(
+        _current_user: CurrentUser = Depends(require_admin),
+    ) -> BatchCatalogResponse:
+        return BatchCatalogResponse(batches=["backlog"])
+
+    @app.post("/admin/batches/run", response_model=MessageResponse)
+    def run_batch(
+        payload: RunBatchRequest,
+        _current_user: CurrentUser = Depends(require_admin),
+        supabase_admin: Client = Depends(get_supabase_admin_client),
+        app_settings: Settings = Depends(get_settings),
+    ) -> MessageResponse:
+        batch_name = payload.batch_name.strip().lower()
+        if batch_name != "backlog":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Unsupported batch name.",
+            )
+
+        selected_classes = {
+            user_class.strip().upper() for user_class in payload.user_classes
+        }
+        allowed_classes = {USER_CLASS_ADMIN, USER_CLASS_SENIOR, USER_CLASS_JUNIOR}
+        if not selected_classes or not selected_classes.issubset(allowed_classes):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Select one or more valid user classes.",
+            )
+
+        current_date = datetime.now(backlog_config.timezone).date()
+        sent_count = send_backlog_reminders(
+            supabase_admin,
+            app_settings,
+            current_date,
+            selected_classes,
+        )
+        return MessageResponse(
+            detail=f"Backlog batch completed. Reminder emails sent: {sent_count}."
+        )
 
     @app.delete("/access-logs", response_model=MessageResponse)
     def delete_access_logs(

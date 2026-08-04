@@ -1,9 +1,10 @@
 import logging
 from dataclasses import dataclass
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, time, timedelta, timezone, tzinfo
 from pathlib import Path
 from threading import Event, Thread
 from typing import Callable
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 
 logger = logging.getLogger(__name__)
@@ -24,6 +25,8 @@ class BacklogConfig:
     service_name: str
     run_time: time
     weekdays: frozenset[int]
+    timezone: tzinfo
+    timezone_name: str
 
 
 def load_backlog_config(path: Path) -> BacklogConfig:
@@ -59,17 +62,34 @@ def load_backlog_config(path: Path) -> BacklogConfig:
     if not day_names:
         raise RuntimeError("backlog.days must contain at least one weekday.")
 
+    timezone_name = properties.get("backlog.timezone", "Asia/Kolkata")
+    try:
+        service_timezone = ZoneInfo(timezone_name)
+    except ZoneInfoNotFoundError as exc:
+        if timezone_name in {"Asia/Kolkata", "Asia/Calcutta"}:
+            service_timezone = timezone(timedelta(hours=5, minutes=30), "Asia/Kolkata")
+        else:
+            raise RuntimeError(
+                f"Unsupported backlog.timezone value: {timezone_name}."
+            ) from exc
+
     return BacklogConfig(
         service_name=service_name,
         run_time=run_time,
         weekdays=frozenset(WEEKDAYS[name] for name in day_names),
+        timezone=service_timezone,
+        timezone_name=timezone_name,
     )
 
 
 def next_run_at(config: BacklogConfig, now: datetime) -> datetime:
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=config.timezone)
+    else:
+        now = now.astimezone(config.timezone)
     for days_ahead in range(8):
         candidate_date = now.date() + timedelta(days=days_ahead)
-        candidate = datetime.combine(candidate_date, config.run_time, now.tzinfo)
+        candidate = datetime.combine(candidate_date, config.run_time, config.timezone)
         if candidate.weekday() in config.weekdays and candidate > now:
             return candidate
     raise RuntimeError("Unable to calculate the next backlog run time.")
@@ -88,7 +108,7 @@ class BacklogService:
         self._stop_event.clear()
         self._thread = Thread(target=self._run, name="backlog-service", daemon=True)
         self._thread.start()
-        logger.info("Backlog service started; next run is %s.", next_run_at(self.config, datetime.now().astimezone()))
+        logger.info("Backlog service started; next run is %s.", next_run_at(self.config, datetime.now(self.config.timezone)))
 
     def stop(self) -> None:
         self._stop_event.set()
@@ -97,7 +117,7 @@ class BacklogService:
 
     def _run(self) -> None:
         while not self._stop_event.is_set():
-            now = datetime.now().astimezone()
+            now = datetime.now(self.config.timezone)
             scheduled_at = next_run_at(self.config, now)
             wait_seconds = max(0.0, (scheduled_at - now).total_seconds())
             if self._stop_event.wait(wait_seconds):

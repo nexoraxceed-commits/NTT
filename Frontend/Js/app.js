@@ -58,6 +58,9 @@ const dashboardPages = new Set([
   "/users-admin",
   "/users-admin.html",
   "/Pages/users-admin.html",
+  "/batches",
+  "/batches.html",
+  "/Pages/batches.html",
   "/dino-game",
   "/dino-game.html",
   "/Pages/dino-game.html",
@@ -180,6 +183,9 @@ const adminOnlyPaths = new Set([
   "/users-admin",
   "/users-admin.html",
   "/Pages/users-admin.html",
+  "/batches",
+  "/batches.html",
+  "/Pages/batches.html",
 ]);
   if (
     userClass &&
@@ -1642,6 +1648,9 @@ function setupWorkspaceNavigation() {
     if (navPath === "/users-admin") {
       return "users";
     }
+    if (navPath === "/batches") {
+      return "batches";
+    }
     if (navPath === "/dino-game") {
       return "game";
     }
@@ -1662,6 +1671,8 @@ function setupWorkspaceNavigation() {
       '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.1 7.9 4.7 6.5 3.3 7.9l2.8 2.8 4.8-4.8-1.4-1.4-3.4 3.4ZM13 7h8v2h-8V7Zm-6.9 8.9-1.4-1.4-1.4 1.4 2.8 2.8 4.8-4.8-1.4-1.4-3.4 3.4ZM13 15h8v2h-8v-2Z"/></svg>',
     users:
       '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm6.5-1a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM2 20a7 7 0 0 1 14 0H2Zm14.5-6c3.04 0 5.5 2.24 5.5 5v1h-4a9 9 0 0 0-2.17-5.86c.22-.09.44-.14.67-.14Z"/></svg>',
+    batches:
+      '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16v5H4V4Zm2 2v1h12V6H6Zm-2 5h16v9H4v-9Zm2 2v5h12v-5H6Zm2 1h3v2H8v-2Z"/></svg>',
     game:
       '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 6h10a5 5 0 0 1 4.78 6.48l-1.35 4.37A3 3 0 0 1 15.2 18l-1.1-1.47A1.34 1.34 0 0 0 13.03 16h-2.06c-.42 0-.82.2-1.07.53L8.8 18a3 3 0 0 1-5.23-1.15l-1.35-4.37A5 5 0 0 1 7 6Zm-1 4v2H4v2h2v2h2v-2h2v-2H8v-2H6Zm10.5 1a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3Z"/></svg>',
     notifications:
@@ -1677,6 +1688,7 @@ function setupWorkspaceNavigation() {
   ];
   if (String(getSession()?.userClass || "").toUpperCase() === "ADMIN") {
     links.push({ href: "/users-admin", label: "Users", key: "users" });
+    links.push({ href: "/batches", label: "Batches", key: "batches" });
   }
   const nav = document.createElement("nav");
   nav.className = "workspace-nav";
@@ -1896,6 +1908,73 @@ function setupForgotPasswordForm() {
       setMessage(messageElement, data.detail);
     } catch (error) {
       setMessage(messageElement, error.message, true);
+    }
+  });
+}
+
+function setupBatchesPage() {
+  const form = document.querySelector("#batch-run-form");
+  const batchSelect = document.querySelector("#batch_name");
+  const messageElement = document.querySelector("#batch-run-message");
+  if (!form || !batchSelect) {
+    return;
+  }
+
+  if (String(getSession()?.userClass || "").toUpperCase() !== "ADMIN") {
+    window.location.replace("/post-login");
+    return;
+  }
+
+  getAuthorizedJson("/admin/batches")
+    .then((data) => {
+      batchSelect.innerHTML = "";
+      (data.batches || []).forEach((batchName) => {
+        const option = document.createElement("option");
+        option.value = batchName;
+        option.textContent = batchName;
+        batchSelect.append(option);
+      });
+      if (!batchSelect.options.length) {
+        const option = document.createElement("option");
+        option.value = "";
+        option.textContent = "No batches available";
+        batchSelect.append(option);
+        batchSelect.disabled = true;
+      }
+    })
+    .catch((error) => {
+      batchSelect.innerHTML = '<option value="">Could not load batches</option>';
+      batchSelect.disabled = true;
+      setMessage(messageElement, error.message, true);
+    });
+
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const selectedClasses = Array.from(
+      form.querySelectorAll('input[name="user_classes"]:checked')
+    ).map((input) => input.value);
+    if (!batchSelect.value) {
+      setMessage(messageElement, "Select a batch.", true);
+      return;
+    }
+    if (!selectedClasses.length) {
+      setMessage(messageElement, "Select at least one user class.", true);
+      return;
+    }
+
+    const submitButton = form.querySelector("button[type='submit']");
+    setButtonBusy(submitButton, true);
+    setMessage(messageElement, "Running batch...");
+    try {
+      const data = await postAuthorizedJson("/admin/batches/run", {
+        batch_name: batchSelect.value,
+        user_classes: selectedClasses,
+      });
+      setMessage(messageElement, data.detail || "Batch completed.");
+    } catch (error) {
+      setMessage(messageElement, error.message, true);
+    } finally {
+      setButtonBusy(submitButton, false);
     }
   });
 }
@@ -4129,6 +4208,7 @@ applyRoleVisibility();
 setupLoginForm();
 setupSignupForm();
 setupForgotPasswordForm();
+setupBatchesPage();
 setupAdminUsersPage();
 setupCreateProjectForm();
 setupDashboardProjects();

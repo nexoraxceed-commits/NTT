@@ -225,6 +225,15 @@ class MessageResponse(BaseModel):
     detail: str
 
 
+class BatchCatalogResponse(BaseModel):
+    batches: list[str]
+
+
+class RunBatchRequest(BaseModel):
+    batch_name: str = Field(min_length=1, max_length=80)
+    user_classes: list[str] = Field(min_length=1, max_length=3)
+
+
 class PushSubscriptionKeys(BaseModel):
     p256dh: str = Field(min_length=1)
     auth: str = Field(min_length=1)

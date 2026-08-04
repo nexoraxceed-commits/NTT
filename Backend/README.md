@@ -86,7 +86,7 @@ but does not roll back the task action.
 
 The backend starts an in-process backlog scheduler with the API. Its schedule is
 configured in `Resources/service.properties`. At `backlog.time` on each day in
-`backlog.days`, it emails assignees, project stakeholders, and project watchers
+`backlog.days` using `backlog.timezone`, it emails assignees, project stakeholders, and project watchers
 for tasks whose `end_date` is before the current server-local date and whose
 status is not `CLOSED`. The reminder log prevents duplicate reminders for the
 same task, recipient, reminder type, and date.

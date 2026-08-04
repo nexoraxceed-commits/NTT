@@ -1112,6 +1112,17 @@ a:focus-visible {
   accent-color: var(--accent);
 }
 
+.batch-class-fieldset {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.batch-class-fieldset legend {
+  margin-bottom: 8px;
+  font-weight: 700;
+}
+
 .comments-section {
   margin-top: 28px;
 }
