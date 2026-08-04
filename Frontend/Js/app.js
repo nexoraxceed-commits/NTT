@@ -2678,6 +2678,24 @@ function setupDashboardProjects() {
   const projectCountElement = document.querySelector("#project-count");
   let dashboardProjects = [];
   let dashboardDetails = [];
+  const toDateInputValue = (value) => {
+    const year = value.getFullYear();
+    const month = String(value.getMonth() + 1).padStart(2, "0");
+    const day = String(value.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  };
+  const currentMonthRange = () => {
+    const currentDate = new Date();
+    return {
+      start: toDateInputValue(
+        new Date(currentDate.getFullYear(), currentDate.getMonth(), 1)
+      ),
+      end: toDateInputValue(
+        new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0)
+      ),
+    };
+  };
+  let workLogRange = currentMonthRange();
 
   if (!projectList && !taskList && !analyticsElement && !downloadButton) {
     return;
@@ -2712,17 +2730,21 @@ function setupDashboardProjects() {
     metricMap.set(label, (metricMap.get(label) || 0) + amount);
   }
 
-  function isInCurrentMonth(dateValue) {
+  function isInWorkLogRange(dateValue) {
     if (!dateValue) {
       return false;
     }
     const dateText = String(dateValue).slice(0, 10);
-    const [year, month, day] = dateText.split("-").map(Number);
-    if (!year || !month || !day) {
-      return false;
-    }
-    const now = new Date();
-    return year === now.getFullYear() && month === now.getMonth() + 1;
+    return dateText >= workLogRange.start && dateText <= workLogRange.end;
+  }
+
+  function formatWorkLogRangeDate(value) {
+    const parsed = new Date(`${value}T00:00:00`);
+    return parsed.toLocaleDateString(undefined, {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+    });
   }
 
   function appendBarRow(container, label, value, maxValue, suffix = "") {
@@ -2770,7 +2792,7 @@ function setupDashboardProjects() {
     const monthlyHours = new Map();
     tasks.forEach((task) => {
       (task.work_logs || []).forEach((workLog) => {
-        if (!isInCurrentMonth(workLog.work_date)) {
+        if (!isInWorkLogRange(workLog.work_date)) {
           return;
         }
         const loggedBy =
@@ -2840,9 +2862,45 @@ function setupDashboardProjects() {
     const monthlyHoursTitle = document.createElement("p");
     monthlyHoursTitle.className = "chart-title";
     monthlyHoursTitle.textContent = "Work log info";
+    const rangeControls = document.createElement("div");
+    rangeControls.className = "work-log-range-controls";
+    const startLabel = document.createElement("label");
+    startLabel.textContent = "From";
+    const startInput = document.createElement("input");
+    startInput.type = "date";
+    startInput.value = workLogRange.start;
+    startInput.setAttribute("aria-label", "Work log start date");
+    startLabel.append(startInput);
+    const endLabel = document.createElement("label");
+    endLabel.textContent = "To";
+    const endInput = document.createElement("input");
+    endInput.type = "date";
+    endInput.value = workLogRange.end;
+    endInput.setAttribute("aria-label", "Work log end date");
+    endLabel.append(endInput);
+    const applyRangeButton = document.createElement("button");
+    applyRangeButton.type = "button";
+    applyRangeButton.className = "btn btn-secondary btn-sm";
+    applyRangeButton.textContent = "Apply";
+    const resetRangeButton = document.createElement("button");
+    resetRangeButton.type = "button";
+    resetRangeButton.className = "btn btn-secondary btn-sm";
+    resetRangeButton.textContent = "This month";
+    rangeControls.append(
+      startLabel,
+      endLabel,
+      applyRangeButton,
+      resetRangeButton
+    );
     const monthlyHoursSubtitle = document.createElement("p");
     monthlyHoursSubtitle.className = "chart-subtitle";
-    monthlyHoursSubtitle.textContent = "Hours logged from the 1st through the last day of this month.";
+    monthlyHoursSubtitle.textContent = `Hours logged from ${formatWorkLogRangeDate(
+      workLogRange.start
+    )} through ${formatWorkLogRangeDate(workLogRange.end)}.`;
+    const rangeMessage = document.createElement("p");
+    rangeMessage.className = "form-message work-log-range-message";
+    rangeMessage.setAttribute("role", "status");
+    rangeMessage.setAttribute("aria-live", "polite");
     const monthlyHoursBars = document.createElement("div");
     monthlyHoursBars.className = "bar-list";
     const monthlyHourEntries = Array.from(monthlyHours.entries()).sort(
@@ -2851,7 +2909,7 @@ function setupDashboardProjects() {
     if (!monthlyHourEntries.length) {
       const emptyState = document.createElement("span");
       emptyState.className = "empty-state compact";
-      emptyState.textContent = "No work hours logged this month.";
+      emptyState.textContent = "No work hours logged in this date range.";
       monthlyHoursBars.append(emptyState);
     }
     monthlyHourEntries.forEach(([name, hours]) => {
@@ -2863,7 +2921,29 @@ function setupDashboardProjects() {
         "h"
       );
     });
-    monthlyHoursCard.append(monthlyHoursTitle, monthlyHoursSubtitle, monthlyHoursBars);
+    applyRangeButton.addEventListener("click", () => {
+      if (!startInput.value || !endInput.value) {
+        setMessage(rangeMessage, "Select both a start date and an end date.", true);
+        return;
+      }
+      if (startInput.value > endInput.value) {
+        setMessage(rangeMessage, "The start date must be on or before the end date.", true);
+        return;
+      }
+      workLogRange = { start: startInput.value, end: endInput.value };
+      renderAnalytics(dashboardProjects, dashboardDetails);
+    });
+    resetRangeButton.addEventListener("click", () => {
+      workLogRange = currentMonthRange();
+      renderAnalytics(dashboardProjects, dashboardDetails);
+    });
+    monthlyHoursCard.append(
+      monthlyHoursTitle,
+      rangeControls,
+      monthlyHoursSubtitle,
+      rangeMessage,
+      monthlyHoursBars
+    );
     analyticsElement.append(monthlyHoursCard);
   }
 
