@@ -125,19 +125,75 @@
 
   function drawBackground() {
     const gradient = context.createLinearGradient(0, 0, 0, height());
-    gradient.addColorStop(0, "#dff5ee");
-    gradient.addColorStop(1, "#f8fcfa");
+    gradient.addColorStop(0, "#a8dff2");
+    gradient.addColorStop(.58, "#dff4ef");
+    gradient.addColorStop(1, "#f7f3d5");
     context.fillStyle = gradient;
     context.fillRect(0, 0, width(), height());
+
+    const sunX = width() * .78;
+    const sunY = Math.max(72, height() * .16);
+    const sunGlow = context.createRadialGradient(sunX, sunY, 8, sunX, sunY, 72);
+    sunGlow.addColorStop(0, "rgba(255, 244, 174, .95)");
+    sunGlow.addColorStop(.35, "rgba(255, 225, 128, .48)");
+    sunGlow.addColorStop(1, "rgba(255, 225, 128, 0)");
+    context.fillStyle = sunGlow;
+    context.beginPath();
+    context.arc(sunX, sunY, 72, 0, Math.PI * 2);
+    context.fill();
+
     const drift = (playTime * .018) % 140;
     context.fillStyle = "rgba(255, 255, 255, .48)";
     for (let x = -100 - drift; x < width() + 100; x += 140) {
       context.beginPath();
-      context.ellipse(x, 80 + ((x + drift) % 190), 38, 17, 0, 0, Math.PI * 2);
+      const cloudY = 70 + ((x + drift + 400) % 175);
+      context.ellipse(x, cloudY, 40, 15, 0, 0, Math.PI * 2);
+      context.ellipse(x + 27, cloudY + 2, 30, 12, 0, 0, Math.PI * 2);
+      context.ellipse(x - 25, cloudY + 4, 25, 10, 0, 0, Math.PI * 2);
       context.fill();
     }
-    context.fillStyle = "rgba(47, 111, 93, .06)";
-    context.fillRect(0, height() - 12, width(), 12);
+
+    const horizon = height() * .77;
+    const farDrift = (playTime * .006) % 260;
+    context.fillStyle = "rgba(91, 139, 133, .28)";
+    context.beginPath();
+    context.moveTo(0, height());
+    context.lineTo(0, horizon);
+    for (let x = -260 - farDrift; x <= width() + 260; x += 130) {
+      context.lineTo(x + 65, horizon - 70 - ((x + 520) % 75));
+      context.lineTo(x + 130, horizon);
+    }
+    context.lineTo(width(), height());
+    context.closePath();
+    context.fill();
+
+    const hillDrift = (playTime * .012) % 220;
+    context.fillStyle = "rgba(68, 133, 101, .42)";
+    context.beginPath();
+    context.moveTo(0, height());
+    context.lineTo(0, horizon + 24);
+    for (let x = -220 - hillDrift; x <= width() + 220; x += 110) {
+      context.quadraticCurveTo(x + 55, horizon - 28, x + 110, horizon + 24);
+    }
+    context.lineTo(width(), height());
+    context.closePath();
+    context.fill();
+
+    const treeDrift = (playTime * .02) % 100;
+    for (let x = -80 - treeDrift; x < width() + 80; x += 100) {
+      const treeBase = height() - 13;
+      context.fillStyle = "rgba(63, 91, 70, .6)";
+      context.fillRect(x - 3, treeBase - 34, 6, 34);
+      context.fillStyle = "rgba(48, 112, 78, .72)";
+      context.beginPath();
+      context.arc(x, treeBase - 42, 20, 0, Math.PI * 2);
+      context.arc(x - 14, treeBase - 31, 15, 0, Math.PI * 2);
+      context.arc(x + 14, treeBase - 31, 15, 0, Math.PI * 2);
+      context.fill();
+    }
+
+    context.fillStyle = "rgba(45, 105, 68, .78)";
+    context.fillRect(0, height() - 13, width(), 13);
   }
 
   function drawBird() {
