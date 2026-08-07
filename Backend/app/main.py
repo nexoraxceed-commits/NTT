@@ -29,6 +29,8 @@ from app.constants import (
     NOTIFICATION_STATUS_UNREAD,
     PROJECT_WATCHERS_TABLE,
     PROJECTS_TABLE,
+    PROJECT_STATUS_CLOSED,
+    PROJECT_STATUS_OPEN,
     REF_USER_NAME_COLUMN,
     TASK_COMMENTS_TABLE,
     TASK_STATUS_CLOSED,
@@ -111,6 +113,7 @@ from app.schemas import (
     TaskSummaryResponse,
     TaskWorkLogResponse,
     UpdateProjectRequest,
+    UpdateProjectStatusRequest,
     UpdateTaskCommentRequest,
     UpdateTaskRequest,
     UpdateTaskStatusRequest,
@@ -345,6 +348,12 @@ def ensure_project_is_active(project: dict) -> None:
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Project not found.",
         )
+
+
+def normalize_project_status(value: object) -> str:
+    """Treat legacy ACTIVE projects as OPEN while the database is migrated."""
+    normalized = str(value or PROJECT_STATUS_OPEN).upper()
+    return PROJECT_STATUS_OPEN if normalized == ACTIVE_STATUS else normalized
 
 
 def admin_user_response_from_row(
@@ -2223,7 +2232,7 @@ def create_app() -> FastAPI:
                 document_name=project.get("document_name"),
                 document_url=project.get("document_url"),
                 documents=project.get("documents"),
-                status=project.get("status") or "ACTIVE",
+                status=normalize_project_status(project.get("status")),
                 stakeholder_email=(
                     users_by_auth_uid.get(str(project.get("stakeholder_id")), {}).get(
                         app_settings.signup_allowed_users_email_column
@@ -2369,7 +2378,7 @@ def create_app() -> FastAPI:
                 document_name=project.get("document_name"),
                 document_url=project.get("document_url"),
                 documents=project.get("documents"),
-                status=project.get("status") or "ACTIVE",
+                status=normalize_project_status(project.get("status")),
                 stakeholder_email=get_user_email(
                     users_by_auth_uid,
                     project.get("stakeholder_id"),
@@ -2571,7 +2580,7 @@ def create_app() -> FastAPI:
             document_name=project.get("document_name"),
             document_url=project.get("document_url"),
             documents=project.get("documents"),
-            status=project.get("status") or "ACTIVE",
+            status=normalize_project_status(project.get("status")),
             stakeholder_email=(
                 users_by_auth_uid.get(str(project.get("stakeholder_id")), {}).get(
                     app_settings.signup_allowed_users_email_column
@@ -2783,6 +2792,38 @@ def create_app() -> FastAPI:
         invalidate_task_cache(project_id=project_id)
         return MessageResponse(detail="Project deleted successfully.")
 
+    @app.post("/projects/{project_id}/status", response_model=MessageResponse)
+    def update_project_status(
+        project_id: int,
+        payload: UpdateProjectStatusRequest,
+        current_user: CurrentUser = Depends(require_admin),
+        supabase_admin: Client = Depends(get_supabase_admin_client),
+    ) -> MessageResponse:
+        requested_status = payload.status.strip().upper()
+        if requested_status not in {PROJECT_STATUS_OPEN, PROJECT_STATUS_CLOSED}:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Project status must be OPEN or CLOSED.",
+            )
+
+        project = get_project_by_id(supabase_admin, project_id)
+        ensure_project_is_active(project)
+        if normalize_project_status(project.get("status")) == requested_status:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Project is already {requested_status.lower()}.",
+            )
+
+        (
+            supabase_admin.table(PROJECTS_TABLE)
+            .update({"status": requested_status})
+            .eq("id", project_id)
+            .execute()
+        )
+        invalidate_project_cache(project_id)
+        invalidate_task_cache(project_id=project_id)
+        return MessageResponse(detail=f"Project {requested_status.lower()} successfully.")
+
     @app.post("/projects", response_model=MessageResponse)
     def create_project(
         payload: CreateProjectRequest,
@@ -2862,7 +2903,7 @@ def create_app() -> FastAPI:
             "document_url": normalize_optional_text(payload.document_url),
             "created_by": user_id,
             "stakeholder_id": stakeholder_user_id,
-            "status": "ACTIVE",
+            "status": PROJECT_STATUS_OPEN,
         }
 
         try:

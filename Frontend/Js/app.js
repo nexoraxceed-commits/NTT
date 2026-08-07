@@ -679,7 +679,15 @@ function getDataFilterValues(root, selector, datasetKey) {
 }
 
 function getProjectTableFilters(root) {
-  return getDataFilterValues(root, "[data-project-filter]", "projectFilter");
+  const filters = getDataFilterValues(
+    root,
+    "[data-project-filter]",
+    "projectFilter"
+  );
+  if (!filters.status) {
+    filters.status = "OPEN";
+  }
+  return filters;
 }
 
 function getTaskBoardFilters(root) {
@@ -3009,11 +3017,15 @@ function setupDashboardProjects() {
       );
       const stakeholder =
         project.stakeholder_name || project.stakeholder_email || "No stakeholder";
+      const projectStatus = String(project.status || "OPEN").toUpperCase() === "ACTIVE"
+        ? "OPEN"
+        : String(project.status || "OPEN").toUpperCase();
       return (
         (!activeFilters.title ||
           title.includes(String(activeFilters.title).toLowerCase())) &&
         (!activeFilters.watcher || watchers.includes(activeFilters.watcher)) &&
-        (!activeFilters.stakeholder || stakeholder === activeFilters.stakeholder)
+        (!activeFilters.stakeholder || stakeholder === activeFilters.stakeholder) &&
+        (!activeFilters.status || projectStatus === activeFilters.status)
       );
     });
   }
@@ -3024,11 +3036,6 @@ function setupDashboardProjects() {
     }
 
     projectList.innerHTML = "";
-    if (projectCountElement) {
-      const count = dashboardProjects.length;
-      projectCountElement.textContent = `${count} project${count === 1 ? "" : "s"}`;
-    }
-
     const watchers = Array.from(
       new Set(
         dashboardProjects.flatMap((project) =>
@@ -3046,6 +3053,9 @@ function setupDashboardProjects() {
         )
       )
     ).sort();
+    if (!activeFilters.status) {
+      activeFilters.status = "OPEN";
+    }
 
     const tableWrap = document.createElement("div");
     tableWrap.className = "data-table-wrap";
@@ -3064,6 +3074,7 @@ function setupDashboardProjects() {
       },
       { label: "Watchers", filter: "watcher", options: watchers },
       { label: "Stakeholder", filter: "stakeholder", options: stakeholders },
+      { label: "Status", filter: "status", options: ["OPEN", "CLOSED"] },
     ].forEach((column) => {
       const cell = document.createElement("th");
       cell.scope = "col";
@@ -3080,7 +3091,9 @@ function setupDashboardProjects() {
         const select = document.createElement("select");
         select.className = "table-filter";
         select.dataset.projectFilter = column.filter;
-        select.innerHTML = `<option value="">All</option>`;
+        if (column.filter !== "status") {
+          select.innerHTML = `<option value="">All</option>`;
+        }
         column.options.forEach((optionValue) => {
           const option = document.createElement("option");
           option.value = optionValue;
@@ -3098,11 +3111,15 @@ function setupDashboardProjects() {
 
     function renderProjectTableBody(visibleProjects) {
       tbody.innerHTML = "";
+      if (projectCountElement) {
+        const count = visibleProjects.length;
+        projectCountElement.textContent = `${count} project${count === 1 ? "" : "s"}`;
+      }
 
       if (!visibleProjects.length) {
         const row = document.createElement("tr");
         const cell = document.createElement("td");
-        cell.colSpan = 3;
+        cell.colSpan = 4;
         cell.textContent = "No projects found.";
         row.append(cell);
         tbody.append(row);
@@ -3133,7 +3150,15 @@ function setupDashboardProjects() {
         stakeholderCell.textContent =
           project.stakeholder_name || project.stakeholder_email || "No stakeholder";
 
-        row.append(titleCell, watcherCell, stakeholderCell);
+        const statusCell = document.createElement("td");
+        statusCell.dataset.label = "Status";
+        statusCell.append(createStatusBadge(
+          String(project.status || "OPEN").toUpperCase() === "ACTIVE"
+            ? "OPEN"
+            : project.status
+        ));
+
+        row.append(titleCell, watcherCell, stakeholderCell, statusCell);
         tbody.append(row);
       });
     }
@@ -3319,6 +3344,7 @@ function setupProjectPage() {
   const inlineProjectForm = document.querySelector("#inline-project-form");
   const inlineProjectMessage = document.querySelector("#inline-project-message");
   const inlineProjectCancel = document.querySelector("#inline-project-cancel");
+  const projectStatusButton = document.querySelector("#project-status-button");
   const inlineStakeholderSelect = document.querySelector(
     "#inline_project_stakeholder_email"
   );
@@ -3389,6 +3415,15 @@ function setupProjectPage() {
       currentProject = project;
       renderProjectDetail(project);
       renderTaskList(project.tasks || []);
+      const isAdmin = String(getSession()?.userClass || "").toUpperCase() === "ADMIN";
+      const projectStatus = String(project.status || "OPEN").toUpperCase() === "ACTIVE"
+        ? "OPEN"
+        : String(project.status || "OPEN").toUpperCase();
+      if (projectStatusButton) {
+        projectStatusButton.classList.toggle("is-hidden", !isAdmin);
+        projectStatusButton.textContent = projectStatus === "CLOSED" ? "Reopen project" : "Close project";
+        projectStatusButton.dataset.nextStatus = projectStatus === "CLOSED" ? "OPEN" : "CLOSED";
+      }
       if (!silent) {
         hideInlineProjectEditor();
         setMessage(projectMessage, "");
@@ -3414,6 +3449,26 @@ function setupProjectPage() {
   });
 
   inlineProjectCancel?.addEventListener("click", hideInlineProjectEditor);
+
+  projectStatusButton?.addEventListener("click", async () => {
+    const nextStatus = projectStatusButton.dataset.nextStatus;
+    const action = nextStatus === "CLOSED" ? "close" : "reopen";
+    if (!nextStatus || !window.confirm(`Are you sure you want to ${action} this project?`)) {
+      return;
+    }
+    setButtonBusy(projectStatusButton, true);
+    try {
+      const data = await postAuthorizedJson(`/projects/${projectId}/status`, {
+        status: nextStatus,
+      });
+      await loadProject();
+      setMessage(projectMessage, data.detail);
+    } catch (error) {
+      setMessage(projectMessage, error.message, true);
+    } finally {
+      setButtonBusy(projectStatusButton, false);
+    }
+  });
 
   inlineProjectForm?.addEventListener("submit", async (event) => {
     event.preventDefault();

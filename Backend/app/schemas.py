@@ -210,6 +210,10 @@ class ProjectDetailResponse(ProjectSummaryResponse):
     tasks: list[TaskSummaryResponse]
 
 
+class UpdateProjectStatusRequest(BaseModel):
+    status: str = Field(min_length=1, max_length=20)
+
+
 class LoginResponse(BaseModel):
     access_token: str
     refresh_token: str

@@ -21,23 +21,6 @@ update public."PROJECTS"
 set normalized_name = trim(regexp_replace(lower(project_name), '[^a-z0-9]+', ' ', 'g'))
 where normalized_name is null;
 
-create or replace function public.set_project_normalized_name()
-returns trigger
-language plpgsql
-as $$
-begin
-  new.normalized_name := trim(
-    regexp_replace(lower(new.project_name), '[^a-z0-9]+', ' ', 'g')
-  );
-  return new;
-end;
-$$;
-
-drop trigger if exists trg_projects_normalized_name on public."PROJECTS";
-create trigger trg_projects_normalized_name
-before insert or update of project_name on public."PROJECTS"
-for each row execute function public.set_project_normalized_name();
-
 alter table public."TASKS"
   add column if not exists weekly_committed_outcome text,
   add column if not exists definition_of_done text,
@@ -72,15 +55,10 @@ on public."TASKS" (status, end_date);
 create index if not exists idx_tasks_project_status_end_date
 on public."TASKS" (project_id, status, end_date);
 
-do $$
-begin
-  if to_regclass('public."TASK_ACCESS_LOG"') is not null then
-    execute 'create index if not exists idx_task_access_log_task_event_created '
-      'on public."TASK_ACCESS_LOG" (task_id, event_type, created_at desc)';
-    execute 'create index if not exists idx_task_access_log_project_created '
-      'on public."TASK_ACCESS_LOG" (project_id, created_at desc)';
-  end if;
-end;
-$$;
+create index if not exists idx_task_access_log_task_event_created
+on public."TASK_ACCESS_LOG" (task_id, event_type, created_at desc);
+
+create index if not exists idx_task_access_log_project_created
+on public."TASK_ACCESS_LOG" (project_id, created_at desc);
 
 notify pgrst, 'reload schema';
