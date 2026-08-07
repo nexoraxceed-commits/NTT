@@ -143,28 +143,52 @@ def _status_chart(status_counts: Counter) -> Drawing:
     return drawing
 
 
-def _activity_chart(activity_by_day: Counter, period_start: datetime, generated_at: datetime) -> Drawing:
+def _format_hours(value: float) -> str:
+    return f"{value:,.0f}h" if float(value).is_integer() else f"{value:,.1f}h"
+
+
+def _week_range_label(start, end) -> str:
+    if start.month == end.month:
+        return f"{start:%d}-{end:%d %b}"
+    return f"{start:%d %b}-{end:%d %b}"
+
+
+def _work_hours_chart(hours_by_day: Counter, period_start: datetime, generated_at: datetime) -> Drawing:
     buckets = []
     cursor = period_start.date()
     while cursor <= generated_at.date():
         bucket_end = min(cursor + timedelta(days=6), generated_at.date())
-        value = sum(activity_by_day.get(cursor + timedelta(days=offset), 0) for offset in range((bucket_end - cursor).days + 1))
-        buckets.append((cursor.strftime("%d %b"), value))
+        value = sum(float(hours_by_day.get(cursor + timedelta(days=offset), 0)) for offset in range((bucket_end - cursor).days + 1))
+        buckets.append((_week_range_label(cursor, bucket_end), value))
         cursor = bucket_end + timedelta(days=1)
     drawing = Drawing(250, 145)
     chart = VerticalBarChart()
-    chart.x, chart.y, chart.width, chart.height = 35, 30, 195, 88
+    chart.x, chart.y, chart.width, chart.height = 35, 34, 195, 82
     chart.data = [[value for _, value in buckets]]
     chart.categoryAxis.categoryNames = [label for label, _ in buckets]
     chart.valueAxis.valueMin = 0
-    chart.valueAxis.valueMax = max([value for _, value in buckets] + [1]) * 1.15
+    chart.valueAxis.valueMax = max([value for _, value in buckets] + [1]) * 1.22
     chart.valueAxis.valueStep = max(1, int(chart.valueAxis.valueMax / 4))
     chart.bars[0].fillColor = BLUE
     chart.bars[0].strokeColor = BLUE
-    chart.categoryAxis.labels.fontSize = 6.5
+    chart.categoryAxis.labels.fontSize = 5.3
     chart.valueAxis.labels.fontSize = 6.5
     drawing.add(chart)
-    drawing.add(String(10, 136, "Recorded delivery events - last 30 days", fontName="Helvetica-Bold", fontSize=10, fillColor=NAVY))
+    bucket_count = max(len(buckets), 1)
+    for index, (_, value) in enumerate(buckets):
+        x = chart.x + chart.width * (index + 0.5) / bucket_count
+        y = chart.y + (chart.height * value / chart.valueAxis.valueMax if value else 0) + 3
+        drawing.add(String(
+            x,
+            y,
+            _format_hours(value),
+            fontName="Helvetica-Bold",
+            fontSize=6.3,
+            fillColor=NAVY,
+            textAnchor="middle",
+        ))
+    drawing.add(String(10, 136, "Weekly work hours - last 30 days", fontName="Helvetica-Bold", fontSize=10, fillColor=NAVY))
+    drawing.add(String(132, 9, "Week (start-end)", fontName="Helvetica", fontSize=5.5, fillColor=MUTED, textAnchor="middle"))
     return drawing
 
 
@@ -198,13 +222,15 @@ def build_board_report(data: dict, generated_for: str | None = None) -> bytes:
     work_logs = [(task, log) for task in tasks for log in task.get("work_logs") or []]
     access_logs = [(task, log) for task in tasks for log in task.get("access_logs") or []]
     period_events = [(task, log, parsed) for task, log in access_logs if (parsed := _parse_datetime(log.get("created_at"))) and parsed >= period_start]
-    period_work = [(task, log, parsed) for task, log in work_logs if (parsed := _parse_datetime(log.get("created_at") or log.get("work_date"))) and parsed >= period_start]
+    period_work = [(task, log, parsed) for task, log in work_logs if (parsed := _parse_datetime(log.get("work_date") or log.get("created_at"))) and parsed >= period_start]
     hours_30d = sum(float(log.get("hours") or 0) for _, log, _ in period_work)
     closed_30d = sum(1 for _, log, _ in period_events if str(log.get("event_type") or "").upper() == "TASK_CLOSED")
     created_30d = sum(1 for _, log, _ in period_events if str(log.get("event_type") or "").upper() == "TASK_CREATED")
     progress_events = {"TASK_CREATED", "TASK_WORK_STARTED", "TASK_CLOSE_REQUESTED", "TASK_CLOSED", "TASK_WORK_LOGGED", "TASK_COMMENT_ADDED", "TASK_ASSIGNEE_CHANGED", "TASK_DUE_DATE_CHANGED"}
     delivery_events = [(task, log, parsed) for task, log, parsed in period_events if str(log.get("event_type") or "").upper() in progress_events]
-    activity_by_day = Counter(parsed.date() for _, _, parsed in delivery_events)
+    work_hours_by_day: Counter = Counter()
+    for _, log, parsed in period_work:
+        work_hours_by_day[parsed.date()] += float(log.get("hours") or 0)
     contributor_events: Counter[str] = Counter()
     contributor_hours: Counter[str] = Counter()
     for _, log, _ in delivery_events:
@@ -286,7 +312,7 @@ def build_board_report(data: dict, generated_for: str | None = None) -> bytes:
     if not signals:
         signals.append("No exception or movement signal could be derived from the currently visible records.")
     story += [Paragraph("Board interpretation", h2), Paragraph(" ".join(signals), callout), Spacer(1, 4 * mm)]
-    story.append(Table([[_status_chart(status_counts), _activity_chart(activity_by_day, period_start, generated_at)]], colWidths=[90 * mm, 90 * mm], style=[("VALIGN", (0, 0), (-1, -1), "TOP"), ("BOX", (0, 0), (-1, -1), 0.5, colors.HexColor("#DDE4ED"))]))
+    story.append(Table([[_status_chart(status_counts), _work_hours_chart(work_hours_by_day, period_start, generated_at)]], colWidths=[90 * mm, 90 * mm], style=[("VALIGN", (0, 0), (-1, -1), "TOP"), ("BOX", (0, 0), (-1, -1), 0.5, colors.HexColor("#DDE4ED"))]))
 
     story += [PageBreak(), Paragraph("Delivery health", h1)]
     health_rows = [
@@ -315,9 +341,12 @@ def build_board_report(data: dict, generated_for: str | None = None) -> bytes:
 
     story += [PageBreak(), Paragraph("People and participation", h1)]
     story.append(Paragraph("Participation is evidenced by named task events and work logs. Event volume is an activity signal, not a proxy for individual performance or value delivered.", body))
-    people = sorted(active_contributors, key=lambda name: (contributor_events[name] + contributor_hours[name]), reverse=True)
+    people = sorted(
+        active_contributors,
+        key=lambda name: (-contributor_hours[name], name.casefold()),
+    )
     people_rows = [["Contributor", "Recorded events", "Hours logged", "Evidence mix"]]
-    for person in people[:25]:
+    for person in people:
         evidence = []
         if contributor_events[person]:
             evidence.append("workflow/activity")
@@ -339,9 +368,9 @@ def build_board_report(data: dict, generated_for: str | None = None) -> bytes:
     story.append(_data_table(project_rows, [43 * mm, 22 * mm, 43 * mm, 18 * mm, 17 * mm, 17 * mm, 20 * mm]))
 
     story += [PageBreak(), Paragraph("Evidence register", h1)]
-    story.append(Paragraph("The latest recorded events provide traceability from portfolio claims back to operational actions. Up to 40 events from the reporting window are shown.", body))
+    story.append(Paragraph("All recorded delivery events in the reporting window provide traceability from portfolio claims back to operational actions.", body))
     event_rows = [["When (UTC)", "Project", "Task", "Event", "Actor", "Evidence note"]]
-    for task, log, parsed in sorted(delivery_events, key=lambda item: item[2], reverse=True)[:40]:
+    for task, log, parsed in sorted(delivery_events, key=lambda item: item[2], reverse=True):
         event_rows.append([parsed.strftime("%d %b %Y\n%H:%M"), _truncate(task.get("project_name"), 22), _truncate(task.get("task_title"), 27), _truncate(str(log.get("event_type") or "").replace("_", " ").title(), 24), _truncate(_name(log, "actor"), 22), _truncate(log.get("event_note"), 38)])
     if len(event_rows) == 1:
         event_rows.append(["-", "-", "No events in period", "-", "-", "-"])
