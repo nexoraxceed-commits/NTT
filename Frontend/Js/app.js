@@ -189,6 +189,11 @@ const adminOnlyPaths = new Set([
   "/batches.html",
   "/Pages/batches.html",
 ]);
+const activeUserOnlyPaths = new Set([
+  "/project-game",
+  "/project-game.html",
+  "/Pages/project-game.html",
+]);
   if (
     userClass &&
     !isAdmin &&
@@ -201,6 +206,13 @@ const adminOnlyPaths = new Set([
     userClass &&
     !canManageWork &&
     managementOnlyPaths.has(normalizePath(window.location.pathname))
+  ) {
+    window.location.replace("/post-login");
+    return;
+  }
+  if (
+    isReadOnly &&
+    activeUserOnlyPaths.has(normalizePath(window.location.pathname))
   ) {
     window.location.replace("/post-login");
     return;
@@ -1696,8 +1708,10 @@ function setupWorkspaceNavigation() {
     { href: "/post-login", label: "Dashboard", key: "dashboard" },
     { href: "/projects", label: "Projects", key: "projects" },
     { href: "/tasks", label: "Tasks", key: "tasks" },
-    { href: "/project-game", label: "Project Game", key: "game" },
   ];
+  if (String(getSession()?.userClass || "").toUpperCase() !== "REDUNDANT_USER") {
+    links.push({ href: "/project-game", label: "Project Game", key: "game" });
+  }
   if (String(getSession()?.userClass || "").toUpperCase() === "ADMIN") {
     links.push({ href: "/users-admin", label: "Users", key: "users" });
     links.push({ href: "/batches", label: "Batches", key: "batches" });
