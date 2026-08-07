@@ -13,8 +13,8 @@
   const scoreElement = document.querySelector("#project-game-score");
   const bestElement = document.querySelector("#project-game-best");
   const messageElement = document.querySelector("#project-game-message");
-  const bestKey = "nexora-project-game-best";
-  const bird = { x: 150, y: 240, radius: 18, velocity: 0 };
+  const bestKey = "nexora-project-game-best-work-logs";
+  const bird = { x: 45, y: 240, radius: 18, velocity: 0 };
   let projectNames = ["New Project"];
   let obstacles = [];
   let score = 0;
@@ -23,6 +23,7 @@
   let paused = false;
   let lastFrame = 0;
   let spawnTimer = 0;
+  let bufferRemaining = 0;
   let frameId = 0;
 
   bestElement.textContent = String(best);
@@ -138,6 +139,11 @@
         context.moveTo(centerX, item.y + item.radius * 2);
         context.quadraticCurveTo(centerX + 9, item.y + item.height - 16, centerX, item.y + item.height);
         context.stroke();
+        context.fillStyle = "#ffffff";
+        context.font = "800 12px system-ui, sans-serif";
+        context.textAlign = "center";
+        context.textBaseline = "middle";
+        context.fillText("+1", centerX, centerY);
         return;
       }
       context.fillStyle = "#2f6f5d";
@@ -169,6 +175,15 @@
     drawBackground();
     drawObstacles();
     drawBird();
+    if (running && bufferRemaining > 0) {
+      context.fillStyle = "rgba(31, 46, 42, .78)";
+      context.font = "800 54px system-ui, sans-serif";
+      context.textAlign = "center";
+      context.textBaseline = "middle";
+      context.fillText(Math.ceil(bufferRemaining / 1000), width() / 2, height() / 2);
+      context.font = "700 16px system-ui, sans-serif";
+      context.fillText("Get ready", width() / 2, height() / 2 + 46);
+    }
   }
 
   function finish() {
@@ -181,7 +196,7 @@
       bestElement.textContent = String(best);
     }
     overlayTitle.textContent = "Project collision!";
-    overlayCopy.textContent = `You dodged ${score} project${score === 1 ? "" : "s"}.`;
+    overlayCopy.textContent = `You collected ${score} Work Log${score === 1 ? "" : "s"}.`;
     startButton.textContent = "Play again";
     overlay.hidden = false;
     pauseButton.disabled = true;
@@ -192,6 +207,16 @@
     const delta = Math.min(32, timestamp - lastFrame || 16) / 16.67;
     lastFrame = timestamp;
     if (!paused) {
+      if (bufferRemaining > 0) {
+        bufferRemaining = Math.max(0, bufferRemaining - 16.67 * delta);
+        bird.velocity = 0;
+        messageElement.textContent = bufferRemaining > 0
+          ? `Starting in ${Math.ceil(bufferRemaining / 1000)}…`
+          : "Go! Collect balloons for Work Logs.";
+        paint();
+        frameId = requestAnimationFrame(update);
+        return;
+      }
       bird.velocity += 0.25 * delta;
       bird.y += bird.velocity * delta;
       spawnTimer -= 16.67 * delta;
@@ -202,14 +227,20 @@
       const speed = 3.5 + Math.min(4, score * 0.08);
       obstacles.forEach((item) => {
         item.x -= speed * delta;
-        if (!item.counted && item.x + item.width < bird.x) {
-          item.counted = true;
+        if (item.type === "balloon" && !item.collected && collides(item)) {
+          item.collected = true;
           score += 1;
           scoreElement.textContent = String(score);
         }
       });
-      obstacles = obstacles.filter((item) => item.x + item.width > -30);
-      if (bird.y - bird.radius <= 0 || bird.y + bird.radius >= height() || obstacles.some(collides)) {
+      obstacles = obstacles.filter(
+        (item) => !item.collected && item.x + item.width > -30
+      );
+      if (
+        bird.y - bird.radius <= 0 ||
+        bird.y + bird.radius >= height() ||
+        obstacles.some((item) => item.type === "project" && collides(item))
+      ) {
         paint();
         finish();
         return;
@@ -220,7 +251,7 @@
   }
 
   function flap() {
-    if (!running) return;
+    if (!running || bufferRemaining > 0) return;
     if (paused) togglePause();
     bird.velocity = -4.6;
   }
@@ -229,6 +260,7 @@
     obstacles = [];
     score = 0;
     spawnTimer = 650;
+    bufferRemaining = 5000;
     bird.y = height() / 2;
     bird.velocity = 0;
     scoreElement.textContent = "0";
@@ -237,6 +269,7 @@
     overlay.hidden = true;
     pauseButton.disabled = false;
     pauseButton.textContent = "Pause";
+    messageElement.textContent = "Starting in 5…";
     lastFrame = performance.now();
     cancelAnimationFrame(frameId);
     frameId = requestAnimationFrame(update);
