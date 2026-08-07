@@ -8,12 +8,15 @@
   const bird = { x: 45, y: 240, radius: 18, velocity: 0 };
   let projectNames = ["New Project"];
   let obstacles = [];
+  let particles = [];
   let score = 0;
   let running = false;
+  let hasStartedOnce = false;
   let paused = false;
   let lastFrame = 0;
   let spawnTimer = 0;
   let bufferRemaining = 0;
+  let lastCountdown = 0;
   let playTime = 0;
   let frameId = 0;
   let audioContext = null;
@@ -84,6 +87,21 @@
     });
   }
 
+  function playCollisionSound() {
+    if (!audioContext) return;
+    const oscillator = audioContext.createOscillator();
+    const gain = audioContext.createGain();
+    oscillator.type = "sawtooth";
+    oscillator.frequency.setValueAtTime(150, audioContext.currentTime);
+    oscillator.frequency.exponentialRampToValueAtTime(55, audioContext.currentTime + .28);
+    gain.gain.setValueAtTime(.11, audioContext.currentTime);
+    gain.gain.exponentialRampToValueAtTime(.0001, audioContext.currentTime + .3);
+    oscillator.connect(gain);
+    gain.connect(audioContext.destination);
+    oscillator.start();
+    oscillator.stop(audioContext.currentTime + .31);
+  }
+
   function stopMusic() {
     window.clearInterval(musicTimer);
     musicTimer = 0;
@@ -111,12 +129,15 @@
     gradient.addColorStop(1, "#f8fcfa");
     context.fillStyle = gradient;
     context.fillRect(0, 0, width(), height());
-    context.fillStyle = "rgba(47, 111, 93, .08)";
-    for (let x = 30; x < width(); x += 90) {
+    const drift = (playTime * .018) % 140;
+    context.fillStyle = "rgba(255, 255, 255, .48)";
+    for (let x = -100 - drift; x < width() + 100; x += 140) {
       context.beginPath();
-      context.arc(x, 55 + (x % 170), 24, 0, Math.PI * 2);
+      context.ellipse(x, 80 + ((x + drift) % 190), 38, 17, 0, 0, Math.PI * 2);
       context.fill();
     }
+    context.fillStyle = "rgba(47, 111, 93, .06)";
+    context.fillRect(0, height() - 12, width(), 12);
   }
 
   function drawBird() {
@@ -124,6 +145,8 @@
     context.translate(bird.x, bird.y);
     context.rotate(Math.max(-0.35, Math.min(0.65, bird.velocity * 0.045)));
     context.fillStyle = "#f4b942";
+    context.shadowColor = "rgba(31, 46, 42, .22)";
+    context.shadowBlur = 10;
     context.beginPath();
     context.arc(0, 0, bird.radius, 0, Math.PI * 2);
     context.fill();
@@ -166,6 +189,7 @@
         height: radius * 2 + 34,
         radius,
         counted: false,
+        bob: Math.random() * Math.PI * 2,
       });
       return;
     }
@@ -197,8 +221,11 @@
     obstacles.forEach((item) => {
       if (item.type === "balloon") {
         const centerX = item.x + item.radius;
-        const centerY = item.y + item.radius;
+        const centerY = item.y + item.radius + Math.sin(playTime / 280 + item.bob) * 4;
         const colors = ["#e86a75", "#6d72d8", "#ef9f45", "#4ba3a1"];
+        context.save();
+        context.shadowColor = "rgba(255, 196, 74, .72)";
+        context.shadowBlur = 18;
         context.fillStyle = colors[Math.floor((item.y + item.radius) % colors.length)];
         context.beginPath();
         context.ellipse(centerX, centerY, item.radius * .82, item.radius, 0, 0, Math.PI * 2);
@@ -218,6 +245,7 @@
         context.textAlign = "center";
         context.textBaseline = "middle";
         context.fillText("+1", centerX, centerY);
+        context.restore();
         return;
       }
       if (item.type === "crow") {
@@ -256,6 +284,8 @@
         return;
       }
       context.fillStyle = "#2f6f5d";
+      context.shadowColor = "rgba(31, 46, 42, .18)";
+      context.shadowBlur = 12;
       context.beginPath();
       context.roundRect(item.x, item.y, item.width, item.height, 14);
       context.fill();
@@ -265,7 +295,40 @@
       context.textBaseline = "middle";
       const label = item.name.length > 28 ? `${item.name.slice(0, 27)}…` : item.name;
       context.fillText(label, item.x + item.width / 2, item.y + item.height / 2);
+      context.shadowBlur = 0;
     });
+  }
+
+  function emitParticles(x, y, color, count = 12) {
+    for (let index = 0; index < count; index += 1) {
+      const angle = Math.random() * Math.PI * 2;
+      const force = 1.5 + Math.random() * 3.2;
+      particles.push({
+        x,
+        y,
+        vx: Math.cos(angle) * force,
+        vy: Math.sin(angle) * force,
+        life: 1,
+        size: 2 + Math.random() * 4,
+        color,
+      });
+    }
+  }
+
+  function updateAndDrawParticles(delta) {
+    particles.forEach((particle) => {
+      particle.x += particle.vx * delta;
+      particle.y += particle.vy * delta;
+      particle.vy += .08 * delta;
+      particle.life -= .035 * delta;
+      context.globalAlpha = Math.max(0, particle.life);
+      context.fillStyle = particle.color;
+      context.beginPath();
+      context.arc(particle.x, particle.y, particle.size, 0, Math.PI * 2);
+      context.fill();
+    });
+    context.globalAlpha = 1;
+    particles = particles.filter((particle) => particle.life > 0);
   }
 
   function collides(item) {
@@ -289,6 +352,7 @@
   function paint() {
     drawBackground();
     drawObstacles();
+    updateAndDrawParticles(1);
     drawBird();
     if (running && bufferRemaining > 0) {
       context.fillStyle = "rgba(31, 46, 42, .82)";
@@ -301,6 +365,23 @@
         width() / 2,
         height() / 2
       );
+      context.strokeStyle = "rgba(47, 111, 93, .24)";
+      context.lineWidth = 7;
+      context.beginPath();
+      context.arc(width() / 2, height() / 2, countdownSize * .72, -.5 * Math.PI, 1.5 * Math.PI);
+      context.stroke();
+    }
+  }
+
+  function animateImpact(timestamp, startedAt) {
+    drawBackground();
+    drawObstacles();
+    updateAndDrawParticles(1);
+    drawBird();
+    if (timestamp - startedAt < 320) {
+      frameId = requestAnimationFrame((nextTimestamp) =>
+        animateImpact(nextTimestamp, startedAt)
+      );
     }
   }
 
@@ -309,7 +390,22 @@
     paused = false;
     cancelAnimationFrame(frameId);
     stopMusic();
+    playCollisionSound();
     haptic([90, 45, 140]);
+    emitParticles(bird.x, bird.y, "#e86a75", 20);
+    frameId = requestAnimationFrame((timestamp) => animateImpact(timestamp, timestamp));
+    stage.animate?.(
+      [
+        { transform: "translateX(0)", filter: "none" },
+        { transform: "translateX(-8px)", filter: "saturate(1.5)" },
+        { transform: "translateX(7px)" },
+        { transform: "translateX(-4px)" },
+        { transform: "translateX(0)", filter: "none" },
+      ],
+      { duration: 320, easing: "ease-out" }
+    );
+    scoreElement.parentElement.classList.add("is-collision");
+    window.setTimeout(() => scoreElement.parentElement.classList.remove("is-collision"), 420);
   }
 
   function update(timestamp) {
@@ -319,6 +415,11 @@
     if (!paused) {
       if (bufferRemaining > 0) {
         bufferRemaining = Math.max(0, bufferRemaining - 16.67 * delta);
+        const countdown = Math.ceil(bufferRemaining / 1000);
+        if (countdown > 0 && countdown !== lastCountdown) {
+          lastCountdown = countdown;
+          haptic(10);
+        }
         bird.velocity = 0;
         paint();
         frameId = requestAnimationFrame(update);
@@ -339,8 +440,12 @@
           item.collected = true;
           score += 1;
           scoreElement.textContent = String(score);
+          scoreElement.parentElement.classList.remove("is-earned");
+          void scoreElement.parentElement.offsetWidth;
+          scoreElement.parentElement.classList.add("is-earned");
           haptic([18, 24, 35]);
           playCollectSound();
+          emitParticles(bird.x + 10, bird.y, "#f4b942", 16);
         }
       });
       obstacles = obstacles.filter(
@@ -366,14 +471,18 @@
     if (!running || bufferRemaining > 0) return;
     if (paused) togglePause();
     bird.velocity = -4.6;
+    emitParticles(bird.x - 15, bird.y + 7, "#ffffff", 4);
     haptic(12);
   }
 
   function start() {
+    hasStartedOnce = true;
     obstacles = [];
+    particles = [];
     score = 0;
     spawnTimer = 1200;
     bufferRemaining = 5000;
+    lastCountdown = 5;
     playTime = 0;
     bird.y = height() / 2;
     bird.velocity = 0;
@@ -426,5 +535,7 @@
 
   resizeCanvas();
   paint();
-  loadProjects().finally(start);
+  loadProjects().finally(() => {
+    if (!hasStartedOnce) start();
+  });
 })();

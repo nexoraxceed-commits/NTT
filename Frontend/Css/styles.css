@@ -155,6 +155,31 @@
   background: rgba(255, 255, 255, .86);
   box-shadow: 0 8px 24px rgba(31, 46, 42, .12);
   backdrop-filter: blur(6px);
+  transition: background-color .2s ease, color .2s ease;
+}
+
+.project-game-score-only span.is-earned {
+  animation: project-score-earned .34s cubic-bezier(.2, 1.5, .4, 1);
+}
+
+.project-game-score-only span.is-collision {
+  animation: project-score-collision .38s ease;
+}
+
+@keyframes project-score-earned {
+  50% {
+    color: #245846;
+    background: #fff5bd;
+    transform: scale(1.16);
+  }
+}
+
+@keyframes project-score-collision {
+  40% {
+    color: #ffffff;
+    background: #a6382d;
+    transform: scale(.94);
+  }
 }
 
 * {
