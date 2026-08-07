@@ -1,403 +1,242 @@
 from __future__ import annotations
 
-from collections import Counter, defaultdict
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from html import escape
 from io import BytesIO
 from typing import Any
 
-from reportlab.graphics.charts.barcharts import VerticalBarChart
-from reportlab.graphics.charts.piecharts import Pie
 from reportlab.graphics.shapes import Drawing, Rect, String
 from reportlab.lib import colors
-from reportlab.lib.enums import TA_CENTER, TA_LEFT
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
-from reportlab.platypus import (
-    KeepTogether,
-    PageBreak,
-    Paragraph,
-    SimpleDocTemplate,
-    Spacer,
-    Table,
-    TableStyle,
-)
+from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+
+from app.report_metrics import NOT_AVAILABLE, NOT_CAPTURED, ReportModel, build_report_model, display_status, parse_date, rag_for
 
 
 NAVY = colors.HexColor("#13233A")
 BLUE = colors.HexColor("#2B6EF2")
-CYAN = colors.HexColor("#30B8C4")
-GREEN = colors.HexColor("#26A269")
-AMBER = colors.HexColor("#F2A93B")
-RED = colors.HexColor("#D94B4B")
+TEAL = colors.HexColor("#168A91")
+GREEN = colors.HexColor("#2E8B57")
+AMBER = colors.HexColor("#D68B1F")
+RED = colors.HexColor("#C23B3B")
 INK = colors.HexColor("#26364A")
 MUTED = colors.HexColor("#637083")
-PALE = colors.HexColor("#F2F5F9")
+PALE = colors.HexColor("#F3F6FA")
 WHITE = colors.white
-
-TABLE_HEADER_STYLE = ParagraphStyle(
-    "table-header",
-    fontName="Helvetica-Bold",
-    fontSize=7.2,
-    leading=9.3,
-    textColor=WHITE,
-)
-TABLE_CELL_STYLE = ParagraphStyle(
-    "table-cell",
-    fontName="Helvetica",
-    fontSize=7.2,
-    leading=9.3,
-    textColor=INK,
-    wordWrap="CJK",
-)
+RAG_COLOURS = {"GREEN": GREEN, "AMBER": AMBER, "RED": RED, "GREY": MUTED}
 
 
-def _parse_datetime(value: Any) -> datetime | None:
-    if not value:
-        return None
-    try:
-        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
-        if parsed.tzinfo is None:
-            parsed = parsed.replace(tzinfo=timezone.utc)
-        return parsed.astimezone(timezone.utc)
-    except (TypeError, ValueError):
-        return None
+def _text(value: Any) -> str:
+    return " ".join(str(value if value not in (None, "") else "-").split())
 
 
-def _parse_date(value: Any):
-    parsed = _parse_datetime(value)
-    if parsed:
-        return parsed.date()
-    if not value:
-        return None
-    try:
-        return datetime.fromisoformat(str(value)[:10]).date()
-    except ValueError:
-        return None
+def _cell(value: Any, style: ParagraphStyle) -> Paragraph:
+    return Paragraph(escape(_text(value)), style)
 
 
-def _name(item: dict, prefix: str) -> str:
-    return str(item.get(f"{prefix}_name") or item.get(f"{prefix}_email") or "Unassigned")
+def _table(rows: list[list[Any]], widths: list[float], styles: dict[str, ParagraphStyle], *, header: bool = True) -> Table:
+    wrapped = [[_cell(value, styles["th"] if header and index == 0 else styles["td"]) for value in row] for index, row in enumerate(rows)]
+    table = Table(wrapped, colWidths=widths, repeatRows=1 if header else 0, hAlign="LEFT")
+    commands = [
+        ("VALIGN", (0, 0), (-1, -1), "TOP"), ("GRID", (0, 0), (-1, -1), 0.35, colors.HexColor("#D7E0E9")),
+        ("LEFTPADDING", (0, 0), (-1, -1), 4), ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+        ("TOPPADDING", (0, 0), (-1, -1), 4), ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+    ]
+    if header:
+        commands += [("BACKGROUND", (0, 0), (-1, 0), NAVY), ("ROWBACKGROUNDS", (0, 1), (-1, -1), [WHITE, PALE])]
+    table.setStyle(TableStyle(commands))
+    return table
 
 
-def _truncate(value: Any, limit: int = 44) -> str:
-    text = " ".join(str(value or "").split())
-    return text or "-"
-
-
-def _table_cell(value: Any, *, header: bool = False) -> Paragraph:
-    text = escape(_truncate(value))
-    return Paragraph(text, TABLE_HEADER_STYLE if header else TABLE_CELL_STYLE)
-
-
-def _flatten(data: dict) -> tuple[list[dict], list[dict]]:
-    projects = list(data.get("projects") or [])
-    details = list(data.get("project_details") or [])
-    tasks: list[dict] = []
-    for project in details:
-        for task in project.get("tasks") or []:
-            tasks.append({**task, "project_name": project.get("project_name") or "Untitled project"})
-    return projects, tasks
-
-
-def _metric_card(label: str, value: str, note: str, accent=BLUE) -> Table:
+def _metric(label: str, value: str, definition: str, *, rag: str = "GREY") -> Table:
+    accent = RAG_COLOURS[rag]
+    label_style = ParagraphStyle("ml", fontName="Helvetica-Bold", fontSize=6.8, leading=8, textColor=MUTED)
+    value_style = ParagraphStyle("mv", fontName="Helvetica-Bold", fontSize=13, leading=15, textColor=NAVY)
+    note_style = ParagraphStyle("mn", fontName="Helvetica", fontSize=6.7, leading=8.5, textColor=MUTED)
     card = Table(
-        [[Paragraph(label.upper(), ParagraphStyle("metric-label", fontName="Helvetica-Bold", fontSize=7, textColor=MUTED, leading=9)),
-          Paragraph(value, ParagraphStyle("metric-value", fontName="Helvetica-Bold", fontSize=20, textColor=NAVY, leading=23))],
-         [Paragraph(note, ParagraphStyle("metric-note", fontName="Helvetica", fontSize=7.5, textColor=MUTED, leading=10)), ""]],
-        colWidths=[33 * mm, 18 * mm],
-        rowHeights=[13 * mm, 10 * mm],
+        [
+            [Paragraph(escape(label.upper()), label_style)],
+            [Paragraph(escape(value), value_style)],
+            [Paragraph(escape(definition), note_style)],
+        ],
+        colWidths=[46 * mm],
+        rowHeights=[6 * mm, 8 * mm, 8 * mm],
     )
     card.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, -1), WHITE),
-        ("BOX", (0, 0), (-1, -1), 0.6, colors.HexColor("#DDE4ED")),
+        ("BOX", (0, 0), (-1, -1), .5, colors.HexColor("#DCE3EC")),
         ("LINEBEFORE", (0, 0), (0, -1), 3, accent),
         ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("SPAN", (0, 1), (1, 1)),
         ("LEFTPADDING", (0, 0), (-1, -1), 6),
         ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+        ("TOPPADDING", (0, 0), (-1, -1), 1),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 1),
     ]))
     return card
 
 
-def _status_chart(status_counts: Counter) -> Drawing:
-    labels = ["Open", "In progress", "Close review", "Closed"]
-    values = [status_counts.get(key, 0) for key in ("OPEN", "IN PROGRESS", "CLOSE REQUESTED", "CLOSED")]
-    drawing = Drawing(250, 145)
-    pie = Pie()
-    pie.x, pie.y, pie.width, pie.height = 16, 22, 100, 100
-    pie.data = values if sum(values) else [1]
-    pie.labels = None
-    pie.slices.strokeWidth = 0.5
-    palette = (BLUE, CYAN, AMBER, GREEN)
-    for index, colour in enumerate(palette):
-        pie.slices[index].fillColor = colour
-    drawing.add(pie)
-    legend_values = values if sum(values) else [0, 0, 0, 0]
-    for index, (label, value, colour) in enumerate(zip(labels, legend_values, palette)):
-        y = 102 - index * 20
-        drawing.add(Rect(134, y - 1, 8, 8, fillColor=colour, strokeColor=colour))
-        drawing.add(String(149, y, f"{label}  {value}", fontName="Helvetica", fontSize=7.5, fillColor=INK))
-    drawing.add(String(10, 136, "Task portfolio by workflow stage", fontName="Helvetica-Bold", fontSize=10, fillColor=NAVY))
+def _workflow_bar(model: ReportModel) -> Drawing:
+    stages = [("OPEN", BLUE), ("IN PROGRESS", TEAL), ("CLOSE REQUESTED", AMBER), ("CLOSED", GREEN)]
+    total = max(sum(model.status_counts[key] for key, _ in stages), 1)
+    drawing = Drawing(510, 78)
+    drawing.add(String(0, 67, "Current workflow stage distribution", fontName="Helvetica-Bold", fontSize=9, fillColor=NAVY))
+    x = 0
+    for key, colour in stages:
+        count = model.status_counts[key]
+        width = 500 * count / total
+        if width:
+            drawing.add(Rect(x, 30, width, 18, fillColor=colour, strokeColor=WHITE))
+            if width > 38:
+                drawing.add(String(x + width / 2, 36, f"{display_status(key)} {count}", fontName="Helvetica-Bold", fontSize=6.5, fillColor=WHITE, textAnchor="middle"))
+        x += width
+    drawing.add(String(0, 13, "Snapshot at report cutoff; this is not period throughput.", fontName="Helvetica", fontSize=6.5, fillColor=MUTED))
     return drawing
 
 
-def _format_hours(value: float) -> str:
-    return f"{value:,.0f}h" if float(value).is_integer() else f"{value:,.1f}h"
+def _styles() -> dict[str, ParagraphStyle]:
+    base = getSampleStyleSheet()
+    return {
+        "h1": ParagraphStyle("h1", parent=base["Heading1"], fontName="Helvetica-Bold", fontSize=16, leading=19, textColor=NAVY, spaceAfter=8),
+        "h2": ParagraphStyle("h2", parent=base["Heading2"], fontName="Helvetica-Bold", fontSize=10, leading=13, textColor=TEAL, spaceBefore=5, spaceAfter=4),
+        "body": ParagraphStyle("body", parent=base["BodyText"], fontSize=8.2, leading=11.4, textColor=INK, spaceAfter=4),
+        "small": ParagraphStyle("small", parent=base["BodyText"], fontSize=6.8, leading=9, textColor=MUTED),
+        "th": ParagraphStyle("th", fontName="Helvetica-Bold", fontSize=6.7, leading=8.4, textColor=WHITE, wordWrap="CJK"),
+        "td": ParagraphStyle("td", fontName="Helvetica", fontSize=6.7, leading=8.5, textColor=INK, wordWrap="CJK"),
+        "callout": ParagraphStyle("callout", fontName="Helvetica-Bold", fontSize=8.3, leading=11.5, textColor=NAVY, borderColor=colors.HexColor("#DCE3EC"), borderWidth=.5, borderPadding=7, backColor=PALE),
+    }
 
 
-def _week_range_label(start, end) -> str:
-    if start.month == end.month:
-        return f"{start:%d}-{end:%d %b}"
-    return f"{start:%d %b}-{end:%d %b}"
+def _footer(canvas, document) -> None:
+    canvas.saveState()
+    canvas.setStrokeColor(colors.HexColor("#D8E1EA")); canvas.line(15 * mm, 13 * mm, 195 * mm, 13 * mm)
+    canvas.setFont("Helvetica", 6.5); canvas.setFillColor(MUTED)
+    canvas.drawString(15 * mm, 8.5 * mm, "NEXORA | BOARD DELIVERY UPDATE | INTERNAL")
+    canvas.drawRightString(195 * mm, 8.5 * mm, f"Page {document.page}")
+    canvas.restoreState()
 
 
-def _work_hours_chart(hours_by_day: Counter, period_start: datetime, generated_at: datetime) -> Drawing:
-    buckets = []
-    cursor = period_start.date()
-    while cursor <= generated_at.date():
-        bucket_end = min(cursor + timedelta(days=6), generated_at.date())
-        value = sum(float(hours_by_day.get(cursor + timedelta(days=offset), 0)) for offset in range((bucket_end - cursor).days + 1))
-        buckets.append((_week_range_label(cursor, bucket_end), value))
-        cursor = bucket_end + timedelta(days=1)
-    drawing = Drawing(250, 145)
-    chart = VerticalBarChart()
-    chart.x, chart.y, chart.width, chart.height = 35, 34, 195, 82
-    chart.data = [[value for _, value in buckets]]
-    chart.categoryAxis.categoryNames = [label for label, _ in buckets]
-    chart.valueAxis.valueMin = 0
-    chart.valueAxis.valueMax = max([value for _, value in buckets] + [1]) * 1.22
-    chart.valueAxis.valueStep = max(1, int(chart.valueAxis.valueMax / 4))
-    chart.bars[0].fillColor = BLUE
-    chart.bars[0].strokeColor = BLUE
-    chart.categoryAxis.labels.fontSize = 5.3
-    chart.valueAxis.labels.fontSize = 6.5
-    drawing.add(chart)
-    bucket_count = max(len(buckets), 1)
-    for index, (_, value) in enumerate(buckets):
-        x = chart.x + chart.width * (index + 0.5) / bucket_count
-        y = chart.y + (chart.height * value / chart.valueAxis.valueMax if value else 0) + 3
-        drawing.add(String(
-            x,
-            y,
-            _format_hours(value),
-            fontName="Helvetica-Bold",
-            fontSize=6.3,
-            fillColor=NAVY,
-            textAnchor="middle",
-        ))
-    drawing.add(String(10, 136, "Weekly work hours - last 30 days", fontName="Helvetica-Bold", fontSize=10, fillColor=NAVY))
-    drawing.add(String(132, 9, "Week (start-end)", fontName="Helvetica", fontSize=5.5, fillColor=MUTED, textAnchor="middle"))
-    return drawing
+def _person(record: dict, prefix: str) -> str:
+    return _text(record.get(f"{prefix}_name") or record.get(f"{prefix}_email") or "Not assigned")
 
 
-def _data_table(rows: list[list[Any]], widths: list[float], repeat_rows: int = 1) -> Table:
-    wrapped_rows = [
-        [_table_cell(cell, header=row_index < repeat_rows) for cell in row]
-        for row_index, row in enumerate(rows)
-    ]
-    table = Table(wrapped_rows, colWidths=widths, repeatRows=repeat_rows, hAlign="LEFT")
-    table.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), NAVY),
-        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [WHITE, PALE]),
-        ("GRID", (0, 0), (-1, -1), 0.35, colors.HexColor("#D8E0EA")),
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("LEFTPADDING", (0, 0), (-1, -1), 4),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 4),
-        ("TOPPADDING", (0, 0), (-1, -1), 4),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-    ]))
-    return table
-
-
-def build_board_report(data: dict, generated_for: str | None = None) -> bytes:
-    generated_at = datetime.now(timezone.utc)
-    period_start = generated_at - timedelta(days=30)
-    projects, tasks = _flatten(data)
-    status_counts = Counter(str(task.get("status") or "OPEN").upper() for task in tasks)
-    today = generated_at.date()
-    overdue = [task for task in tasks if str(task.get("status") or "").upper() != "CLOSED" and _parse_date(task.get("end_date")) and _parse_date(task.get("end_date")) < today]
-    unassigned = [task for task in tasks if not task.get("assigned_to_email") and not task.get("assigned_to_name")]
-    work_logs = [(task, log) for task in tasks for log in task.get("work_logs") or []]
-    access_logs = [(task, log) for task in tasks for log in task.get("access_logs") or []]
-    period_events = [(task, log, parsed) for task, log in access_logs if (parsed := _parse_datetime(log.get("created_at"))) and parsed >= period_start]
-    period_work = [(task, log, parsed) for task, log in work_logs if (parsed := _parse_datetime(log.get("work_date") or log.get("created_at"))) and parsed >= period_start]
-    hours_30d = sum(float(log.get("hours") or 0) for _, log, _ in period_work)
-    closed_30d = sum(1 for _, log, _ in period_events if str(log.get("event_type") or "").upper() == "TASK_CLOSED")
-    created_30d = sum(1 for _, log, _ in period_events if str(log.get("event_type") or "").upper() == "TASK_CREATED")
-    progress_events = {"TASK_CREATED", "TASK_WORK_STARTED", "TASK_CLOSE_REQUESTED", "TASK_CLOSED", "TASK_WORK_LOGGED", "TASK_COMMENT_ADDED", "TASK_ASSIGNEE_CHANGED", "TASK_DUE_DATE_CHANGED"}
-    delivery_events = [(task, log, parsed) for task, log, parsed in period_events if str(log.get("event_type") or "").upper() in progress_events]
-    work_hours_by_day: Counter = Counter()
-    for _, log, parsed in period_work:
-        work_hours_by_day[parsed.date()] += float(log.get("hours") or 0)
-    contributor_events: Counter[str] = Counter()
-    contributor_hours: Counter[str] = Counter()
-    for _, log, _ in delivery_events:
-        actor = _name(log, "actor")
-        if actor != "Unassigned":
-            contributor_events[actor] += 1
-    for _, log, _ in period_work:
-        contributor_hours[_name(log, "logged_by")] += float(log.get("hours") or 0)
-    active_contributors = set(contributor_events) | {name for name in contributor_hours if name != "Unassigned"}
-    stakeholder_coverage = sum(1 for project in projects if project.get("stakeholder_name") or project.get("stakeholder_email"))
-    completion_rate = (status_counts.get("CLOSED", 0) / len(tasks) * 100) if tasks else 0
-
-    buffer = BytesIO()
-    document = SimpleDocTemplate(
-        buffer,
-        pagesize=A4,
-        rightMargin=15 * mm,
-        leftMargin=15 * mm,
-        topMargin=18 * mm,
-        bottomMargin=17 * mm,
-        title="Nexora Board Delivery Report",
-        author="Nexora Task Tracker",
-        subject="Board-level evidence of delivery activity and execution",
+def build_board_report(
+    data: dict,
+    generated_for: str | None = None,
+    *,
+    generated_at: datetime | None = None,
+    window_days: int = 30,
+    period_start: datetime | None = None,
+    management_commentary: dict[str, str] | None = None,
+    exclude_test_projects: bool = False,
+) -> bytes:
+    model = build_report_model(
+        data,
+        generated_at=generated_at,
+        window_days=window_days,
+        period_start=period_start,
+        exclude_test_projects=exclude_test_projects,
     )
-    styles = getSampleStyleSheet()
-    title = ParagraphStyle("board-title", parent=styles["Title"], fontName="Helvetica-Bold", fontSize=25, leading=29, textColor=WHITE, alignment=TA_LEFT)
-    subtitle = ParagraphStyle("board-subtitle", parent=styles["Normal"], fontSize=10, leading=14, textColor=colors.HexColor("#D9E5F5"))
-    h1 = ParagraphStyle("h1", parent=styles["Heading1"], fontName="Helvetica-Bold", fontSize=15, leading=19, textColor=NAVY, spaceBefore=4, spaceAfter=8)
-    h2 = ParagraphStyle("h2", parent=styles["Heading2"], fontName="Helvetica-Bold", fontSize=10.5, leading=14, textColor=BLUE, spaceBefore=7, spaceAfter=5)
-    body = ParagraphStyle("body", parent=styles["BodyText"], fontSize=8.6, leading=12.4, textColor=INK, spaceAfter=5)
-    small = ParagraphStyle("small", parent=body, fontSize=7.2, leading=10, textColor=MUTED)
-    callout = ParagraphStyle("callout", parent=body, fontSize=10, leading=14, textColor=NAVY, alignment=TA_CENTER)
+    commentary = management_commentary or {}
+    s = _styles(); out = BytesIO()
+    doc = SimpleDocTemplate(out, pagesize=A4, leftMargin=15 * mm, rightMargin=15 * mm, topMargin=17 * mm, bottomMargin=17 * mm, title="Nexora Delivery Update - Executive Summary and Board Actions", author="Nexora")
+    story: list[Any] = []
 
-    def footer(canvas, doc):
-        canvas.saveState()
-        canvas.setStrokeColor(colors.HexColor("#D9E1EB"))
-        canvas.line(15 * mm, 13 * mm, 195 * mm, 13 * mm)
-        canvas.setFont("Helvetica", 7)
-        canvas.setFillColor(MUTED)
-        canvas.drawString(15 * mm, 8.5 * mm, "NEXORA  -  BOARD DELIVERY REPORT  -  INTERNAL")
-        canvas.drawRightString(195 * mm, 8.5 * mm, f"Page {doc.page}")
-        canvas.restoreState()
-
-    story = []
-    cover = Table([
-        [Paragraph("NEXORA", ParagraphStyle("brand", fontName="Helvetica-Bold", fontSize=10, textColor=CYAN, leading=12))],
-        [Spacer(1, 15 * mm)],
-        [Paragraph("Board Delivery<br/>Report", title)],
-        [Paragraph("Evidence of work, execution momentum and delivery health", subtitle)],
-        [Spacer(1, 15 * mm)],
-        [Paragraph(f"REPORTING WINDOW<br/><b>{period_start:%d %B %Y} - {generated_at:%d %B %Y}</b>", ParagraphStyle("period", fontName="Helvetica", fontSize=8, leading=14, textColor=WHITE))],
-        [Spacer(1, 46 * mm)],
-        [Paragraph(f"Generated {generated_at:%d %B %Y, %H:%M UTC}" + (f"<br/>Prepared for {generated_for}" if generated_for else ""), subtitle)],
-    ], colWidths=[180 * mm], rowHeights=[8 * mm, 15 * mm, 35 * mm, 18 * mm, 15 * mm, 20 * mm, 46 * mm, 20 * mm])
-    cover.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, -1), NAVY), ("LEFTPADDING", (0, 0), (-1, -1), 14 * mm), ("RIGHTPADDING", (0, 0), (-1, -1), 14 * mm), ("VALIGN", (0, 0), (-1, -1), "MIDDLE")]))
-    story += [cover, PageBreak(), Paragraph("Executive view", h1)]
-    story.append(Paragraph("This report translates Nexora's operational records into board-level evidence of work. Snapshot KPIs describe the current authorized portfolio; movement KPIs use recorded events and work logs from the last 30 days.", body))
+    # Page 1: Executive summary and board actions.
+    story += [Paragraph("Nexora Delivery Update - Executive Summary and Board Actions", s["h1"]), Paragraph(f"Reporting scope: current authorized portfolio snapshot at {model.generated_at:%d %b %Y}; movement covers {model.period_start:%d %b %Y} to {model.generated_at:%d %b %Y} (UTC).", s["small"]), Spacer(1, 3 * mm)]
+    snapshot = model.snapshot; movement = model.movement
     cards = [
-        _metric_card("Active portfolio", str(len(projects)), "Projects visible in this report", BLUE),
-        _metric_card("Delivery pipeline", str(len(tasks)), "Tasks across all workflow stages", CYAN),
-        _metric_card("Closed in period", str(closed_30d), "Recorded closure events in 30 days", GREEN),
+        _metric("Current projects", str(snapshot["project_count"]), "Current snapshot"), _metric("Current tasks", str(snapshot["task_count"]), "Current snapshot"),
+        _metric("Current Closed", f'{snapshot["closed_count"]} / {snapshot["closed_task_rate"] or 0:.1f}%', "Current closed-task rate"),
+        _metric("Closure events", str(movement["closure_event_count"]), "Recorded in reporting period"),
+        _metric("Current overdue", f'{snapshot["overdue_count"]} / {snapshot["overdue_rate"] or 0:.1f}%', "Of current non-closed tasks", rag=rag_for("overdue_rate", snapshot["overdue_rate"], model.thresholds)),
+        _metric("Stakeholder coverage", f'{snapshot["stakeholder_project_count"]}/{snapshot["project_count"]}', "Current project records", rag=rag_for("stakeholder_coverage", snapshot["stakeholder_coverage"], model.thresholds)),
     ]
-    story += [Table([cards], colWidths=[60 * mm] * 3, style=[("VALIGN", (0, 0), (-1, -1), "TOP"), ("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 4)]), Spacer(1, 4 * mm)]
-    cards2 = [
-        _metric_card("Delivery events", str(len(delivery_events)), "Recorded progress signals in 30 days", BLUE),
-        _metric_card("Work evidenced", f"{hours_30d:,.1f}h", "Hours logged in the period", CYAN),
-        _metric_card("Contributors", str(len(active_contributors)), "People with events or hours in period", GREEN),
+    story += [Table([cards[:3], cards[3:]], colWidths=[60 * mm] * 3, style=[("VALIGN", (0, 0), (-1, -1), "TOP"), ("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 4), ("TOPPADDING", (0, 0), (-1, -1), 2), ("BOTTOMPADDING", (0, 0), (-1, -1), 2)]), Spacer(1, 4 * mm)]
+    factual = (f'The current authorized portfolio contains {snapshot["task_count"]} tasks. During the reporting period, {movement["closure_event_count"]} task-closure events were recorded. '
+               f'At cutoff, {snapshot["closed_count"]} tasks are Closed ({snapshot["closed_task_rate"] or 0:.1f}%). {snapshot["overdue_count"]} of {snapshot["non_closed_count"]} non-closed tasks are overdue ({snapshot["overdue_rate"] or 0:.1f}%).')
+    story += [Paragraph("Board interpretation", s["h2"]), Paragraph(factual, s["callout"])]
+    panels = [["Key achievements", commentary.get("achievements", "Management commentary required: record accepted outputs or outcomes supported by evidence.")], ["Material risks and management attention", commentary.get("risks", f'{snapshot["overdue_count"]} overdue non-closed tasks require status validation, recovery dates, blocker analysis and prioritization.')], ["Decisions or support requested", commentary.get("decisions", "No board decision has been entered for this reporting period.")]]
+    story += [
+        Spacer(1, 3 * mm),
+        _table(panels, [46 * mm, 134 * mm], s, header=False),
+        Spacer(1, 5 * mm),
+        _workflow_bar(model),
+        Paragraph(
+            "Reading guide: cards and workflow stages describe the current portfolio at cutoff. "
+            "Closure events describe changes recorded during the reporting period. Neither work-log "
+            "hours nor event volume should be interpreted as individual productivity.",
+            s["small"],
+        ),
     ]
-    story += [Table([cards2], colWidths=[60 * mm] * 3, style=[("VALIGN", (0, 0), (-1, -1), "TOP"), ("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 4)]), Spacer(1, 5 * mm)]
-    signals = []
-    if created_30d:
-        signals.append(f"{created_30d} task{'s were' if created_30d != 1 else ' was'} added to the delivery pipeline in the period.")
-    if closed_30d:
-        signals.append(f"{closed_30d} task{'s reached' if closed_30d != 1 else ' reached'} closure, providing an auditable completion signal.")
-    if overdue:
-        signals.append(f"{len(overdue)} open task{'s are' if len(overdue) != 1 else ' is'} past due and should receive management attention.")
-    if unassigned:
-        signals.append(f"{len(unassigned)} task{'s lack' if len(unassigned) != 1 else ' lacks'} a named assignee, creating an ownership gap.")
-    if not signals:
-        signals.append("No exception or movement signal could be derived from the currently visible records.")
-    story += [Paragraph("Board interpretation", h2), Paragraph(" ".join(signals), callout), Spacer(1, 4 * mm)]
-    story.append(Table([[_status_chart(status_counts), _work_hours_chart(work_hours_by_day, period_start, generated_at)]], colWidths=[90 * mm, 90 * mm], style=[("VALIGN", (0, 0), (-1, -1), "TOP"), ("BOX", (0, 0), (-1, -1), 0.5, colors.HexColor("#DDE4ED"))]))
 
-    story += [PageBreak(), Paragraph("Delivery health", h1)]
-    health_rows = [
-        ["Indicator", "Result", "Board meaning"],
-        ["Portfolio completion", f"{completion_rate:.1f}%", f"{status_counts.get('CLOSED', 0)} of {len(tasks)} visible tasks are closed."],
-        ["Work in motion", str(status_counts.get("IN PROGRESS", 0) + status_counts.get("CLOSE REQUESTED", 0)), "Tasks actively being worked or awaiting closure review."],
-        ["Overdue exposure", str(len(overdue)), "Open tasks whose end date is before the report date."],
-        ["Unassigned exposure", str(len(unassigned)), "Tasks without a named accountable assignee."],
-        ["Stakeholder coverage", f"{stakeholder_coverage}/{len(projects)}", "Projects with a named stakeholder."],
-        ["Recorded work", f"{hours_30d:,.1f} hours", "Work-log hours created or dated within the last 30 days."],
-        ["Recorded movement", str(len(delivery_events)), "Task creation, workflow, work-log, comment, assignment and due-date events."],
+    # Page 2: Strategic portfolio.
+    story += [PageBreak(), Paragraph("Strategic Portfolio and Organizational Value", s["h1"]), Paragraph("Strategic alignment and outcome data are not yet captured consistently in the product. The table below is deliberately transparent and does not infer value from task activity.", s["callout"])]
+    priority = sorted(model.projects, key=lambda p: _text(p.get("project_name")).casefold())[:10]
+    rows = [["Priority project", "Accountable owner", "Sponsor", "Objective", "Health", "Next milestone", "Outcome/evidence"]]
+    for project in priority:
+        rows.append([project.get("project_name"), project.get("accountable_owner") or NOT_CAPTURED, project.get("executive_sponsor") or NOT_CAPTURED, project.get("strategic_objective") or NOT_CAPTURED, project.get("health") or NOT_CAPTURED, project.get("next_milestone") or NOT_CAPTURED, project.get("outcome_evidence") or NOT_CAPTURED])
+    if len(rows) == 1: rows.append(["No projects in scope", NOT_AVAILABLE, NOT_AVAILABLE, NOT_AVAILABLE, NOT_AVAILABLE, NOT_AVAILABLE, NOT_AVAILABLE])
+    story += [Spacer(1, 4 * mm), _table(rows, [34 * mm, 25 * mm, 22 * mm, 27 * mm, 20 * mm, 25 * mm, 27 * mm], s), Spacer(1, 5 * mm), Paragraph("Management portfolio commentary", s["h2"]), Paragraph(commentary.get("portfolio", "No strategic portfolio commentary supplied."), s["body"])]
+
+    # Page 3: Performance and predictability.
+    story += [PageBreak(), Paragraph("Delivery Performance and Predictability", s["h1"]), _workflow_bar(model)]
+    performance = [
+        ["Measure", "Value", "Type / interpretation"], ["Current closed-task rate", f'{snapshot["closed_task_rate"] or 0:.1f}%', "Snapshot; portfolio-state indicator, not performance against plan"],
+        ["Current work in motion", snapshot["work_in_motion"], "Snapshot: In Progress plus Close Review"], ["Closure events in period", movement["closure_event_count"], "Movement: event count, not unique throughput"],
+        ["Unique tasks with closure events", movement["unique_closed_task_count"], "Movement; distinct current task IDs represented"], ["Recorded workflow events", movement["workflow_event_count"], "Traceability signal; not value or productivity"],
+        ["Self-reported work-log hours", f'{movement["self_reported_hours"]:.1f}h', "Participation evidence; not individual productivity"], ["On-time completion", NOT_AVAILABLE, "Requires original due dates and closure timestamps"],
+        ["Cycle time / lead time", NOT_AVAILABLE, "Requires reliable lifecycle timestamps"],
     ]
-    story += [_data_table(health_rows, [42 * mm, 28 * mm, 110 * mm]), Spacer(1, 6 * mm)]
-    story += [Paragraph("Management attention", h2)]
-    exception_rows = [["Project", "Task", "Owner", "Status", "Due date", "Signal"]]
-    for task in sorted(overdue + [task for task in unassigned if task not in overdue], key=lambda item: (_parse_date(item.get("end_date")) or today, item.get("project_name", "")))[:20]:
-        signals_for_task = []
-        if task in overdue:
-            signals_for_task.append("Overdue")
-        if task in unassigned:
-            signals_for_task.append("Unassigned")
-        exception_rows.append([_truncate(task.get("project_name"), 24), _truncate(task.get("task_title"), 34), _truncate(_name(task, "assigned_to"), 24), task.get("status") or "OPEN", str(task.get("end_date") or "-"), ", ".join(signals_for_task)])
-    if len(exception_rows) == 1:
-        exception_rows.append(["-", "No overdue or unassigned tasks", "-", "-", "-", "No current exception"])
-    story.append(_data_table(exception_rows, [28 * mm, 48 * mm, 31 * mm, 24 * mm, 22 * mm, 27 * mm]))
+    story += [_table(performance, [53 * mm, 34 * mm, 93 * mm], s), Spacer(1, 4 * mm), Paragraph("Closure reconciliation", s["h2"])]
+    rec = model.reconciliation
+    story += [_table([["Closure events", "Distinct task IDs", "Currently Closed", "Reopened", "Repeated closures", "Removed/archive"], [rec["closure_event_count"], rec["unique_closed_task_count"], rec["currently_closed_count"], rec["reopened_task_count"], rec["repeated_closure_event_count"], NOT_AVAILABLE]], [30 * mm] * 6, s), Paragraph(rec["note"], s["small"])]
 
-    story += [PageBreak(), Paragraph("People and participation", h1)]
-    story.append(Paragraph("Participation is evidenced by named task events and work logs. Event volume is an activity signal, not a proxy for individual performance or value delivered.", body))
-    people = sorted(
-        active_contributors,
-        key=lambda name: (-contributor_hours[name], name.casefold()),
-    )
-    people_rows = [["Contributor", "Recorded events", "Hours logged", "Evidence mix"]]
-    for person in people:
-        evidence = []
-        if contributor_events[person]:
-            evidence.append("workflow/activity")
-        if contributor_hours[person]:
-            evidence.append("work logs")
-        people_rows.append([_truncate(person, 42), contributor_events[person], f"{contributor_hours[person]:,.1f}", " + ".join(evidence)])
-    if len(people_rows) == 1:
-        people_rows.append(["No named contributor activity in period", "0", "0.0", "No evidence available"])
-    story += [_data_table(people_rows, [68 * mm, 33 * mm, 32 * mm, 47 * mm]), Spacer(1, 6 * mm), Paragraph("Project accountability", h2)]
-    project_rows = [["Project", "Status", "Stakeholder", "Watchers", "Tasks", "Closed", "Exceptions"]]
-    details_by_id = {project.get("id"): project for project in data.get("project_details") or []}
-    for project in projects:
-        project_tasks = list((details_by_id.get(project.get("id")) or {}).get("tasks") or [])
-        exceptions = sum(1 for task in project_tasks if task in overdue or task in unassigned)
-        watchers = project.get("watchers") or []
-        project_rows.append([_truncate(project.get("project_name"), 32), project.get("status") or "ACTIVE", _truncate(_name(project, "stakeholder"), 26), str(len(watchers)), str(len(project_tasks)), str(sum(1 for task in project_tasks if str(task.get("status") or "").upper() == "CLOSED")), str(exceptions)])
-    if len(project_rows) == 1:
-        project_rows.append(["No projects visible", "-", "-", "0", "0", "0", "0"])
-    story.append(_data_table(project_rows, [43 * mm, 22 * mm, 43 * mm, 18 * mm, 17 * mm, 17 * mm, 20 * mm]))
+    # Page 4: Risks and recovery.
+    story += [PageBreak(), Paragraph("Material Delivery Risks and Recovery Actions", s["h1"]), Paragraph("Operational exceptions are sorted by overdue age. Strategic importance, impact and recovery confidence are not yet captured and require management input before board prioritization.", s["body"])]
+    risk_rows = [["Project / task", "Owner", "Status", "Due", "Days overdue", "Priority / impact", "Recovery / support"]]
+    for task in sorted(model.overdue_tasks, key=lambda item: parse_date(item.get("end_date")) or model.generated_at.date())[:12]:
+        due = parse_date(task.get("end_date")); days = (model.generated_at.date() - due).days if due else "-"
+        risk_rows.append([f'{task.get("project_name")} / {task.get("task_title")}', _person(task, "assigned_to"), display_status(task.get("status")), due.strftime("%d %b %Y") if due else "-", days, "Management input required", "Management input required"])
+    if len(risk_rows) == 1: risk_rows.append(["No current overdue tasks", "-", "-", "-", "-", "-", "-"])
+    story += [_table(risk_rows, [49 * mm, 25 * mm, 21 * mm, 20 * mm, 18 * mm, 25 * mm, 22 * mm], s), Spacer(1, 5 * mm), Paragraph("Required recovery fields", s["h2"]), Paragraph("For each material exception: blocker/cause, stakeholder impact, revised recovery date, recovery confidence, next action, recovery owner and required leadership support.", s["callout"])]
 
-    story += [PageBreak(), Paragraph("Evidence register", h1)]
-    story.append(Paragraph("All recorded delivery events in the reporting window provide traceability from portfolio claims back to operational actions.", body))
-    event_rows = [["When (UTC)", "Project", "Task", "Event", "Actor", "Evidence note"]]
-    for task, log, parsed in sorted(delivery_events, key=lambda item: item[2], reverse=True):
-        event_rows.append([parsed.strftime("%d %b %Y\n%H:%M"), _truncate(task.get("project_name"), 22), _truncate(task.get("task_title"), 27), _truncate(str(log.get("event_type") or "").replace("_", " ").title(), 24), _truncate(_name(log, "actor"), 22), _truncate(log.get("event_note"), 38)])
-    if len(event_rows) == 1:
-        event_rows.append(["-", "-", "No events in period", "-", "-", "-"])
-    story.append(_data_table(event_rows, [23 * mm, 31 * mm, 39 * mm, 31 * mm, 29 * mm, 27 * mm]))
+    # Page 5: Governance.
+    story += [PageBreak(), Paragraph("Portfolio Accountability and Governance", s["h1"]), Paragraph("A named stakeholder is not automatically an accountable owner or executive sponsor. Those roles remain separate and must be explicitly captured.", s["body"])]
+    details = {item.get("id"): item for item in data.get("project_details") or []}
+    gov = [["Project", "Owner", "Sponsor", "Health", "Tasks", "Closed", "Overdue", "Next milestone / issue"]]
+    for project in sorted(model.projects, key=lambda p: _text(p.get("project_name")).casefold())[:14]:
+        project_tasks = details.get(project.get("id"), {}).get("tasks") or []
+        overdue_count = sum(1 for task in model.overdue_tasks if task.get("project_id") == project.get("id"))
+        gov.append([project.get("project_name"), project.get("accountable_owner") or NOT_CAPTURED, project.get("executive_sponsor") or NOT_CAPTURED, project.get("health") or NOT_CAPTURED, len(project_tasks), sum(str(task.get("status") or "").upper() == "CLOSED" for task in project_tasks), overdue_count, project.get("next_milestone") or ("Management attention" if overdue_count else NOT_CAPTURED)])
+    story += [_table(gov, [38 * mm, 24 * mm, 22 * mm, 18 * mm, 13 * mm, 14 * mm, 15 * mm, 36 * mm], s), Spacer(1, 4 * mm)]
+    story.append(_table([["Governance indicator", "Result", "Meaning"], ["Task assignment coverage", f'{snapshot["assignment_coverage"] or 0:.1f}%', "Current named task owners"], ["Project stakeholder coverage", f'{snapshot["stakeholder_coverage"] or 0:.1f}%', "Current named stakeholders; not owner coverage"], ["Accountable-owner coverage", NOT_AVAILABLE, "Field not yet populated"], ["Data-hygiene flags", len(model.validation_flags), "Records requiring validation, not automatic deletion"]], [55 * mm, 33 * mm, 92 * mm], s))
 
-    story += [PageBreak(), Paragraph("Metric definitions and data assurance", h1)]
-    definitions = [
-        ("Active portfolio", "Count of projects returned by the authorized dashboard snapshot."),
-        ("Delivery pipeline", "Count of tasks returned across those projects, regardless of status."),
-        ("Closed in period", "Count of TASK_CLOSED access-log events timestamped in the last 30 days."),
-        ("Delivery events", "Task creation, work start, close request, closure, work logging, comment, assignment change and due-date change events in the last 30 days."),
-        ("Contributors", "Distinct named actors in delivery events plus named people with work logs in the period."),
-        ("Overdue", "A non-closed task with an end date before the UTC report date."),
-        ("Completion", "Current closed tasks divided by all current visible tasks; this is a portfolio snapshot, not period throughput."),
+    # Page 6: Outcomes and learning.
+    story += [PageBreak(), Paragraph("Delivered Outcomes and Learning", s["h1"]), Paragraph("Task closure is a delivery output unless accepted outcome evidence demonstrates a business, customer or stakeholder result.", s["callout"])]
+    closed = [task for task in model.tasks if str(task.get("status") or "").upper() == "CLOSED"][:4]
+    outcome_rows = [["Delivery output", "Problem/objective", "Completion evidence", "Acceptance owner", "Outcome/impact", "Learning / next step"]]
+    for task in closed:
+        outcome_rows.append([f'{task.get("project_name")} / {task.get("task_title")}', task.get("strategic_objective") or NOT_CAPTURED, task.get("completion_evidence") or NOT_CAPTURED, task.get("acceptance_owner") or NOT_CAPTURED, task.get("realized_outcome") or NOT_CAPTURED, task.get("learning") or NOT_CAPTURED])
+    if len(outcome_rows) == 1: outcome_rows.append(["No closed outputs in current snapshot", NOT_AVAILABLE, NOT_AVAILABLE, NOT_AVAILABLE, NOT_AVAILABLE, NOT_AVAILABLE])
+    story += [Spacer(1, 5 * mm), _table(outcome_rows, [40 * mm, 28 * mm, 31 * mm, 24 * mm, 28 * mm, 29 * mm], s), Spacer(1, 6 * mm), Paragraph("Management outcome commentary", s["h2"]), Paragraph(commentary.get("outcomes", "No management-confirmed outcome narrative supplied."), s["body"])]
+
+    # Page 7: Assurance and roadmap.
+    story += [PageBreak(), Paragraph("Data Assurance, Definitions and Reporting Roadmap", s["h1"])]
+    definitions = [["Metric", "Definition / source"], ["Current tasks", "Tasks in the authorized dashboard snapshot at cutoff."], ["Current closed-task rate", "Current Closed tasks divided by all current visible tasks."], ["Closure events in period", "TASK_CLOSED access-log events timestamped in the reporting window."], ["Overdue non-closed rate", "Current overdue non-closed tasks divided by all current non-closed tasks."], ["Recorded workflow events", "Recorded access-log events; demonstrates usage and traceability, not value or productivity."], ["Self-reported work-log hours", "Hours entered by users within the period; not an individual productivity measure."], ["Business timezone", "UTC in this export; audit timestamps retain UTC."]]
+    story += [_table(definitions, [48 * mm, 132 * mm], s), Spacer(1, 4 * mm), Paragraph("Validation summary", s["h2"])]
+    flags = [["Flag", "Record", "Review required"]] + [[flag["type"].replace("_", " ").title(), flag["record"], flag["message"]] for flag in model.validation_flags[:10]]
+    if len(flags) == 1: flags.append(["No automated flags", "-", "Human assurance remains required"])
+    story += [_table(flags, [42 * mm, 55 * mm, 83 * mm], s), Spacer(1, 4 * mm), Paragraph("Known limitations and roadmap", s["h2"])]
+    limitations = [
+        "Project and task creation timestamps are not consistently exposed in dashboard response objects; historical creation can be understated when events are missing.",
+        "Work-log hours are self-reported. Event and hour volume must not be used for individual productivity rankings.",
+        "Status and due-date accuracy depends on timely updates.",
+        "Revenue, budget, cost, benefit, milestone, dependency, priority, risk, quality, defect, customer outcome and strategic-objective data are not consistently captured.",
+        "The full immutable evidence register is available as a separate CSV export; this report includes only assurance summaries.",
     ]
-    story.append(_data_table([["Metric", "Definition"]] + [[name, definition] for name, definition in definitions], [42 * mm, 138 * mm]))
-    story += [Spacer(1, 6 * mm), Paragraph("Data assurance notes", h2)]
-    notes = [
-        "This PDF is generated from the same authorized dashboard dataset available to the requesting user; it is not based on client-entered report figures.",
-        "The repository does not currently expose project/task creation timestamps in dashboard response objects. Period creation is therefore derived from TASK_CREATED access events; historical records without backfilled events may be understated.",
-        "No budget, cost, revenue, benefit, milestone, dependency, priority, risk, quality/defect, customer outcome or strategic objective fields exist in the reviewed product. The report must not imply financial or outcome performance from activity alone.",
-        "Work-log hours are self-reported operational evidence. Event and hour volume should not be used as an individual productivity ranking.",
-        "Status and due-date accuracy depends on timely user updates. Board interpretation should be accompanied by management commentary for material projects.",
-    ]
-    for note in notes:
-        story.append(Paragraph(f"- {note}", body))
-    story += [Spacer(1, 5 * mm), Paragraph("Recommended next reporting capabilities", h2), Paragraph("Add strategic objective, sponsor, accountable owner, planned/actual milestone dates, priority, health/RAG, budget/forecast/actual, expected benefit, realized outcome, dependency, risk, issue and quality fields. Preserve immutable lifecycle timestamps and publish a server-side reporting API with explicit period and portfolio filters. These additions would move the report from evidence of activity to evidence of strategic execution and value.", body)]
+    for item in limitations: story.append(Paragraph(f"- {item}", s["body"]))
+    story += [Spacer(1, 3 * mm), Paragraph("Nexora has established a functioning and traceable delivery operating system with visible task ownership and recorded completion activity. The next stage is to improve predictability, data quality, strategic alignment and measurable outcome reporting.", s["callout"])]
 
-    document.build(story, onFirstPage=footer, onLaterPages=footer)
-    return buffer.getvalue()
+    doc.build(story, onFirstPage=_footer, onLaterPages=_footer)
+    return out.getvalue()

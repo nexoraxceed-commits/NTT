@@ -208,10 +208,6 @@ const adminOnlyPaths = new Set([
   document.querySelectorAll("[data-management-only]").forEach((element) => {
     element.hidden = !canManageWork;
   });
-  const reportButton = document.querySelector("#download-analytics-button");
-  if (reportButton) {
-    reportButton.hidden = !isAdmin;
-  }
 }
 
 async function logout() {
@@ -1921,6 +1917,10 @@ function setupBatchesPage() {
   const form = document.querySelector("#batch-run-form");
   const batchSelect = document.querySelector("#batch_name");
   const messageElement = document.querySelector("#batch-run-message");
+  const userClassesField = document.querySelector("#batch-user-classes");
+  const reportDatesField = document.querySelector("#batch-report-dates");
+  const startDateInput = document.querySelector("#batch_start_date");
+  const endDateInput = document.querySelector("#batch_end_date");
   if (!form || !batchSelect) {
     return;
   }
@@ -1930,13 +1930,31 @@ function setupBatchesPage() {
     return;
   }
 
+  const formatBatchName = (batchName) =>
+    batchName === "monthly_report" ? "Monthly Report" : "Backlog";
+
+  const updateBatchControls = () => {
+    const isMonthlyReport = batchSelect.value === "monthly_report";
+    userClassesField.hidden = isMonthlyReport;
+    reportDatesField.hidden = !isMonthlyReport;
+    startDateInput.required = isMonthlyReport;
+    endDateInput.required = isMonthlyReport;
+  };
+
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  startDateInput.value = `${year}-${month}-01`;
+  endDateInput.value = `${year}-${month}-${day}`;
+
   getAuthorizedJson("/admin/batches")
     .then((data) => {
       batchSelect.innerHTML = "";
       (data.batches || []).forEach((batchName) => {
         const option = document.createElement("option");
         option.value = batchName;
-        option.textContent = batchName;
+        option.textContent = formatBatchName(batchName);
         batchSelect.append(option);
       });
       if (!batchSelect.options.length) {
@@ -1946,12 +1964,15 @@ function setupBatchesPage() {
         batchSelect.append(option);
         batchSelect.disabled = true;
       }
+      updateBatchControls();
     })
     .catch((error) => {
       batchSelect.innerHTML = '<option value="">Could not load batches</option>';
       batchSelect.disabled = true;
       setMessage(messageElement, error.message, true);
     });
+
+  batchSelect.addEventListener("change", updateBatchControls);
 
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -1962,8 +1983,17 @@ function setupBatchesPage() {
       setMessage(messageElement, "Select a batch.", true);
       return;
     }
-    if (!selectedClasses.length) {
+    const isMonthlyReport = batchSelect.value === "monthly_report";
+    if (!isMonthlyReport && !selectedClasses.length) {
       setMessage(messageElement, "Select at least one user class.", true);
+      return;
+    }
+    if (isMonthlyReport && (!startDateInput.value || !endDateInput.value)) {
+      setMessage(messageElement, "Select both a start date and an end date.", true);
+      return;
+    }
+    if (isMonthlyReport && startDateInput.value > endDateInput.value) {
+      setMessage(messageElement, "Start date cannot be after end date.", true);
       return;
     }
 
@@ -1971,6 +2001,31 @@ function setupBatchesPage() {
     setButtonBusy(submitButton, true);
     setMessage(messageElement, "Running batch...");
     try {
+      if (isMonthlyReport) {
+        const response = await authorizedFile("/admin/batches/monthly-report", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            batch_name: batchSelect.value,
+            start_date: startDateInput.value,
+            end_date: endDateInput.value,
+          }),
+        });
+        const blob = await response.blob();
+        const disposition = response.headers.get("Content-Disposition") || "";
+        const filenameMatch = disposition.match(/filename="?([^";]+)"?/i);
+        const filename = filenameMatch?.[1] || "nexora-monthly-delivery-report.pdf";
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = filename;
+        document.body.append(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(url);
+        setMessage(messageElement, "Monthly report generated and downloaded.");
+        return;
+      }
       const data = await postAuthorizedJson("/admin/batches/run", {
         batch_name: batchSelect.value,
         user_classes: selectedClasses,
@@ -2673,7 +2728,6 @@ function setupDashboardProjects() {
     document.querySelector("#tasks-message");
   const refreshButton = document.querySelector("#refresh-projects-button");
   const analyticsElement = document.querySelector("#dashboard-analytics");
-  const downloadButton = document.querySelector("#download-analytics-button");
   const deleteAccessLogButton = document.querySelector("#delete-access-log-button");
   const projectCountElement = document.querySelector("#project-count");
   let dashboardProjects = [];
@@ -2697,7 +2751,7 @@ function setupDashboardProjects() {
   };
   let workLogRange = currentMonthRange();
 
-  if (!projectList && !taskList && !analyticsElement && !downloadButton) {
+  if (!projectList && !taskList && !analyticsElement) {
     return;
   }
 
@@ -3183,31 +3237,6 @@ function setupDashboardProjects() {
       }
     }
   }
-
-  downloadButton?.addEventListener("click", async () => {
-    setButtonBusy(downloadButton, true);
-    setMessage(messageElement, "Preparing board report...");
-    try {
-      const response = await authorizedFile("/reports/board.pdf", { method: "GET" });
-      const blob = await response.blob();
-      const disposition = response.headers.get("Content-Disposition") || "";
-      const filenameMatch = disposition.match(/filename="?([^";]+)"?/i);
-      const filename = filenameMatch?.[1] || "nexora-board-delivery-report.pdf";
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = filename;
-      document.body.append(link);
-      link.click();
-      link.remove();
-      URL.revokeObjectURL(url);
-      setMessage(messageElement, "Board report downloaded.");
-    } catch (error) {
-      setMessage(messageElement, error.message, true);
-    } finally {
-      setButtonBusy(downloadButton, false);
-    }
-  });
 
   deleteAccessLogButton?.addEventListener("click", async () => {
     if (!window.confirm("Delete all task access logs?")) {

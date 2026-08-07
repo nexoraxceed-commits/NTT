@@ -1,3 +1,5 @@
+from datetime import date
+
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -231,7 +233,9 @@ class BatchCatalogResponse(BaseModel):
 
 class RunBatchRequest(BaseModel):
     batch_name: str = Field(min_length=1, max_length=80)
-    user_classes: list[str] = Field(min_length=1, max_length=3)
+    user_classes: list[str] = Field(default_factory=list, max_length=3)
+    start_date: date | None = None
+    end_date: date | None = None
 
 
 class PushSubscriptionKeys(BaseModel):

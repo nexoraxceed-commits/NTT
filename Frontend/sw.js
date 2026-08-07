@@ -1,4 +1,4 @@
-const NEXORA_CACHE_VERSION = "nexora-push-app-v21";
+const NEXORA_CACHE_VERSION = "nexora-push-app-v22";
 const STATIC_CACHE = `${NEXORA_CACHE_VERSION}:static`;
 const PAGE_CACHE = `${NEXORA_CACHE_VERSION}:pages`;
 
@@ -8,7 +8,7 @@ const STATIC_ASSETS = [
   "/manifest.webmanifest",
   "/Css/styles.css?v=20260804-worklog-range",
   "/Js/config.js?v=20260723-user-classes",
-  "/Js/app.js?v=20260804-worklog-range",
+  "/Js/app.js?v=20260808-monthly-report",
   "/Js/dino-game.js?v=20260728-arcade-layout",
   "/Js/reset-password.js?v=20260723-user-classes",
   "/icons/icon-72.png?v=20260723-user-classes",

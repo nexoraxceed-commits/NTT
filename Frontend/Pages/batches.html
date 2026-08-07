@@ -26,7 +26,7 @@
         <div class="section-header">
           <div>
             <h2 id="run-batch-title">Run a batch</h2>
-            <p class="meta-text">Run an available batch and limit reminder recipients by user class.</p>
+            <p class="meta-text">Run an administrative process or generate a report for a selected period.</p>
           </div>
         </div>
         <form class="project-form" id="batch-run-form" novalidate>
@@ -36,7 +36,7 @@
               <option value="">Loading batches...</option>
             </select>
           </div>
-          <fieldset class="form-field batch-class-fieldset">
+          <fieldset class="form-field batch-class-fieldset" id="batch-user-classes">
             <legend>User classes</legend>
             <div class="checkbox-list compact">
               <label class="checkbox-option"><input type="checkbox" name="user_classes" value="SENIOR" checked> Senior</label>
@@ -44,6 +44,16 @@
               <label class="checkbox-option"><input type="checkbox" name="user_classes" value="ADMIN" checked> Admin</label>
             </div>
           </fieldset>
+          <div class="form-grid" id="batch-report-dates" hidden>
+            <div class="form-field">
+              <label for="batch_start_date">Start date</label>
+              <input id="batch_start_date" name="start_date" type="date">
+            </div>
+            <div class="form-field">
+              <label for="batch_end_date">End date</label>
+              <input id="batch_end_date" name="end_date" type="date">
+            </div>
+          </div>
           <div class="inline-actions">
             <button class="btn btn-primary" type="submit">Run</button>
             <p class="form-message" id="batch-run-message" role="status" aria-live="polite"></p>
@@ -52,6 +62,6 @@
       </section>
     </main>
     <script src="/Js/config.js?v=20260723-user-classes"></script>
-    <script src="/Js/app.js?v=20260804-batches"></script>
+    <script src="/Js/app.js?v=20260808-monthly-report"></script>
   </body>
 </html>

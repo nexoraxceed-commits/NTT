@@ -12,6 +12,8 @@ from supabase import Client
 
 from app.cache import backend_cache
 from app.board_report import build_board_report
+from app.report_exports import build_evidence_csv
+from app.team_report import build_team_report
 from app.backlog_service import BacklogService, load_backlog_config
 from app.config import RESOURCES_ROOT, Settings, get_settings
 from app.constants import (
@@ -2432,6 +2434,8 @@ def create_app() -> FastAPI:
 
     @app.get("/reports/board.pdf")
     def download_board_report(
+        days: int = 30,
+        exclude_test_projects: bool = False,
         current_user: CurrentUser = Depends(require_admin),
         supabase_admin: Client = Depends(get_supabase_admin_client),
         app_settings: Settings = Depends(get_settings),
@@ -2440,6 +2444,8 @@ def create_app() -> FastAPI:
         report = build_board_report(
             dashboard,
             generated_for=str(getattr(current_user, "email", "") or "") or None,
+            window_days=max(7, min(days, 366)),
+            exclude_test_projects=exclude_test_projects,
         )
         filename = f"nexora-board-delivery-report-{date.today().isoformat()}.pdf"
         return Response(
@@ -2447,6 +2453,30 @@ def create_app() -> FastAPI:
             media_type="application/pdf",
             headers={"Content-Disposition": f'attachment; filename="{filename}"'},
         )
+
+    @app.get("/reports/team.pdf")
+    def download_team_report(
+        days: int = 30,
+        current_user: CurrentUser = Depends(require_admin),
+        supabase_admin: Client = Depends(get_supabase_admin_client),
+        app_settings: Settings = Depends(get_settings),
+    ) -> Response:
+        dashboard = get_dashboard_data(current_user, supabase_admin, app_settings)
+        report = build_team_report(dashboard, window_days=max(7, min(days, 366)))
+        filename = f"nexora-team-operating-report-{date.today().isoformat()}.pdf"
+        return Response(content=report, media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+
+    @app.get("/reports/evidence.csv")
+    def download_evidence_register(
+        days: int = 30,
+        current_user: CurrentUser = Depends(require_admin),
+        supabase_admin: Client = Depends(get_supabase_admin_client),
+        app_settings: Settings = Depends(get_settings),
+    ) -> Response:
+        dashboard = get_dashboard_data(current_user, supabase_admin, app_settings)
+        content = build_evidence_csv(dashboard, window_days=max(7, min(days, 366)))
+        filename = f"nexora-delivery-evidence-{date.today().isoformat()}.csv"
+        return Response(content=content, media_type="text/csv; charset=utf-8", headers={"Content-Disposition": f'attachment; filename="{filename}"'})
 
     @app.get("/projects/{project_id}", response_model=ProjectDetailResponse)
     def get_project_detail(
@@ -3876,7 +3906,7 @@ def create_app() -> FastAPI:
     def list_batches(
         _current_user: CurrentUser = Depends(require_admin),
     ) -> BatchCatalogResponse:
-        return BatchCatalogResponse(batches=["backlog"])
+        return BatchCatalogResponse(batches=["backlog", "monthly_report"])
 
     @app.post("/admin/batches/run", response_model=MessageResponse)
     def run_batch(
@@ -3911,6 +3941,61 @@ def create_app() -> FastAPI:
         )
         return MessageResponse(
             detail=f"Backlog batch completed. Reminder emails sent: {sent_count}."
+        )
+
+    @app.post("/admin/batches/monthly-report")
+    def run_monthly_report_batch(
+        payload: RunBatchRequest,
+        current_user: CurrentUser = Depends(require_admin),
+        supabase_admin: Client = Depends(get_supabase_admin_client),
+        app_settings: Settings = Depends(get_settings),
+    ) -> Response:
+        if payload.batch_name.strip().lower() != "monthly_report":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Unsupported report batch name.",
+            )
+        if payload.start_date is None or payload.end_date is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Select both a start date and an end date.",
+            )
+        if payload.start_date > payload.end_date:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Start date cannot be after end date.",
+            )
+        if (payload.end_date - payload.start_date).days > 366:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="The report date range cannot exceed 366 days.",
+            )
+
+        period_start = datetime.combine(
+            payload.start_date,
+            datetime.min.time(),
+            tzinfo=timezone.utc,
+        )
+        generated_at = datetime.combine(
+            payload.end_date,
+            datetime.max.time(),
+            tzinfo=timezone.utc,
+        )
+        dashboard = get_dashboard_data(current_user, supabase_admin, app_settings)
+        report = build_board_report(
+            dashboard,
+            generated_for=str(getattr(current_user, "email", "") or "") or None,
+            generated_at=generated_at,
+            period_start=period_start,
+        )
+        filename = (
+            "nexora-monthly-delivery-report-"
+            f"{payload.start_date.isoformat()}-to-{payload.end_date.isoformat()}.pdf"
+        )
+        return Response(
+            content=report,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
         )
 
     @app.delete("/access-logs", response_model=MessageResponse)
