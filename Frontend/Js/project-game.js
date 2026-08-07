@@ -192,7 +192,7 @@
     const delta = Math.min(32, timestamp - lastFrame || 16) / 16.67;
     lastFrame = timestamp;
     if (!paused) {
-      bird.velocity += 0.24 * delta;
+      bird.velocity += 0.25 * delta;
       bird.y += bird.velocity * delta;
       spawnTimer -= 16.67 * delta;
       if (spawnTimer <= 0) {
@@ -222,7 +222,7 @@
   function flap() {
     if (!running) return;
     if (paused) togglePause();
-    bird.velocity = -7.8;
+    bird.velocity = -4.6;
   }
 
   function start() {

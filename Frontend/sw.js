@@ -1,4 +1,4 @@
-const NEXORA_CACHE_VERSION = "nexora-project-game-v24";
+const NEXORA_CACHE_VERSION = "nexora-project-game-v25";
 const STATIC_CACHE = `${NEXORA_CACHE_VERSION}:static`;
 const PAGE_CACHE = `${NEXORA_CACHE_VERSION}:pages`;
 
