@@ -4,27 +4,17 @@
 
   const context = canvas.getContext("2d");
   const stage = document.querySelector("#project-game-stage");
-  const overlay = document.querySelector("#project-game-overlay");
-  const overlayTitle = document.querySelector("#project-game-overlay-title");
-  const overlayCopy = document.querySelector("#project-game-overlay-copy");
-  const startButton = document.querySelector("#project-game-start");
-  const flapButton = document.querySelector("#project-game-flap");
-  const pauseButton = document.querySelector("#project-game-pause");
-  const musicButton = document.querySelector("#project-game-music");
   const scoreElement = document.querySelector("#project-game-score");
-  const bestElement = document.querySelector("#project-game-best");
-  const messageElement = document.querySelector("#project-game-message");
-  const bestKey = "nexora-project-game-best-work-logs";
   const bird = { x: 45, y: 240, radius: 18, velocity: 0 };
   let projectNames = ["New Project"];
   let obstacles = [];
   let score = 0;
-  let best = Number(window.localStorage.getItem(bestKey) || 0);
   let running = false;
   let paused = false;
   let lastFrame = 0;
   let spawnTimer = 0;
   let bufferRemaining = 0;
+  let playTime = 0;
   let frameId = 0;
   let audioContext = null;
   let musicTimer = 0;
@@ -76,17 +66,33 @@
     }, 280);
   }
 
+  function playCollectSound() {
+    if (!audioContext) return;
+    [659.25, 783.99, 1046.5].forEach((frequency, index) => {
+      const oscillator = audioContext.createOscillator();
+      const gain = audioContext.createGain();
+      const startsAt = audioContext.currentTime + index * .065;
+      oscillator.type = "sine";
+      oscillator.frequency.setValueAtTime(frequency, startsAt);
+      gain.gain.setValueAtTime(.0001, startsAt);
+      gain.gain.exponentialRampToValueAtTime(.13, startsAt + .012);
+      gain.gain.exponentialRampToValueAtTime(.0001, startsAt + .14);
+      oscillator.connect(gain);
+      gain.connect(audioContext.destination);
+      oscillator.start(startsAt);
+      oscillator.stop(startsAt + .16);
+    });
+  }
+
   function stopMusic() {
     window.clearInterval(musicTimer);
     musicTimer = 0;
   }
 
-  bestElement.textContent = String(best);
-
   function resizeCanvas() {
     const ratio = window.devicePixelRatio || 1;
     const width = Math.max(300, stage.clientWidth);
-    const height = Math.max(360, Math.min(520, width * 0.54));
+    const height = Math.max(300, stage.clientHeight);
     canvas.style.width = `${width}px`;
     canvas.style.height = `${height}px`;
     canvas.width = Math.round(width * ratio);
@@ -230,15 +236,6 @@
     drawBackground();
     drawObstacles();
     drawBird();
-    if (running && bufferRemaining > 0) {
-      context.fillStyle = "rgba(31, 46, 42, .78)";
-      context.font = "800 54px system-ui, sans-serif";
-      context.textAlign = "center";
-      context.textBaseline = "middle";
-      context.fillText(Math.ceil(bufferRemaining / 1000), width() / 2, height() / 2);
-      context.font = "700 16px system-ui, sans-serif";
-      context.fillText("Get ready", width() / 2, height() / 2 + 46);
-    }
   }
 
   function finish() {
@@ -247,16 +244,6 @@
     cancelAnimationFrame(frameId);
     stopMusic();
     haptic([90, 45, 140]);
-    if (score > best) {
-      best = score;
-      window.localStorage.setItem(bestKey, String(best));
-      bestElement.textContent = String(best);
-    }
-    overlayTitle.textContent = "Project collision!";
-    overlayCopy.textContent = `You collected ${score} Work Log${score === 1 ? "" : "s"}.`;
-    startButton.textContent = "Play again";
-    overlay.hidden = false;
-    pauseButton.disabled = true;
   }
 
   function update(timestamp) {
@@ -267,21 +254,19 @@
       if (bufferRemaining > 0) {
         bufferRemaining = Math.max(0, bufferRemaining - 16.67 * delta);
         bird.velocity = 0;
-        messageElement.textContent = bufferRemaining > 0
-          ? `Starting in ${Math.ceil(bufferRemaining / 1000)}…`
-          : "Go! Collect balloons for Work Logs.";
         paint();
         frameId = requestAnimationFrame(update);
         return;
       }
       bird.velocity += 0.25 * delta;
       bird.y += bird.velocity * delta;
+      playTime += 16.67 * delta;
       spawnTimer -= 16.67 * delta;
       if (spawnTimer <= 0) {
         spawnObstacle();
-        spawnTimer = Math.max(780, 1550 - score * 20);
+        spawnTimer = Math.max(650, 2100 - playTime / 55);
       }
-      const speed = 3.5 + Math.min(4, score * 0.08);
+      const speed = 2.2 + Math.min(4.3, playTime / 18000);
       obstacles.forEach((item) => {
         item.x -= speed * delta;
         if (item.type === "balloon" && !item.collected && collides(item)) {
@@ -289,6 +274,7 @@
           score += 1;
           scoreElement.textContent = String(score);
           haptic([18, 24, 35]);
+          playCollectSound();
         }
       });
       obstacles = obstacles.filter(
@@ -318,17 +304,14 @@
   function start() {
     obstacles = [];
     score = 0;
-    spawnTimer = 650;
+    spawnTimer = 1200;
     bufferRemaining = 5000;
+    playTime = 0;
     bird.y = height() / 2;
     bird.velocity = 0;
     scoreElement.textContent = "0";
     running = true;
     paused = false;
-    overlay.hidden = true;
-    pauseButton.disabled = false;
-    pauseButton.textContent = "Pause";
-    messageElement.textContent = "Starting in 5…";
     haptic(35);
     startMusic();
     lastFrame = performance.now();
@@ -339,23 +322,10 @@
   function togglePause() {
     if (!running) return;
     paused = !paused;
-    pauseButton.textContent = paused ? "Resume" : "Pause";
-    messageElement.textContent = paused ? "Game paused." : "Game running.";
     if (paused) {
       stopMusic();
     } else {
       startMusic();
-    }
-  }
-
-  function toggleMusic() {
-    musicEnabled = !musicEnabled;
-    musicButton.setAttribute("aria-pressed", String(musicEnabled));
-    musicButton.textContent = musicEnabled ? "Music: On" : "Music: Off";
-    if (musicEnabled && running && !paused) {
-      startMusic();
-    } else {
-      stopMusic();
     }
   }
 
@@ -364,20 +334,18 @@
       const projects = await getAuthorizedJson("/projects");
       const names = projects.map((project) => String(project.project_name || "").trim()).filter(Boolean);
       if (names.length) projectNames = names;
-      messageElement.textContent = `${projectNames.length} project name${projectNames.length === 1 ? "" : "s"} loaded. Space, click, or tap to flap.`;
-    } catch (error) {
-      messageElement.textContent = "Project names could not be loaded; using a practice project.";
-    }
+    } catch (_error) {}
   }
 
-  startButton.addEventListener("click", start);
-  flapButton.addEventListener("click", flap);
-  pauseButton.addEventListener("click", togglePause);
-  musicButton.addEventListener("click", toggleMusic);
-  canvas.addEventListener("pointerdown", (event) => { event.preventDefault(); flap(); });
+  canvas.addEventListener("pointerdown", (event) => {
+    event.preventDefault();
+    ensureAudio();
+    if (running) flap(); else start();
+  });
   document.addEventListener("keydown", (event) => {
     if (event.code === "Space" || event.code === "ArrowUp") {
       event.preventDefault();
+      ensureAudio();
       if (running) flap(); else start();
     }
     if (event.code === "KeyP") togglePause();
@@ -390,5 +358,5 @@
 
   resizeCanvas();
   paint();
-  loadProjects();
+  loadProjects().finally(start);
 })();
