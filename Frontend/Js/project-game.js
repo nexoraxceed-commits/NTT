@@ -155,7 +155,8 @@
   }
 
   function spawnObstacle() {
-    if (Math.random() < 0.28) {
+    const obstacleRoll = Math.random();
+    if (obstacleRoll < 0.28) {
       const radius = 20 + Math.random() * 13;
       obstacles.push({
         type: "balloon",
@@ -164,6 +165,18 @@
         width: radius * 2,
         height: radius * 2 + 34,
         radius,
+        counted: false,
+      });
+      return;
+    }
+    if (obstacleRoll < 0.46) {
+      obstacles.push({
+        type: "crow",
+        x: width() + 30,
+        y: 50 + Math.random() * Math.max(40, height() - 150),
+        width: 62,
+        height: 42,
+        phase: Math.random() * Math.PI * 2,
         counted: false,
       });
       return;
@@ -207,6 +220,41 @@
         context.fillText("+1", centerX, centerY);
         return;
       }
+      if (item.type === "crow") {
+        const wingLift = Math.sin(performance.now() / 95 + item.phase) * 9;
+        context.save();
+        context.translate(item.x + item.width / 2, item.y + item.height / 2);
+        context.fillStyle = "#252c2a";
+        context.beginPath();
+        context.ellipse(0, 4, 23, 14, 0, 0, Math.PI * 2);
+        context.fill();
+        context.beginPath();
+        context.moveTo(-5, 2);
+        context.quadraticCurveTo(-22, -20 - wingLift, -33, -8 - wingLift);
+        context.quadraticCurveTo(-18, -5, -3, 8);
+        context.fill();
+        context.beginPath();
+        context.moveTo(5, 2);
+        context.quadraticCurveTo(22, -20 - wingLift, 33, -8 - wingLift);
+        context.quadraticCurveTo(18, -5, 3, 8);
+        context.fill();
+        context.beginPath();
+        context.arc(20, -4, 10, 0, Math.PI * 2);
+        context.fill();
+        context.fillStyle = "#f2c94c";
+        context.beginPath();
+        context.moveTo(29, -5);
+        context.lineTo(42, 0);
+        context.lineTo(29, 4);
+        context.closePath();
+        context.fill();
+        context.fillStyle = "#ffffff";
+        context.beginPath();
+        context.arc(23, -7, 2.5, 0, Math.PI * 2);
+        context.fill();
+        context.restore();
+        return;
+      }
       context.fillStyle = "#2f6f5d";
       context.beginPath();
       context.roundRect(item.x, item.y, item.width, item.height, 14);
@@ -227,6 +275,12 @@
       return (bird.x - centerX) ** 2 + (bird.y - centerY) ** 2 <
         (bird.radius + item.radius * .82) ** 2;
     }
+    if (item.type === "crow") {
+      const centerX = item.x + item.width / 2;
+      const centerY = item.y + item.height / 2;
+      return (bird.x - centerX) ** 2 + (bird.y - centerY) ** 2 <
+        (bird.radius + 22) ** 2;
+    }
     const nearestX = Math.max(item.x, Math.min(bird.x, item.x + item.width));
     const nearestY = Math.max(item.y, Math.min(bird.y, item.y + item.height));
     return (bird.x - nearestX) ** 2 + (bird.y - nearestY) ** 2 < bird.radius ** 2;
@@ -236,6 +290,18 @@
     drawBackground();
     drawObstacles();
     drawBird();
+    if (running && bufferRemaining > 0) {
+      context.fillStyle = "rgba(31, 46, 42, .82)";
+      const countdownSize = Math.max(64, Math.min(120, width() * .14));
+      context.font = `800 ${countdownSize}px system-ui, sans-serif`;
+      context.textAlign = "center";
+      context.textBaseline = "middle";
+      context.fillText(
+        String(Math.ceil(bufferRemaining / 1000)),
+        width() / 2,
+        height() / 2
+      );
+    }
   }
 
   function finish() {
@@ -268,7 +334,7 @@
       }
       const speed = 2.2 + Math.min(4.3, playTime / 18000);
       obstacles.forEach((item) => {
-        item.x -= speed * delta;
+        item.x -= speed * (item.type === "crow" ? 1.18 : 1) * delta;
         if (item.type === "balloon" && !item.collected && collides(item)) {
           item.collected = true;
           score += 1;
@@ -283,7 +349,9 @@
       if (
         bird.y - bird.radius <= 0 ||
         bird.y + bird.radius >= height() ||
-        obstacles.some((item) => item.type === "project" && collides(item))
+        obstacles.some(
+          (item) => ["project", "crow"].includes(item.type) && collides(item)
+        )
       ) {
         paint();
         finish();
