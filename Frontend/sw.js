@@ -1,4 +1,4 @@
-const NEXORA_CACHE_VERSION = "nexora-push-app-v22";
+const NEXORA_CACHE_VERSION = "nexora-project-game-v23";
 const STATIC_CACHE = `${NEXORA_CACHE_VERSION}:static`;
 const PAGE_CACHE = `${NEXORA_CACHE_VERSION}:pages`;
 
@@ -10,6 +10,7 @@ const STATIC_ASSETS = [
   "/Js/config.js?v=20260723-user-classes",
   "/Js/app.js?v=20260808-monthly-report",
   "/Js/dino-game.js?v=20260728-arcade-layout",
+  "/Js/project-game.js?v=20260808-project-game",
   "/Js/reset-password.js?v=20260723-user-classes",
   "/icons/icon-72.png?v=20260723-user-classes",
   "/icons/icon-96.png?v=20260723-user-classes",
@@ -30,6 +31,7 @@ const PAGE_ASSETS = [
   "/notifications",
   "/batches",
   "/dino-game",
+  "/project-game",
   "/create-project",
   "/edit-project",
   "/create-task",

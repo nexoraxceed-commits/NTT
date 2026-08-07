@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#2f6f5d">
+    <title>Project Game | Nexora</title>
+    <link rel="manifest" href="/manifest.webmanifest">
+    <link rel="icon" href="/icons/icon-192.png?v=20260723-user-classes" sizes="192x192" type="image/png">
+    <link rel="stylesheet" href="/Css/styles.css?v=20260808-project-game">
+  </head>
+  <body class="app-body">
+    <main class="workspace-shell project-game-shell">
+      <header class="workspace-header">
+        <div>
+          <p class="eyebrow">Admin arcade</p>
+          <h1>Project Game</h1>
+        </div>
+      </header>
+
+      <section class="workspace-panel project-game-panel" aria-labelledby="project-game-title">
+        <div class="project-game-heading">
+          <div>
+            <h2 id="project-game-title">Dodge the projects</h2>
+            <p class="meta-text">Fly through the workspace without hitting an incoming project name.</p>
+          </div>
+          <div class="project-game-score" aria-live="polite">
+            <span>Score <strong id="project-game-score">0</strong></span>
+            <span>Best <strong id="project-game-best">0</strong></span>
+          </div>
+        </div>
+
+        <div class="project-game-stage" id="project-game-stage">
+          <canvas id="project-game-canvas" width="960" height="520" aria-label="Project dodge game"></canvas>
+          <div class="project-game-overlay" id="project-game-overlay">
+            <h3 id="project-game-overlay-title">Ready to fly?</h3>
+            <p id="project-game-overlay-copy">Press Space, click, or tap to flap.</p>
+            <button class="btn btn-primary" id="project-game-start" type="button">Start game</button>
+          </div>
+        </div>
+        <div class="project-game-controls">
+          <button class="btn btn-primary" id="project-game-flap" type="button">Flap</button>
+          <button class="btn btn-secondary" id="project-game-pause" type="button" disabled>Pause</button>
+        </div>
+        <p class="form-message" id="project-game-message" role="status" aria-live="polite">Loading project names…</p>
+      </section>
+    </main>
+    <script src="/Js/config.js?v=20260723-user-classes"></script>
+    <script src="/Js/app.js?v=20260808-project-status"></script>
+    <script src="/Js/project-game.js?v=20260808-project-game"></script>
+  </body>
+</html>

@@ -28,6 +28,97 @@
   --soft-shadow: 0 18px 46px rgba(64, 72, 103, 0.08);
 }
 
+/* Admin project dodge game */
+.project-game-panel {
+  max-width: 1100px;
+  margin-inline: auto;
+}
+
+.project-game-heading,
+.project-game-score,
+.project-game-controls {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.project-game-heading {
+  justify-content: space-between;
+  margin-bottom: 1rem;
+}
+
+.project-game-heading h2 {
+  margin: 0 0 .25rem;
+}
+
+.project-game-score span {
+  min-width: 88px;
+  padding: .65rem .8rem;
+  border-radius: 12px;
+  background: var(--surface-soft, #eef6f3);
+  text-align: center;
+}
+
+.project-game-score strong {
+  display: block;
+  font-size: 1.35rem;
+}
+
+.project-game-stage {
+  position: relative;
+  overflow: hidden;
+  border: 2px solid rgba(47, 111, 93, .24);
+  border-radius: 18px;
+  background: #dff5ee;
+  touch-action: manipulation;
+}
+
+#project-game-canvas {
+  display: block;
+  width: 100%;
+}
+
+.project-game-overlay {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  padding: 1.5rem;
+  background: rgba(248, 252, 250, .88);
+  text-align: center;
+  backdrop-filter: blur(4px);
+}
+
+.project-game-overlay[hidden] {
+  display: none;
+}
+
+.project-game-overlay h3 {
+  margin: 0;
+  font-size: clamp(1.6rem, 4vw, 2.5rem);
+}
+
+.project-game-controls {
+  justify-content: center;
+  margin-top: 1rem;
+}
+
+@media (max-width: 640px) {
+  .project-game-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .project-game-score {
+    width: 100%;
+  }
+
+  .project-game-score span {
+    flex: 1;
+  }
+}
+
 * {
   box-sizing: border-box;
 }
