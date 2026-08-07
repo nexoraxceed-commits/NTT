@@ -93,9 +93,23 @@
   }
 
   function spawnObstacle() {
+    if (Math.random() < 0.28) {
+      const radius = 20 + Math.random() * 13;
+      obstacles.push({
+        type: "balloon",
+        x: width() + 30,
+        y: 45 + Math.random() * Math.max(40, height() - radius * 2 - 90),
+        width: radius * 2,
+        height: radius * 2 + 34,
+        radius,
+        counted: false,
+      });
+      return;
+    }
     const name = projectNames[Math.floor(Math.random() * projectNames.length)];
     const size = obstacleSize(name);
     obstacles.push({
+      type: "project",
       name,
       x: width() + 30,
       y: 45 + Math.random() * Math.max(40, height() - size.height - 90),
@@ -106,6 +120,26 @@
 
   function drawObstacles() {
     obstacles.forEach((item) => {
+      if (item.type === "balloon") {
+        const centerX = item.x + item.radius;
+        const centerY = item.y + item.radius;
+        const colors = ["#e86a75", "#6d72d8", "#ef9f45", "#4ba3a1"];
+        context.fillStyle = colors[Math.floor((item.y + item.radius) % colors.length)];
+        context.beginPath();
+        context.ellipse(centerX, centerY, item.radius * .82, item.radius, 0, 0, Math.PI * 2);
+        context.fill();
+        context.fillStyle = "rgba(255, 255, 255, .55)";
+        context.beginPath();
+        context.ellipse(centerX - item.radius * .28, centerY - item.radius * .3, 4, 8, -.4, 0, Math.PI * 2);
+        context.fill();
+        context.strokeStyle = "#64736e";
+        context.lineWidth = 2;
+        context.beginPath();
+        context.moveTo(centerX, item.y + item.radius * 2);
+        context.quadraticCurveTo(centerX + 9, item.y + item.height - 16, centerX, item.y + item.height);
+        context.stroke();
+        return;
+      }
       context.fillStyle = "#2f6f5d";
       context.beginPath();
       context.roundRect(item.x, item.y, item.width, item.height, 14);
@@ -120,6 +154,12 @@
   }
 
   function collides(item) {
+    if (item.type === "balloon") {
+      const centerX = item.x + item.radius;
+      const centerY = item.y + item.radius;
+      return (bird.x - centerX) ** 2 + (bird.y - centerY) ** 2 <
+        (bird.radius + item.radius * .82) ** 2;
+    }
     const nearestX = Math.max(item.x, Math.min(bird.x, item.x + item.width));
     const nearestY = Math.max(item.y, Math.min(bird.y, item.y + item.height));
     return (bird.x - nearestX) ** 2 + (bird.y - nearestY) ** 2 < bird.radius ** 2;
@@ -152,7 +192,7 @@
     const delta = Math.min(32, timestamp - lastFrame || 16) / 16.67;
     lastFrame = timestamp;
     if (!paused) {
-      bird.velocity += 0.48 * delta;
+      bird.velocity += 0.24 * delta;
       bird.y += bird.velocity * delta;
       spawnTimer -= 16.67 * delta;
       if (spawnTimer <= 0) {

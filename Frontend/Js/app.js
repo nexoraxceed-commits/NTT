@@ -64,9 +64,6 @@ const dashboardPages = new Set([
   "/dino-game",
   "/dino-game.html",
   "/Pages/dino-game.html",
-  "/project-game",
-  "/project-game.html",
-  "/Pages/project-game.html",
 ]);
 
 function normalizePath(pathname) {
@@ -191,9 +188,6 @@ const adminOnlyPaths = new Set([
   "/batches",
   "/batches.html",
   "/Pages/batches.html",
-  "/project-game",
-  "/project-game.html",
-  "/Pages/project-game.html",
 ]);
   if (
     userClass &&
@@ -1702,10 +1696,9 @@ function setupWorkspaceNavigation() {
     { href: "/post-login", label: "Dashboard", key: "dashboard" },
     { href: "/projects", label: "Projects", key: "projects" },
     { href: "/tasks", label: "Tasks", key: "tasks" },
-    //{ href: "/dino-game", label: "Game of the Day", key: "game" },
+    { href: "/project-game", label: "Project Game", key: "game" },
   ];
   if (String(getSession()?.userClass || "").toUpperCase() === "ADMIN") {
-    links.push({ href: "/project-game", label: "Project Game", key: "game" });
     links.push({ href: "/users-admin", label: "Users", key: "users" });
     links.push({ href: "/batches", label: "Batches", key: "batches" });
   }
