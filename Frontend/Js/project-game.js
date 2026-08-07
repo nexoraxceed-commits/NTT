@@ -10,6 +10,7 @@
   const startButton = document.querySelector("#project-game-start");
   const flapButton = document.querySelector("#project-game-flap");
   const pauseButton = document.querySelector("#project-game-pause");
+  const musicButton = document.querySelector("#project-game-music");
   const scoreElement = document.querySelector("#project-game-score");
   const bestElement = document.querySelector("#project-game-best");
   const messageElement = document.querySelector("#project-game-message");
@@ -25,6 +26,60 @@
   let spawnTimer = 0;
   let bufferRemaining = 0;
   let frameId = 0;
+  let audioContext = null;
+  let musicTimer = 0;
+  let musicStep = 0;
+  let musicEnabled = true;
+
+  function haptic(pattern) {
+    if (typeof navigator.vibrate === "function") {
+      navigator.vibrate(pattern);
+    }
+  }
+
+  function ensureAudio() {
+    if (!audioContext) {
+      const AudioContext = window.AudioContext || window.webkitAudioContext;
+      if (AudioContext) audioContext = new AudioContext();
+    }
+    if (audioContext?.state === "suspended") {
+      audioContext.resume().catch(() => {});
+    }
+  }
+
+  function playMusicNote(frequency, duration = .16) {
+    if (!audioContext || !musicEnabled || paused || !running) return;
+    const oscillator = audioContext.createOscillator();
+    const gain = audioContext.createGain();
+    oscillator.type = "triangle";
+    oscillator.frequency.value = frequency;
+    gain.gain.setValueAtTime(.0001, audioContext.currentTime);
+    gain.gain.exponentialRampToValueAtTime(.055, audioContext.currentTime + .015);
+    gain.gain.exponentialRampToValueAtTime(.0001, audioContext.currentTime + duration);
+    oscillator.connect(gain);
+    gain.connect(audioContext.destination);
+    oscillator.start();
+    oscillator.stop(audioContext.currentTime + duration + .02);
+  }
+
+  function startMusic() {
+    if (!musicEnabled) return;
+    ensureAudio();
+    window.clearInterval(musicTimer);
+    const melody = [261.63, 329.63, 392, 329.63, 293.66, 349.23, 440, 349.23];
+    playMusicNote(melody[musicStep % melody.length]);
+    musicTimer = window.setInterval(() => {
+      if (running && !paused && !document.hidden) {
+        musicStep += 1;
+        playMusicNote(melody[musicStep % melody.length]);
+      }
+    }, 280);
+  }
+
+  function stopMusic() {
+    window.clearInterval(musicTimer);
+    musicTimer = 0;
+  }
 
   bestElement.textContent = String(best);
 
@@ -190,6 +245,8 @@
     running = false;
     paused = false;
     cancelAnimationFrame(frameId);
+    stopMusic();
+    haptic([90, 45, 140]);
     if (score > best) {
       best = score;
       window.localStorage.setItem(bestKey, String(best));
@@ -231,6 +288,7 @@
           item.collected = true;
           score += 1;
           scoreElement.textContent = String(score);
+          haptic([18, 24, 35]);
         }
       });
       obstacles = obstacles.filter(
@@ -254,6 +312,7 @@
     if (!running || bufferRemaining > 0) return;
     if (paused) togglePause();
     bird.velocity = -4.6;
+    haptic(12);
   }
 
   function start() {
@@ -270,6 +329,8 @@
     pauseButton.disabled = false;
     pauseButton.textContent = "Pause";
     messageElement.textContent = "Starting in 5…";
+    haptic(35);
+    startMusic();
     lastFrame = performance.now();
     cancelAnimationFrame(frameId);
     frameId = requestAnimationFrame(update);
@@ -280,6 +341,22 @@
     paused = !paused;
     pauseButton.textContent = paused ? "Resume" : "Pause";
     messageElement.textContent = paused ? "Game paused." : "Game running.";
+    if (paused) {
+      stopMusic();
+    } else {
+      startMusic();
+    }
+  }
+
+  function toggleMusic() {
+    musicEnabled = !musicEnabled;
+    musicButton.setAttribute("aria-pressed", String(musicEnabled));
+    musicButton.textContent = musicEnabled ? "Music: On" : "Music: Off";
+    if (musicEnabled && running && !paused) {
+      startMusic();
+    } else {
+      stopMusic();
+    }
   }
 
   async function loadProjects() {
@@ -296,6 +373,7 @@
   startButton.addEventListener("click", start);
   flapButton.addEventListener("click", flap);
   pauseButton.addEventListener("click", togglePause);
+  musicButton.addEventListener("click", toggleMusic);
   canvas.addEventListener("pointerdown", (event) => { event.preventDefault(); flap(); });
   document.addEventListener("keydown", (event) => {
     if (event.code === "Space" || event.code === "ArrowUp") {
@@ -308,6 +386,7 @@
   document.addEventListener("visibilitychange", () => {
     if (document.hidden && running && !paused) togglePause();
   });
+  window.addEventListener("pagehide", stopMusic);
 
   resizeCanvas();
   paint();
