@@ -1073,7 +1073,17 @@ function createStatusBadge(status) {
   badge.className = `status-badge status-${normalizedStatus
     .toLowerCase()
     .replaceAll(" ", "-")}`;
-  badge.textContent = normalizedStatus;
+  const labels = {
+    OPEN: "Open",
+    "IN PROGRESS": "In progress",
+    "CLOSE REQUESTED": "Awaiting close",
+    CLOSED: "Closed",
+    OVERDUE: "Overdue",
+    ACTIVE: "Open",
+  };
+  badge.textContent =
+    labels[normalizedStatus] ||
+    normalizedStatus.charAt(0) + normalizedStatus.slice(1).toLowerCase();
   return badge;
 }
 
@@ -1791,10 +1801,15 @@ function setupWorkspaceNavigation() {
     const brand = document.createElement("div");
     brand.className = "workspace-brand-lockup";
 
-    const brandText = document.createElement("p");
+    const brandText = document.createElement("a");
     brandText.className = "workspace-brand-text";
-    brandText.textContent = eyebrow?.textContent?.trim() || "Nexora";
-    eyebrow?.remove();
+    brandText.href = "/post-login";
+    brandText.textContent = "Nexora";
+    // A page-specific eyebrow (like the project name above a task) stays with
+    // the page title; the generic "Nexora" one is already shown as the brand.
+    if (eyebrow && eyebrow.textContent.trim().toLowerCase() === "nexora") {
+      eyebrow.remove();
+    }
 
     titleBlock.classList.add("workspace-title-block");
     brand.append(nav, brandText);
@@ -2240,6 +2255,7 @@ function setupAdminUsersPage() {
       row.dataset.userId = user.id;
 
       const nameCell = document.createElement("td");
+      nameCell.dataset.label = "Name";
       const nameInput = document.createElement("input");
       nameInput.type = "text";
       nameInput.value = user.user_name || "";
@@ -2250,6 +2266,7 @@ function setupAdminUsersPage() {
       row.append(nameCell);
 
       const emailCell = document.createElement("td");
+      emailCell.dataset.label = "Email";
       const emailInput = document.createElement("input");
       emailInput.type = "email";
       emailInput.value = user.email || "";
@@ -2260,6 +2277,7 @@ function setupAdminUsersPage() {
       row.append(emailCell);
 
       const statusCell = document.createElement("td");
+      statusCell.dataset.label = "Status";
       const statusSelect = document.createElement("select");
       statusSelect.disabled = isAdminRow;
       statusSelect.setAttribute("aria-label", `Status for ${user.email}`);
@@ -2274,10 +2292,12 @@ function setupAdminUsersPage() {
       row.append(statusCell);
 
       const authCell = document.createElement("td");
+      authCell.dataset.label = "Auth link";
       authCell.textContent = user.auth_uid ? "Linked" : "Pending";
       row.append(authCell);
 
       const classCell = document.createElement("td");
+      classCell.dataset.label = "User class";
       const classSelect = document.createElement("select");
       classSelect.setAttribute("aria-label", `User class for ${user.email}`);
       ["SENIOR", "JUNIOR", "REDUNDANT_USER"].forEach((userClass) => {
@@ -2300,6 +2320,7 @@ function setupAdminUsersPage() {
       row.append(classCell);
 
       const actionCell = document.createElement("td");
+      actionCell.dataset.label = "Actions";
       if (isAdminRow) {
         actionCell.textContent = "Protected";
       } else {
@@ -2690,6 +2711,14 @@ function createTaskBoardCard(task, options = {}) {
 
   const dueMeta = document.createElement("span");
   dueMeta.textContent = `Due: ${formatDisplayDate(task.end_date)}`;
+  if (isTaskOverdue(task)) {
+    const endDate = parseDateOnly(task.end_date);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const daysLate = Math.round((today - endDate) / 86400000);
+    dueMeta.classList.add("is-late");
+    dueMeta.textContent = `${daysLate} day${daysLate === 1 ? "" : "s"} late`;
+  }
   meta.append(dueMeta);
 
   const statusWrap = document.createElement("div");
@@ -2849,6 +2878,13 @@ function setupDashboardProjects() {
 
   function renderAnalytics(projects, details) {
     if (!analyticsElement) {
+      return;
+    }
+
+    // The redesigned dashboard lives in Js/dashboard.js. The code below is the
+    // previous layout, kept only as a fallback if that file fails to load.
+    if (typeof window.renderNttDashboard === "function") {
+      window.renderNttDashboard(analyticsElement, details);
       return;
     }
 
