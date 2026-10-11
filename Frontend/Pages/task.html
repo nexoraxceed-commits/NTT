@@ -12,7 +12,7 @@
     <link rel="manifest" href="/manifest.webmanifest">
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png?v=20260723-user-classes">
     <link rel="icon" href="/icons/icon-192.png?v=20260723-user-classes" sizes="192x192" type="image/png">
-    <link rel="stylesheet" href="/Css/styles.css?v=20261011-redesign">
+    <link rel="stylesheet" href="/Css/styles.css?v=20261011-r2">
   </head>
   <body class="app-body">
     <main class="workspace-shell">
@@ -26,147 +26,149 @@
         </div>
       </header>
 
-      <section class="workspace-panel wide-panel">
-        <div class="detail-grid">
-          <div>
-            <p class="eyebrow">Description</p>
-            <p class="detail-copy" id="task-description"></p>
+      <section class="task-top" aria-label="Task progress">
+        <ol class="task-steps" id="task-steps" aria-label="Progress"></ol>
+        <div class="task-next" id="task-next">
+          <div class="task-next-copy">
+            <p class="task-next-title" id="task-next-title">Loading task…</p>
+            <p class="task-next-sub" id="task-next-sub"></p>
           </div>
-          <div>
-            <p class="eyebrow">Documents</p>
-            <p class="detail-copy" id="task-documents"></p>
+          <div class="task-next-actions" id="task-actions-title">
+            <button class="btn btn-primary is-hidden" type="button" id="start-work-button">Start work</button>
+            <button type="button" class="btn btn-primary is-hidden" id="request-close-button">Send for review</button>
+            <button type="button" class="btn btn-secondary is-hidden" id="withdraw-close-button">Withdraw from review</button>
+            <button type="button" class="btn btn-secondary is-hidden" id="send-back-button">Send back with a note</button>
+            <button type="button" class="btn btn-approve is-hidden" id="close-task-button">Approve and close</button>
+            <button type="button" class="btn btn-secondary is-hidden" id="reopen-task-button">Reopen</button>
           </div>
-          <div>
-            <p class="eyebrow">Assignee</p>
-            <p class="detail-copy" id="task-assignee"></p>
-          </div>
-          <div>
-            <p class="eyebrow">Project stakeholder</p>
-            <p class="detail-copy" id="task-stakeholder"></p>
-          </div>
-          <div>
-            <p class="eyebrow">Project watchers</p>
-            <p class="detail-copy" id="task-watchers"></p>
-          </div>
-          <div>
-            <p class="eyebrow">Status</p>
-            <p class="detail-copy" id="task-status"></p>
-          </div>
-          <div>
-            <p class="eyebrow">Start date</p>
-            <p class="detail-copy" id="task-start-date"></p>
-          </div>
-          <div>
-            <p class="eyebrow">End date</p>
-            <p class="detail-copy" id="task-end-date"></p>
-          </div>
+          <p class="form-message" id="task-action-message" role="status" aria-live="polite"></p>
         </div>
       </section>
 
-      <section class="workspace-grid">
-        <section class="workspace-panel" aria-labelledby="task-actions-title">
-          <h2 id="task-actions-title">Task workflow</h2>
-          <div class="workflow-actions">
-            <button class="btn btn-primary" type="button" id="start-work-button">Start work</button>
-            <button type="button" class="btn btn-secondary" id="request-close-button">Request to close</button>
-            <button type="button" class="btn btn-secondary" id="withdraw-close-button">Withdraw close request</button>
-            <button type="button" class="btn btn-secondary" id="close-task-button">Close Task</button>
-            <button type="button" class="btn btn-secondary" id="reopen-task-button">Reopen Task</button>
-            <p class="form-message" id="task-action-message" role="status" aria-live="polite"></p>
-          </div>
+      <div class="task-layout">
+        <div class="task-main">
+          <section class="task-box" aria-labelledby="task-brief-title">
+            <h2 class="task-box-title" id="task-brief-title">What needs doing</h2>
+            <p class="detail-copy task-brief" id="task-description"></p>
+            <p class="task-ref" id="task-documents"></p>
+          </section>
 
-          <details class="task-edit-details">
-            <summary>Edit task details</summary>
-            <form class="project-form" id="task-update-form" data-management-only novalidate>
+          <section class="task-box" aria-labelledby="comment-title">
+            <div class="task-box-head">
+              <h2 class="task-box-title" id="comment-title">Work and updates</h2>
+              <span class="task-box-meta" id="task-deliverable-count"></span>
+            </div>
+            <div class="task-deliverables" id="task-deliverables"></div>
+            <form class="task-compose" id="task-comment-form" novalidate>
+              <input id="parent_comment_id" name="parent_comment_id" type="hidden">
+              <input id="editing_comment_id" name="editing_comment_id" type="hidden">
+              <div class="reply-context is-hidden" id="reply-context">
+                <span>Replying to <strong id="reply-target"></strong></span>
+                <button class="btn btn-secondary btn-sm" type="button" id="cancel-reply-button">Cancel</button>
+              </div>
+              <div class="reply-context is-hidden" id="edit-context">
+                <span>Editing your update</span>
+                <button class="btn btn-secondary btn-sm" type="button" id="cancel-edit-button">Cancel</button>
+              </div>
+              <label class="visually-hidden" for="comment_text">Update</label>
+              <div class="mention-field">
+                <textarea id="comment_text" name="comment_text" rows="3" maxlength="1000" required autocomplete="off" placeholder="Write an update, or describe the work you're sharing. Type @ to mention someone."></textarea>
+                <div class="mention-suggestions is-hidden" id="mention-suggestions" role="listbox" aria-label="Mention users"></div>
+              </div>
+              <div class="task-compose-link">
+                <label for="deliverable_url">Link to your work <span>(optional)</span></label>
+                <input id="deliverable_url" name="deliverable_url" type="url" maxlength="2000" placeholder="https://drive.google.com/…">
+              </div>
+              <div class="task-compose-foot">
+                <p class="task-notify" id="task-notify"></p>
+                <button class="btn btn-primary" type="submit" id="comment-submit-button">Post update</button>
+              </div>
+              <p class="form-message" id="comment-message" role="status" aria-live="polite"></p>
+            </form>
+          </section>
+
+          <section class="task-box" aria-labelledby="activity-title">
+            <div class="task-box-head">
+              <h2 class="task-box-title" id="activity-title">Activity</h2>
+              <span class="task-box-meta">Updates, hours and changes, newest first</span>
+            </div>
+            <div class="task-feed" id="comment-list"></div>
+          </section>
+        </div>
+
+        <aside class="task-side" aria-label="Task details">
+          <section class="task-box">
+            <h2 class="task-box-title">People</h2>
+            <dl class="task-props">
+              <div><dt>Assignee</dt><dd id="task-assignee"></dd></div>
+              <div><dt>Reviewers</dt><dd id="task-stakeholder"></dd></div>
+              <div><dt>Team</dt><dd id="task-team"></dd></div>
+              <div><dt>Watchers</dt><dd id="task-watchers"></dd></div>
+              <div><dt>Created by</dt><dd id="task-created-by"></dd></div>
+            </dl>
+          </section>
+
+          <section class="task-box">
+            <h2 class="task-box-title">Dates</h2>
+            <dl class="task-props">
+              <div><dt>Status</dt><dd id="task-status"></dd></div>
+              <div><dt>Due</dt><dd id="task-end-date"></dd></div>
+              <div><dt>Started</dt><dd id="task-start-date"></dd></div>
+            </dl>
+          </section>
+
+          <section class="task-box" aria-labelledby="hours-title">
+            <h2 class="task-box-title" id="hours-title">Hours</h2>
+            <p class="task-hours-total" id="task-hours-total">0h</p>
+            <div class="task-hours-meter" id="task-hours-meter"></div>
+            <form class="task-log" id="task-work-log-form" novalidate>
+              <div class="task-log-row">
+                <label class="visually-hidden" for="work_hours">Hours</label>
+                <input id="work_hours" name="hours" type="number" min="0.25" max="24" step="0.25" required placeholder="Hours">
+                <label class="visually-hidden" for="work_date">Work date</label>
+                <input id="work_date" name="work_date" type="date">
+              </div>
+              <label class="visually-hidden" for="work_note">What you did</label>
+              <input id="work_note" name="work_note" type="text" maxlength="1000" required placeholder="What did you work on?">
+              <button type="submit" class="btn btn-secondary">Log hours</button>
+              <p class="form-message" id="work-log-message" role="status" aria-live="polite"></p>
+            </form>
+            <div class="task-hours-list" id="work-log-list"></div>
+          </section>
+
+          <details class="task-box task-edit-details" id="task-edit-box">
+            <summary>Edit task</summary>
+            <form class="project-form" id="task-update-form" novalidate>
               <div class="field-group">
                 <label for="task_edit_title">Task name</label>
                 <input id="task_edit_title" name="task_title" type="text" maxlength="160">
               </div>
               <div class="field-group">
-                <label for="task_edit_details">Task description</label>
+                <label for="task_edit_details">What needs doing</label>
                 <textarea id="task_edit_details" name="task_details" rows="4" maxlength="1000"></textarea>
               </div>
               <div class="field-group">
-                <label for="task_edit_documents">Task documents</label>
+                <label for="task_edit_documents">Reference link</label>
                 <input id="task_edit_documents" name="documents" type="url" maxlength="2000">
               </div>
               <div class="field-group">
-                <label for="task_edit_assigned_to_email">Task assignee</label>
+                <label for="task_edit_assigned_to_email">Assignee</label>
                 <select id="task_edit_assigned_to_email" name="assigned_to_email">
                   <option value="">Unassigned</option>
                   <option value="" disabled>Loading users...</option>
                 </select>
               </div>
               <div class="field-group">
-                <label for="task_edit_end_date">End date</label>
+                <label for="task_edit_end_date">Due date</label>
                 <input id="task_edit_end_date" name="end_date" type="date">
               </div>
-              <button type="button" class="btn btn-secondary" id="save-task-button">Save Task Details</button>
+              <button type="button" class="btn btn-secondary" id="save-task-button">Save changes</button>
             </form>
           </details>
-
-          <details class="task-edit-details">
-            <summary>Log work</summary>
-            <form class="project-form" id="task-work-log-form" novalidate>
-              <div class="field-group">
-                <label for="work_date">Work date</label>
-                <input id="work_date" name="work_date" type="date">
-              </div>
-              <div class="field-group">
-                <label for="work_hours">Hours</label>
-                <input id="work_hours" name="hours" type="number" min="0.25" max="24" step="0.25" required>
-              </div>
-              <div class="field-group">
-                <label for="work_note">Work note</label>
-                <textarea id="work_note" name="work_note" rows="4" maxlength="1000" required></textarea>
-              </div>
-              <button type="submit" class="btn btn-secondary">Add Work Log</button>
-              <p class="form-message" id="work-log-message" role="status" aria-live="polite"></p>
-            </form>
-          </details>
-        </section>
-
-        <section class="workspace-panel" aria-labelledby="comment-title">
-          <h2 id="comment-title">Add comment</h2>
-          <form class="project-form" id="task-comment-form" novalidate>
-            <input id="parent_comment_id" name="parent_comment_id" type="hidden">
-            <input id="editing_comment_id" name="editing_comment_id" type="hidden">
-            <div class="reply-context is-hidden" id="reply-context">
-              <span>Replying to <strong id="reply-target"></strong></span>
-              <button class="btn btn-secondary btn-sm" type="button" id="cancel-reply-button">Cancel</button>
-            </div>
-            <div class="reply-context is-hidden" id="edit-context">
-              <span>Editing your comment</span>
-              <button class="btn btn-secondary btn-sm" type="button" id="cancel-edit-button">Cancel</button>
-            </div>
-            <div class="field-group">
-              <label for="comment_text">Comment</label>
-              <div class="mention-field">
-                <textarea id="comment_text" name="comment_text" rows="4" maxlength="1000" required autocomplete="off"></textarea>
-                <div class="mention-suggestions is-hidden" id="mention-suggestions" role="listbox" aria-label="Mention users"></div>
-              </div>
-            </div>
-            <div class="field-group">
-              <label for="deliverable_url">Deliverable URL</label>
-              <input id="deliverable_url" name="deliverable_url" type="url" maxlength="2000">
-            </div>
-            <button class="btn btn-primary" type="submit" id="comment-submit-button">Add Comment</button>
-            <p class="form-message" id="comment-message" role="status" aria-live="polite"></p>
-          </form>
-
-          <div class="comments-section" aria-labelledby="activity-title">
-            <h3 id="activity-title">Activity</h3>
-            <div class="tab-list" role="tablist" aria-label="Task activity">
-              <button type="button" class="btn btn-secondary btn-sm tab-button is-active" data-activity-tab="comments">Comments</button>
-              <button type="button" class="btn btn-secondary btn-sm tab-button" data-activity-tab="work-logs">Work Logs</button>
-            </div>
-            <div class="comment-list scrollable-comments" id="comment-list" data-activity-panel="comments"></div>
-            <div class="comment-list scrollable-comments is-hidden" id="work-log-list" data-activity-panel="work-logs"></div>
-          </div>
-        </section>
-      </section>
+        </aside>
+      </div>
     </main>
     <script src="/Js/config.js?v=20260723-user-classes"></script>
-    <script src="/Js/app.js?v=20261011-redesign"></script>
+    <script src="/Js/app.js?v=20261011-r2"></script>
   </body>
 </html>

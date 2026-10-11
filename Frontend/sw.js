@@ -1,4 +1,4 @@
-const NEXORA_CACHE_VERSION = "nexora-project-game-v35";
+const NEXORA_CACHE_VERSION = "nexora-project-game-v36";
 const STATIC_CACHE = `${NEXORA_CACHE_VERSION}:static`;
 const PAGE_CACHE = `${NEXORA_CACHE_VERSION}:pages`;
 
@@ -6,10 +6,11 @@ const STATIC_ASSETS = [
   "/",
   "/offline.html",
   "/manifest.webmanifest",
-  "/Css/styles.css?v=20261011-redesign",
+  "/Css/styles.css?v=20261011-r2",
   "/Js/config.js?v=20260723-user-classes",
-  "/Js/app.js?v=20261011-redesign",
-  "/Js/dashboard.js?v=20261011-redesign",
+  "/Js/app.js?v=20261011-r2",
+  "/Js/dashboard.js?v=20261011-r2",
+  "/Js/login-bg.js?v=20261011-r2",
   "/Js/dino-game.js?v=20260728-arcade-layout",
   "/Js/project-game.js?v=20260808-project-game-v9",
   "/Js/reset-password.js?v=20260723-user-classes",

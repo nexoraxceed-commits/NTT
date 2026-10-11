@@ -9,12 +9,15 @@ let refreshSessionPromise = null;
 const liveRefreshJobs = new Map();
 let liveRefreshStarted = false;
 const liveRefreshTickMs = 3000;
+// How often each open tab re-asks the server. Each poll costs the small
+// backend several database calls, so these are kept modest; pages also
+// refresh right after you act and whenever you return to the tab.
 const liveRefreshIntervals = {
-  badge: 3000,
-  flyout: 8000,
-  page: 12000,
-  task: 6000,
-  notifications: 8000,
+  badge: 30000,
+  flyout: 20000,
+  page: 60000,
+  task: 20000,
+  notifications: 30000,
 };
 const authPages = new Set([
   "/",
@@ -160,6 +163,7 @@ function saveSession(data, rememberMe = false) {
 
 function clearSession() {
   window.sessionStorage.removeItem(sessionKey);
+  window.sessionStorage.removeItem("ntt_active_users");
   window.localStorage.removeItem(persistentSessionKey);
   window.localStorage.removeItem(authActiveKey);
 }
@@ -170,6 +174,8 @@ function applyRoleVisibility() {
   const isReadOnly = userClass === "REDUNDANT_USER";
   const canManageWork = ["ADMIN", "SENIOR"].includes(userClass);
   document.body.classList.toggle("read-only-user", isReadOnly);
+  // Anyone on a project's team can add tasks, so /create-task is open to all
+  // active users; the backend checks project membership.
   const managementOnlyPaths = new Set([
     "/create-project",
     "/create-project.html",
@@ -177,9 +183,6 @@ function applyRoleVisibility() {
     "/edit-project",
     "/edit-project.html",
     "/Pages/edit-project.html",
-    "/create-task",
-    "/create-task.html",
-    "/Pages/create-task.html",
   ]);
 const adminOnlyPaths = new Set([
   "/users-admin",
@@ -1074,10 +1077,10 @@ function createStatusBadge(status) {
     .toLowerCase()
     .replaceAll(" ", "-")}`;
   const labels = {
-    OPEN: "Open",
+    OPEN: "To do",
     "IN PROGRESS": "In progress",
-    "CLOSE REQUESTED": "Awaiting close",
-    CLOSED: "Closed",
+    "CLOSE REQUESTED": "In review",
+    CLOSED: "Done",
     OVERDUE: "Overdue",
     ACTIVE: "Open",
   };
@@ -1299,11 +1302,37 @@ async function deleteAuthorizedJson(path) {
   return authorizedJson(path, { method: "DELETE" });
 }
 
+const activeUsersCacheKey = "ntt_active_users";
+const activeUsersCacheMs = 10 * 60 * 1000;
+
 async function getActiveUsers() {
+  // The member list rarely changes, so each browser tab keeps it for ten
+  // minutes instead of downloading it on every page.
+  try {
+    const cached = JSON.parse(window.sessionStorage.getItem(activeUsersCacheKey) || "null");
+    if (cached && Date.now() - cached.savedAt < activeUsersCacheMs && Array.isArray(cached.users)) {
+      return cached.users;
+    }
+  } catch (_error) {
+    // Ignore a damaged cache and fetch again.
+  }
+
   if (!activeUsersPromise) {
-    activeUsersPromise = getAuthorizedJson("/users").finally(() => {
-      activeUsersPromise = null;
-    });
+    activeUsersPromise = getAuthorizedJson("/users")
+      .then((users) => {
+        try {
+          window.sessionStorage.setItem(
+            activeUsersCacheKey,
+            JSON.stringify({ savedAt: Date.now(), users })
+          );
+        } catch (_error) {
+          // Storage can be full or blocked; the list still works.
+        }
+        return users;
+      })
+      .finally(() => {
+        activeUsersPromise = null;
+      });
   }
 
   return activeUsersPromise;
@@ -2421,27 +2450,108 @@ function setupAdminUsersPage() {
   loadUsers();
 }
 
+async function populatePeoplePicker(container, options = {}) {
+  if (!container) {
+    return;
+  }
+  const { selected = [] } = options;
+  const allowedClasses = (container.dataset.pickerClasses || "")
+    .split(",")
+    .map((value) => value.trim().toUpperCase())
+    .filter(Boolean);
+  const users = await getActiveUsers();
+  const chosen = new Set(selected.filter(Boolean).map((email) => String(email).toLowerCase()));
+  container.innerHTML = "";
+
+  const search = document.createElement("input");
+  search.type = "search";
+  search.className = "people-search";
+  search.placeholder = "Search people";
+  search.setAttribute("aria-label", `Search ${container.getAttribute("aria-label") || "people"}`);
+
+  const summary = document.createElement("p");
+  summary.className = "people-summary";
+
+  const list = document.createElement("div");
+  list.className = "people-list";
+
+  const eligible = users.filter(
+    (user) =>
+      user.email &&
+      String(user.user_class || "").toUpperCase() !== "REDUNDANT_USER" &&
+      (!allowedClasses.length || allowedClasses.includes(String(user.user_class || "").toUpperCase()))
+  );
+
+  const updateSummary = () => {
+    const names = Array.from(list.querySelectorAll("input:checked")).map(
+      (input) => input.dataset.name
+    );
+    summary.textContent = names.length ? `${names.length} selected: ${names.join(", ")}` : "No one selected";
+    summary.classList.toggle("is-empty", !names.length);
+  };
+
+  eligible.forEach((user) => {
+    const label = document.createElement("label");
+    label.className = "people-option";
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.value = user.email;
+    input.dataset.name = user.user_name || user.email;
+    input.checked = chosen.has(String(user.email).toLowerCase());
+    input.addEventListener("change", updateSummary);
+    const name = document.createElement("span");
+    name.className = "people-name";
+    name.textContent = user.user_name || user.email;
+    const role = document.createElement("span");
+    role.className = "people-role";
+    const userClass = String(user.user_class || "").toUpperCase();
+    role.textContent = userClass === "ADMIN" ? "Admin" : userClass === "SENIOR" ? "Senior" : "Junior";
+    label.append(input, name, role);
+    label.dataset.search = `${user.user_name || ""} ${user.email}`.toLowerCase();
+    list.append(label);
+  });
+
+  if (!eligible.length) {
+    renderEmptyState(list, "No active users found.");
+  }
+
+  search.addEventListener("input", () => {
+    const query = search.value.trim().toLowerCase();
+    list.querySelectorAll(".people-option").forEach((option) => {
+      option.hidden = Boolean(query) && !option.dataset.search.includes(query);
+    });
+  });
+
+  container.append(search, list, summary);
+  updateSummary();
+}
+
+function getPickedEmails(container) {
+  if (!container) {
+    return [];
+  }
+  return Array.from(container.querySelectorAll(".people-option input:checked")).map(
+    (input) => input.value
+  );
+}
+
 function setupCreateProjectForm() {
   const form = document.querySelector("#create-project-form");
   const messageElement = document.querySelector("#form-message");
-  const stakeholderSelect = document.querySelector("#project_stakeholder_email");
-  const watcherSelect = document.querySelector("#project_watcher_emails");
+  const supervisorPicker = document.querySelector("#project_supervisors");
+  const teamPicker = document.querySelector("#project_team");
+  const watcherPicker = document.querySelector("#project_watchers");
 
   if (!form) {
     return;
   }
 
-  if (stakeholderSelect) {
-    populateUserSelect(stakeholderSelect, {
-      includeCurrentUser: true,
-      allowedClasses: ["ADMIN", "SENIOR"],
-    }).catch(
-      (error) => {
-        setMessage(messageElement, error.message, true);
-      }
-    );
-  }
-  populateUserMultiSelect(watcherSelect).catch((error) => {
+  const myEmail = getSession()?.email;
+  Promise.all([
+    populatePeoplePicker(supervisorPicker, { selected: [myEmail] }),
+    populatePeoplePicker(teamPicker),
+    populatePeoplePicker(watcherPicker),
+  ]).catch((error) => {
     setMessage(messageElement, error.message, true);
   });
 
@@ -2453,15 +2563,23 @@ function setupCreateProjectForm() {
       return;
     }
 
+    const supervisors = getPickedEmails(supervisorPicker);
+    if (supervisorPicker && !supervisors.length) {
+      setMessage(messageElement, "Pick at least one supervisor to review the work.", true);
+      supervisorPicker.querySelector("input")?.focus();
+      return;
+    }
+
     const formData = new FormData(form);
     const payload = {
       project_name: String(formData.get("project_name") ?? "").trim(),
       description: String(formData.get("description") ?? "").trim() || null,
       document_name: String(formData.get("document_name") ?? "").trim() || null,
       document_url: String(formData.get("document_url") ?? "").trim() || null,
-      stakeholder_email:
-        String(formData.get("stakeholder_email") ?? "").trim() || null,
-      watcher_emails: getSelectedValues(watcherSelect),
+      stakeholder_email: supervisors[0] || null,
+      supervisor_emails: supervisors,
+      team_emails: getPickedEmails(teamPicker),
+      watcher_emails: getPickedEmails(watcherPicker),
       idempotency_key: createIdempotencyKey("create-project"),
     };
 
@@ -2491,17 +2609,29 @@ function renderEmptyState(container, text) {
 }
 
 const taskBoardColumns = [
-  { key: "OPEN", label: "Open", className: "is-open" },
-  { key: "IN PROGRESS", label: "In Progress", className: "is-progress" },
-  { key: "CLOSED", label: "Closed", className: "is-closed" },
+  { key: "OPEN", label: "To do", className: "is-open" },
+  { key: "IN PROGRESS", label: "In progress", className: "is-progress" },
+  { key: "CLOSE REQUESTED", label: "In review", className: "is-review" },
+  { key: "CLOSED", label: "Done", className: "is-closed" },
 ];
+
+const taskStatusLabels = {
+  OPEN: "To do",
+  "IN PROGRESS": "In progress",
+  "CLOSE REQUESTED": "In review",
+  CLOSED: "Done",
+  OVERDUE: "Overdue",
+};
 
 function getTaskBoardStatus(task) {
   const status = String(task.status || "OPEN").toUpperCase();
   if (status === "CLOSED") {
     return "CLOSED";
   }
-  if (status === "IN PROGRESS" || status === "CLOSE REQUESTED") {
+  if (status === "CLOSE REQUESTED") {
+    return "CLOSE REQUESTED";
+  }
+  if (status === "IN PROGRESS") {
     return "IN PROGRESS";
   }
   return "OPEN";
@@ -2643,7 +2773,10 @@ function renderTaskBoardFilters(
       getTaskFilterLabels(sourceTasks, definition.key).forEach((optionValue) => {
         const option = document.createElement("option");
         option.value = optionValue;
-        option.textContent = optionValue;
+        option.textContent =
+          definition.key === "status"
+            ? taskStatusLabels[String(optionValue).toUpperCase()] || optionValue
+            : optionValue;
         option.selected = activeFilters[definition.key] === optionValue;
         select.append(option);
       });
@@ -2771,6 +2904,272 @@ function renderTaskBoard(container, tasks, options = {}) {
   });
 
   container.append(board);
+}
+
+const TASK_VIEW_KEY = "ntt-tasks-view";
+const TASK_VIEWS = [
+  { key: "mine", label: "My tasks", hint: "What do I need to do, in order?" },
+  { key: "board", label: "Board", hint: "Where is everything, and what's stuck?" },
+  { key: "load", label: "Workload", hint: "Who has room for more?" },
+];
+
+function getTaskView() {
+  try {
+    const saved = window.localStorage.getItem(TASK_VIEW_KEY);
+    if (TASK_VIEWS.some((view) => view.key === saved)) {
+      return saved;
+    }
+  } catch (_error) {
+    // Fall through to the default.
+  }
+  return "mine";
+}
+
+function createTaskViewSwitch(onChange) {
+  const bar = document.createElement("div");
+  bar.className = "task-view-bar";
+  const group = document.createElement("div");
+  group.className = "task-view-switch";
+  group.setAttribute("role", "group");
+  group.setAttribute("aria-label", "Task view");
+  const hint = document.createElement("p");
+  hint.className = "task-view-hint";
+  const current = getTaskView();
+  TASK_VIEWS.forEach((view) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = view.label;
+    button.dataset.taskView = view.key;
+    button.setAttribute("aria-pressed", String(view.key === current));
+    if (view.key === current) {
+      hint.textContent = view.hint;
+    }
+    button.addEventListener("click", () => {
+      try {
+        window.localStorage.setItem(TASK_VIEW_KEY, view.key);
+      } catch (_error) {
+        // Remembering the view is optional.
+      }
+      group.querySelectorAll("button").forEach((item) => {
+        item.setAttribute("aria-pressed", String(item === button));
+      });
+      hint.textContent = view.hint;
+      onChange(view.key);
+    });
+    group.append(button);
+  });
+  bar.append(group, hint);
+  return bar;
+}
+
+function taskDaysUntilDue(task) {
+  const end = parseDateOnly(task.end_date);
+  if (!end) {
+    return null;
+  }
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return Math.round((end - today) / 86400000);
+}
+
+function createTaskListRow(task, note = "") {
+  const row = document.createElement("a");
+  row.className = "task-list-row";
+  row.href = `/task?id=${task.id}`;
+  applyIdentityColor(row, "task", task);
+  const dot = document.createElement("span");
+  dot.className = "task-list-dot";
+  const main = document.createElement("span");
+  main.className = "task-list-main";
+  const title = document.createElement("span");
+  title.className = "task-list-title";
+  title.textContent = task.task_title || `Task #${task.id}`;
+  const meta = document.createElement("span");
+  meta.className = "task-list-meta";
+  meta.textContent = [task.project_name, note].filter(Boolean).join(" · ");
+  main.append(title, meta);
+  const status = createStatusBadge(task.status);
+  const due = document.createElement("span");
+  due.className = "task-list-due";
+  const days = taskDaysUntilDue(task);
+  if (String(task.status).toUpperCase() === "CLOSED") {
+    due.textContent = "Done";
+  } else if (days === null) {
+    due.textContent = "No date";
+  } else if (days < 0) {
+    due.textContent = `${-days}d late`;
+    due.classList.add("is-late");
+  } else if (days === 0) {
+    due.textContent = "Today";
+    due.classList.add("is-soon");
+  } else if (days === 1) {
+    due.textContent = "Tomorrow";
+    due.classList.add("is-soon");
+  } else {
+    const end = parseDateOnly(task.end_date);
+    due.textContent = end ? end.toLocaleDateString(undefined, { day: "numeric", month: "short" }) : "";
+  }
+  row.append(dot, main, status, due);
+  return row;
+}
+
+function renderMyTasks(container, tasks, projectDetails) {
+  const email = String(getSession()?.email || "").toLowerCase();
+  const reviewerProjects = new Set(
+    (projectDetails || [])
+      .filter((project) =>
+        String(project.stakeholder_email || "").toLowerCase() === email ||
+        (project.supervisors || []).some((person) => String(person.email || "").toLowerCase() === email)
+      )
+      .map((project) => project.project_name)
+  );
+  const mine = tasks.filter((task) =>
+    getTaskAssigneeList(task).some((person) => String(person.email || "").toLowerCase() === email)
+  );
+  const toReview = tasks.filter(
+    (task) =>
+      String(task.status).toUpperCase() === "CLOSE REQUESTED" &&
+      reviewerProjects.has(task.project_name) &&
+      !mine.includes(task)
+  );
+  const open = mine.filter((task) => String(task.status).toUpperCase() !== "CLOSED");
+  const byDue = (a, b) => (taskDaysUntilDue(a) ?? 9999) - (taskDaysUntilDue(b) ?? 9999);
+  const groups = [
+    { key: "late", label: "Overdue", color: "var(--st-overdue)", items: open.filter((t) => (taskDaysUntilDue(t) ?? 1) < 0) },
+    { key: "review", label: "Waiting for your review", color: "var(--st-review)", items: toReview, note: (t) => `from ${formatTaskAssignees(t)}` },
+    { key: "inreview", label: "You sent for review", color: "var(--st-review)", items: open.filter((t) => String(t.status).toUpperCase() === "CLOSE REQUESTED" && (taskDaysUntilDue(t) ?? 1) >= 0) },
+    { key: "week", label: "Due this week", color: "#b4600b", items: open.filter((t) => String(t.status).toUpperCase() !== "CLOSE REQUESTED" && (taskDaysUntilDue(t) ?? 99) >= 0 && (taskDaysUntilDue(t) ?? 99) <= 7) },
+    { key: "later", label: "Later", color: "var(--quiet)", items: open.filter((t) => String(t.status).toUpperCase() !== "CLOSE REQUESTED" && ((taskDaysUntilDue(t) ?? 99) > 7)) },
+  ];
+  const doneRecently = mine.filter((task) => String(task.status).toUpperCase() === "CLOSED").length;
+
+  const wrap = document.createElement("div");
+  wrap.className = "task-my-list";
+  let shown = 0;
+  groups.forEach((group) => {
+    if (!group.items.length) {
+      return;
+    }
+    shown += group.items.length;
+    const head = document.createElement("p");
+    head.className = "task-group-head";
+    const dot = document.createElement("i");
+    dot.style.background = group.color;
+    const count = document.createElement("span");
+    count.textContent = String(group.items.length);
+    head.append(dot, group.label, count);
+    wrap.append(head);
+    group.items.slice().sort(byDue).forEach((task) => {
+      wrap.append(createTaskListRow(task, group.note ? group.note(task) : ""));
+    });
+  });
+  if (!shown) {
+    const empty = document.createElement("p");
+    empty.className = "empty-state";
+    empty.textContent = mine.length
+      ? "You're all caught up. Nothing open is assigned to you."
+      : "Nothing is assigned to you yet. Switch to Board to pick up a task.";
+    wrap.append(empty);
+  }
+  if (doneRecently) {
+    const foot = document.createElement("p");
+    foot.className = "task-my-foot";
+    foot.textContent = `${doneRecently} of your tasks are done. See them on the Board.`;
+    wrap.append(foot);
+  }
+  container.append(wrap);
+}
+
+function renderWorkload(container, tasks) {
+  const people = new Map();
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const since = new Date(today);
+  since.setDate(since.getDate() - 13);
+  tasks.forEach((task) => {
+    const status = String(task.status || "OPEN").toUpperCase();
+    getTaskAssigneeList(task).forEach((person) => {
+      const name = person.name || person.email || "Unassigned";
+      if (!people.has(name)) {
+        people.set(name, { todo: 0, progress: 0, review: 0, late: 0, open: 0, hours: 0 });
+      }
+      const entry = people.get(name);
+      if (status !== "CLOSED") {
+        entry.open += 1;
+        if (isTaskOverdue(task)) entry.late += 1;
+        else if (status === "CLOSE REQUESTED") entry.review += 1;
+        else if (status === "IN PROGRESS") entry.progress += 1;
+        else entry.todo += 1;
+      }
+    });
+    (task.work_logs || []).forEach((log) => {
+      const day = parseDateOnly(log.work_date);
+      if (!day || day < since) return;
+      const name = log.logged_by_name || log.logged_by_email || "Unknown";
+      if (!people.has(name)) {
+        people.set(name, { todo: 0, progress: 0, review: 0, late: 0, open: 0, hours: 0 });
+      }
+      people.get(name).hours += Number(log.hours || 0);
+    });
+  });
+  const rows = Array.from(people.entries())
+    .filter(([name]) => name !== "Unassigned")
+    .sort((a, b) => b[1].open - a[1].open || b[1].hours - a[1].hours);
+  const max = Math.max(1, ...rows.map(([, entry]) => entry.open));
+  const wrap = document.createElement("div");
+  wrap.className = "task-workload";
+  const head = document.createElement("div");
+  head.className = "task-workload-row is-head";
+  ["Person", "Open work", "Open", "Hours (14d)"].forEach((label) => {
+    const cell = document.createElement("span");
+    cell.textContent = label;
+    head.append(cell);
+  });
+  wrap.append(head);
+  const parts = [
+    ["late", "var(--st-overdue)", "Overdue"],
+    ["progress", "var(--st-progress)", "In progress"],
+    ["review", "var(--st-review)", "In review"],
+    ["todo", "var(--st-open)", "To do"],
+  ];
+  rows.forEach(([name, entry]) => {
+    const row = document.createElement("div");
+    row.className = "task-workload-row";
+    const who = document.createElement("span");
+    who.className = "task-workload-name";
+    who.textContent = name;
+    const track = document.createElement("span");
+    track.className = "task-workload-track";
+    parts.forEach(([key, color, label]) => {
+      if (!entry[key]) return;
+      const seg = document.createElement("span");
+      seg.style.width = `calc(${(entry[key] / max) * 100}% - 2px)`;
+      seg.style.background = color;
+      seg.title = `${label}: ${entry[key]}`;
+      seg.textContent = entry[key] > 0 && entry[key] / max > 0.08 ? String(entry[key]) : "";
+      track.append(seg);
+    });
+    const open = document.createElement("span");
+    open.className = "task-workload-num";
+    open.textContent = String(entry.open);
+    if (entry.late) open.classList.add("is-late");
+    const hours = document.createElement("span");
+    hours.className = "task-workload-num";
+    hours.textContent = `${Number(entry.hours.toFixed(1))}h`;
+    row.append(who, track, open, hours);
+    wrap.append(row);
+  });
+  const legend = document.createElement("div");
+  legend.className = "task-workload-legend";
+  parts.forEach(([, color, label]) => {
+    const key = document.createElement("span");
+    const swatch = document.createElement("i");
+    swatch.style.background = color;
+    key.append(swatch, label);
+    legend.append(key);
+  });
+  wrap.append(legend);
+  container.append(wrap);
 }
 
 function setupDashboardProjects() {
@@ -3255,22 +3654,35 @@ function setupDashboardProjects() {
 
     const boardResults = document.createElement("div");
     boardResults.className = "task-board-results";
+    let currentTasks = tasks;
+    const drawView = () => {
+      boardResults.innerHTML = "";
+      const view = getTaskView();
+      if (view === "mine") {
+        renderMyTasks(boardResults, currentTasks, dashboardDetails);
+      } else if (view === "load") {
+        renderWorkload(boardResults, currentTasks);
+      } else {
+        renderTaskBoard(boardResults, currentTasks, { showProject: true });
+      }
+    };
+    taskList.append(
+      createTaskViewSwitch(() => {
+        drawView();
+      })
+    );
     renderTaskBoardFilters(
       taskList,
       filterSourceTasks,
       activeFilters,
       (nextFilters) => {
-        boardResults.innerHTML = "";
-        renderTaskBoard(
-          boardResults,
-          filterTasksForBoard(filterSourceTasks, nextFilters),
-          { showProject: true }
-        );
+        currentTasks = filterTasksForBoard(filterSourceTasks, nextFilters);
+        drawView();
       },
       { showProjectFilter: true }
     );
     taskList.append(boardResults);
-    renderTaskBoard(boardResults, tasks, { showProject: true });
+    drawView();
   }
 
   async function loadProjects(options = {}) {
@@ -3355,12 +3767,22 @@ function renderProjectDetail(project) {
       ? createTextLink(documentUrl, documentName)
       : "No documents URL added."
   );
-  const projectStakeholderElement = document.querySelector("#project-stakeholder");
-  if (projectStakeholderElement) {
-    projectStakeholderElement.textContent =
-      project.stakeholder_name ||
-      project.stakeholder_email ||
-      "No stakeholder";
+  const supervisors = project.supervisors && project.supervisors.length
+    ? project.supervisors
+    : project.stakeholder_email
+      ? [{ email: project.stakeholder_email, user_name: project.stakeholder_name }]
+      : [];
+  renderPeopleList(document.querySelector("#project-stakeholder"), supervisors, "No supervisor yet");
+  renderPeopleList(document.querySelector("#project-team"), project.team, "No team yet");
+  setText("#project-created-by", project.created_by_name || project.created_by_email || "Not recorded");
+  const createTaskLink = document.querySelector("#create-task-link");
+  if (createTaskLink) {
+    const email = String(getSession()?.email || "").toLowerCase();
+    const userClass = String(getSession()?.userClass || "").toUpperCase();
+    const onProject = [...supervisors, ...(project.team || [])].some(
+      (person) => String(person.email || "").toLowerCase() === email
+    ) || String(project.created_by_email || "").toLowerCase() === email;
+    createTaskLink.hidden = !(["ADMIN", "SENIOR"].includes(userClass) || onProject);
   }
   const projectWatcherElement = document.querySelector("#project-watchers");
   if (projectWatcherElement) {
@@ -3556,6 +3978,9 @@ function setupEditProjectPage() {
   const editForm = document.querySelector("#edit-project-form");
   const editMessage = document.querySelector("#edit-project-message");
   const backLink = document.querySelector("#edit-project-back-link");
+  const supervisorPicker = document.querySelector("#edit_project_supervisors");
+  const teamPicker = document.querySelector("#edit_project_team");
+  const watcherPicker = document.querySelector("#edit_project_watchers");
   const projectId = getQueryParam("id");
 
   if (!editForm) {
@@ -3568,14 +3993,6 @@ function setupEditProjectPage() {
   }
 
   backLink.href = `/project?id=${projectId}`;
-  const editStakeholderSelect = document.querySelector(
-    "#edit_project_stakeholder_email"
-  );
-  const editStakeholderPromise = populateUserSelect(editStakeholderSelect, {
-    includeCurrentUser: true,
-    allowedClasses: ["ADMIN", "SENIOR"],
-  }).catch(() => {});
-  const editWatcherSelect = document.querySelector("#edit_project_watcher_emails");
 
   async function loadProjectForEdit() {
     try {
@@ -3585,14 +4002,19 @@ function setupEditProjectPage() {
         project.document_name || "";
       document.querySelector("#edit_document_url").value =
         project.document_url || project.documents || "";
-      await editStakeholderPromise;
-      if (editStakeholderSelect && project.stakeholder_email) {
-        editStakeholderSelect.value = project.stakeholder_email;
+      const supervisors = (project.supervisors || []).map((person) => person.email);
+      if (!supervisors.length && project.stakeholder_email) {
+        supervisors.push(project.stakeholder_email);
       }
-      await populateUserMultiSelect(
-        editWatcherSelect,
-        (project.watchers || []).map((watcher) => watcher.email)
-      );
+      await Promise.all([
+        populatePeoplePicker(supervisorPicker, { selected: supervisors }),
+        populatePeoplePicker(teamPicker, {
+          selected: (project.team || []).map((person) => person.email),
+        }),
+        populatePeoplePicker(watcherPicker, {
+          selected: (project.watchers || []).map((watcher) => watcher.email),
+        }),
+      ]);
     } catch (error) {
       setMessage(editMessage, error.message, true);
     }
@@ -3601,6 +4023,11 @@ function setupEditProjectPage() {
   editForm?.addEventListener("submit", async (event) => {
     event.preventDefault();
     const formData = new FormData(editForm);
+    const supervisors = getPickedEmails(supervisorPicker);
+    if (!supervisors.length) {
+      setMessage(editMessage, "Keep at least one supervisor to review the work.", true);
+      return;
+    }
     setMessage(editMessage, "Saving project...");
 
     try {
@@ -3608,9 +4035,10 @@ function setupEditProjectPage() {
         description: String(formData.get("description") ?? "").trim() || null,
         document_name: String(formData.get("document_name") ?? "").trim() || null,
         document_url: String(formData.get("document_url") ?? "").trim() || null,
-        stakeholder_email:
-          String(formData.get("stakeholder_email") ?? "").trim() || null,
-        watcher_emails: getSelectedValues(editWatcherSelect),
+        stakeholder_email: supervisors[0],
+        supervisor_emails: supervisors,
+        team_emails: getPickedEmails(teamPicker),
+        watcher_emails: getPickedEmails(watcherPicker),
       });
       setMessage(editMessage, data.detail || "Project updated successfully.");
       window.location.href = `/project?id=${projectId}`;
@@ -3677,114 +4105,404 @@ function setupCreateTaskPage() {
   });
 }
 
+const TASK_STEPS = [
+  { key: "OPEN", label: "To do" },
+  { key: "IN PROGRESS", label: "In progress" },
+  { key: "CLOSE REQUESTED", label: "In review" },
+  { key: "CLOSED", label: "Done" },
+];
+
+function getTaskViewer(task) {
+  const session = getSession();
+  const email = String(session?.email || "").toLowerCase();
+  const userClass = String(session?.userClass || "").toUpperCase();
+  const isManager = ["ADMIN", "SENIOR"].includes(userClass);
+  const isAssignee = Boolean(email) && email === String(task.assigned_to_email || "").toLowerCase();
+  const reviewerEmails = (task.supervisors && task.supervisors.length
+    ? task.supervisors.map((person) => person.email)
+    : [task.stakeholder_email]
+  ).map((value) => String(value || "").toLowerCase()).filter(Boolean);
+  const isReviewer = Boolean(email) && reviewerEmails.includes(email);
+  const hasServerFlags = typeof task.can_review === "boolean";
+  return {
+    email,
+    isAssignee,
+    isReviewer,
+    canWork: hasServerFlags ? task.can_work : isAssignee || isManager,
+    canReview: hasServerFlags ? task.can_review : isReviewer || isManager,
+    canEdit: hasServerFlags ? task.can_edit : isAssignee || isReviewer || isManager,
+    canComment: hasServerFlags ? task.can_comment : true,
+  };
+}
+
+function personName(person, fallback = "Unassigned") {
+  if (!person) {
+    return fallback;
+  }
+  return person.user_name || person.name || person.email || fallback;
+}
+
+function renderPeopleList(element, people, emptyText) {
+  if (!element) {
+    return;
+  }
+  element.innerHTML = "";
+  const list = (people || []).filter((person) => person && (person.email || person.user_name));
+  if (!list.length) {
+    element.textContent = emptyText;
+    element.classList.add("is-empty");
+    return;
+  }
+  element.classList.remove("is-empty");
+  list.forEach((person) => {
+    const chip = document.createElement("span");
+    chip.className = "person-chip";
+    const initials = personName(person, "?")
+      .split(/[\s._@-]+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((part) => part[0].toUpperCase())
+      .join("");
+    const hue = hashIdentityKey(person.email || personName(person)) % 360;
+    const avatar = document.createElement("span");
+    avatar.className = "person-avatar";
+    avatar.style.setProperty("--av-bg", `hsl(${hue} 60% 92%)`);
+    avatar.style.setProperty("--av-ink", `hsl(${hue} 45% 32%)`);
+    avatar.textContent = initials || "?";
+    const name = document.createElement("span");
+    name.textContent = personName(person);
+    chip.append(avatar, name);
+    element.append(chip);
+  });
+}
+
+function renderTaskSteps(task) {
+  const stepsElement = document.querySelector("#task-steps");
+  if (!stepsElement) {
+    return;
+  }
+  const status = String(task.status || "OPEN").toUpperCase();
+  const currentIndex = Math.max(0, TASK_STEPS.findIndex((step) => step.key === status));
+  stepsElement.innerHTML = "";
+  TASK_STEPS.forEach((step, index) => {
+    const item = document.createElement("li");
+    item.className = index < currentIndex || status === "CLOSED" ? "is-done" : index === currentIndex ? "is-now" : "";
+    const dot = document.createElement("span");
+    dot.className = "task-step-dot";
+    dot.textContent = index < currentIndex || status === "CLOSED" ? "✓" : String(index + 1);
+    const label = document.createElement("span");
+    label.textContent = step.label;
+    item.append(dot, label);
+    if (index === currentIndex) {
+      item.setAttribute("aria-current", "step");
+    }
+    stepsElement.append(item);
+  });
+}
+
+function describeNextStep(task, viewer) {
+  const status = String(task.status || "OPEN").toUpperCase();
+  const assignee = task.assigned_to_name || task.assigned_to_email || "";
+  const reviewers = (task.supervisors && task.supervisors.length
+    ? task.supervisors.map((person) => personName(person))
+    : [task.stakeholder_name || task.stakeholder_email].filter(Boolean)
+  );
+  const reviewerText = reviewers.length ? reviewers.join(" or ") : "a supervisor";
+  if (status === "OPEN") {
+    if (!assignee) {
+      return { tone: "", title: "Not assigned yet", sub: "Pick an assignee under Edit task, or ask a supervisor to assign it." };
+    }
+    return viewer.isAssignee
+      ? { tone: "is-you", title: "Your turn: start working on this", sub: "Click Start work when you begin, so the team can see it's moving." }
+      : { tone: "", title: `Waiting for ${assignee} to start`, sub: "No action needed from you right now." };
+  }
+  if (status === "IN PROGRESS") {
+    return viewer.isAssignee
+      ? { tone: "is-you", title: "Your turn: finish and send for review", sub: `Post a link to your work below, log your hours, then send it to ${reviewerText}.` }
+      : { tone: "", title: `${assignee || "The assignee"} is working on this`, sub: "You'll be notified when it's sent for review." };
+  }
+  if (status === "CLOSE REQUESTED") {
+    if (viewer.canReview && !viewer.isAssignee) {
+      return { tone: "is-review", title: `Your turn: review ${assignee || "this"}'s work`, sub: "Check the work below. Approve to mark it done, or send it back with a note." };
+    }
+    return viewer.isAssignee
+      ? { tone: "", title: `Waiting on ${reviewerText} to review`, sub: "You'll be notified when it's approved or sent back." }
+      : { tone: "", title: `In review with ${reviewerText}`, sub: "No action needed from you." };
+  }
+  return { tone: "is-done", title: "Done", sub: "This task has been approved and closed." };
+}
+
 function renderTaskDetail(task) {
   setText("#task-title", task.task_title || "Task");
   setText("#task-project-name", task.project_name || "Project");
-  setText("#task-description", task.task_details || "No description added.");
-  setText(
-    "#task-assignee",
-    task.assigned_to_name || task.assigned_to_email || "Unassigned"
+  setText("#task-description", task.task_details || "No description added yet.");
+  setHref("#task-back-link", `/project?id=${task.project_id}`);
+
+  renderPeopleList(
+    document.querySelector("#task-assignee"),
+    task.assigned_to_email ? [{ email: task.assigned_to_email, user_name: task.assigned_to_name }] : [],
+    "Unassigned"
   );
+  renderPeopleList(
+    document.querySelector("#task-stakeholder"),
+    task.supervisors && task.supervisors.length
+      ? task.supervisors
+      : task.stakeholder_email
+        ? [{ email: task.stakeholder_email, user_name: task.stakeholder_name }]
+        : [],
+    "No reviewer"
+  );
+  renderPeopleList(document.querySelector("#task-team"), task.team, "No team set");
+  setText("#task-watchers", formatWatchers(task.watchers));
+  setText("#task-created-by", task.created_by_name || "Not recorded");
 
   const taskStatusElement = document.querySelector("#task-status");
   if (taskStatusElement) {
     taskStatusElement.innerHTML = "";
-    taskStatusElement.append(createStatusBadge(task.status));
+    taskStatusElement.append(createStatusBadge(isTaskOverdue(task) ? "OVERDUE" : task.status));
   }
 
-  setText("#task-start-date", formatDisplayDate(task.start_date));
-  setText("#task-end-date", formatDisplayDate(task.end_date));
-  setText(
-    "#task-stakeholder",
-    task.stakeholder_name || task.stakeholder_email || "No stakeholder"
-  );
-  setText(
-    "#task-watchers",
-    formatWatchers(task.watchers)
-  );
-  setHref("#task-back-link", `/project?id=${task.project_id}`);
+  const endElement = document.querySelector("#task-end-date");
+  if (endElement) {
+    const end = parseDateOnly(task.end_date);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    endElement.className = "";
+    if (!end) {
+      endElement.textContent = "No due date";
+    } else {
+      const diff = Math.round((end - today) / 86400000);
+      const when = diff < 0 ? `${-diff} day${diff === -1 ? "" : "s"} late` : diff === 0 ? "today" : diff === 1 ? "tomorrow" : `in ${diff} days`;
+      endElement.textContent = `${formatDisplayDate(task.end_date)} · ${when}`;
+      if (String(task.status).toUpperCase() !== "CLOSED") {
+        endElement.className = diff < 0 ? "is-late" : diff <= 3 ? "is-soon" : "";
+      }
+    }
+  }
+  setText("#task-start-date", task.start_date ? formatDisplayDate(task.start_date) : "Not started");
 
   const documentsElement = document.querySelector("#task-documents");
-  if (!documentsElement) {
-    return;
+  if (documentsElement) {
+    documentsElement.innerHTML = "";
+    if (task.documents) {
+      const label = document.createElement("span");
+      label.textContent = "Reference: ";
+      documentsElement.append(label, createTextLink(task.documents, task.documents));
+    }
   }
 
-  documentsElement.innerHTML = "";
-  documentsElement.append(
-    task.documents
-      ? createTextLink(task.documents, task.documents)
-      : "No task documents added."
-  );
+  renderTaskSteps(task);
+  renderTaskDeliverables(task.comments || []);
+  renderTaskHours(task.work_logs || []);
+
+  const notify = document.querySelector("#task-notify");
+  if (notify) {
+    const people = new Set();
+    const viewerEmail = String(getSession()?.email || "").toLowerCase();
+    [task.assigned_to_email, ...(task.supervisors || []).map((p) => p.email), task.stakeholder_email]
+      .filter(Boolean)
+      .forEach((email) => {
+        if (String(email).toLowerCase() !== viewerEmail) {
+          people.add(String(email).toLowerCase());
+        }
+      });
+    const watchers = (task.watchers || []).filter(
+      (watcher) => watcher.email && String(watcher.email).toLowerCase() !== viewerEmail && !people.has(String(watcher.email).toLowerCase())
+    ).length;
+    const names = [];
+    if (task.assigned_to_email && String(task.assigned_to_email).toLowerCase() !== viewerEmail) {
+      names.push(task.assigned_to_name || task.assigned_to_email);
+    }
+    (task.supervisors && task.supervisors.length ? task.supervisors : [{ email: task.stakeholder_email, user_name: task.stakeholder_name }])
+      .filter((person) => person.email && String(person.email).toLowerCase() !== viewerEmail)
+      .forEach((person) => names.push(personName(person)));
+    const uniqueNames = Array.from(new Set(names));
+    notify.textContent = uniqueNames.length || watchers
+      ? `Notifies ${uniqueNames.join(", ")}${watchers ? `${uniqueNames.length ? " and " : ""}${watchers} watcher${watchers === 1 ? "" : "s"}` : ""}. @mention anyone else.`
+      : "Type @ to notify someone.";
+  }
+}
+
+function renderTaskDeliverables(comments) {
+  const list = document.querySelector("#task-deliverables");
+  const count = document.querySelector("#task-deliverable-count");
+  if (!list) {
+    return;
+  }
+  const items = comments
+    .filter((comment) => comment.deliverable_url && !(comment.is_deleted || comment.deleted_at))
+    .slice()
+    .reverse();
+  list.innerHTML = "";
+  if (count) {
+    count.textContent = items.length ? `${items.length} link${items.length === 1 ? "" : "s"} shared` : "";
+  }
+  if (!items.length) {
+    const empty = document.createElement("p");
+    empty.className = "task-deliverables-empty";
+    empty.textContent = "No work shared yet. Paste a link below when you have something to show.";
+    list.append(empty);
+    return;
+  }
+  items.forEach((comment) => {
+    const row = document.createElement("a");
+    row.className = "task-deliverable";
+    const url = normalizeExternalUrl(comment.deliverable_url);
+    row.href = url;
+    row.target = "_blank";
+    row.rel = "noopener noreferrer";
+    let host = "Link";
+    try {
+      host = new URL(url).hostname.replace(/^www\./, "");
+    } catch (_error) {
+      // Keep the generic label.
+    }
+    const kind = /docs\.google\.com\/spreadsheets|\.xlsx?$/i.test(url)
+      ? "XLS"
+      : /docs\.google\.com\/presentation|\.pptx?$/i.test(url)
+        ? "PPT"
+        : /\.pdf($|\?)/i.test(url)
+          ? "PDF"
+          : /docs\.google\.com\/document|\.docx?$/i.test(url)
+            ? "DOC"
+            : "LINK";
+    const badge = document.createElement("span");
+    badge.className = "task-deliverable-kind";
+    badge.textContent = kind;
+    const text = document.createElement("span");
+    text.className = "task-deliverable-text";
+    const title = document.createElement("b");
+    title.textContent = (comment.comment_text || "").split("\n")[0].slice(0, 90) || host;
+    const meta = document.createElement("span");
+    meta.textContent = `${host} · ${comment.commented_by_name || comment.commented_by_email || "Someone"} · ${formatDisplayDate(comment.created_at)}`;
+    text.append(title, meta);
+    row.append(badge, text);
+    list.append(row);
+  });
+}
+
+function renderTaskHours(workLogs) {
+  const total = workLogs.reduce((sum, log) => sum + Number(log.hours || 0), 0);
+  const totalElement = document.querySelector("#task-hours-total");
+  if (totalElement) {
+    const minutes = Math.round(total * 60);
+    totalElement.innerHTML = "";
+    const value = document.createElement("strong");
+    value.textContent = `${Math.floor(minutes / 60)}h${minutes % 60 ? ` ${String(minutes % 60).padStart(2, "0")}m` : ""}`;
+    const unit = document.createElement("span");
+    unit.textContent = " logged";
+    totalElement.append(value, unit);
+  }
+  const meter = document.querySelector("#task-hours-meter");
+  if (meter) {
+    meter.innerHTML = "";
+    const byPerson = new Map();
+    workLogs.forEach((log) => {
+      const name = log.logged_by_name || log.logged_by_email || "Someone";
+      byPerson.set(name, (byPerson.get(name) || 0) + Number(log.hours || 0));
+    });
+    const colors = ["var(--s1)", "var(--s2)", "var(--s3)", "var(--s-other)"];
+    const entries = Array.from(byPerson.entries()).sort((a, b) => b[1] - a[1]);
+    if (entries.length) {
+      const bar = document.createElement("div");
+      bar.className = "task-hours-bar";
+      const legend = document.createElement("div");
+      legend.className = "task-hours-legend";
+      entries.forEach(([name, hours], index) => {
+        const color = colors[Math.min(index, colors.length - 1)];
+        const segment = document.createElement("span");
+        segment.style.flex = String(hours);
+        segment.style.background = color;
+        segment.title = `${name}: ${Number(hours.toFixed(2))}h`;
+        bar.append(segment);
+        const key = document.createElement("span");
+        const swatch = document.createElement("i");
+        swatch.style.background = color;
+        key.append(swatch, `${name} ${Number(hours.toFixed(2))}h`);
+        legend.append(key);
+      });
+      meter.append(bar, legend);
+    }
+  }
+  const list = document.querySelector("#work-log-list");
+  if (list) {
+    list.innerHTML = "";
+    workLogs
+      .slice()
+      .sort((a, b) => String(b.work_date || b.created_at).localeCompare(String(a.work_date || a.created_at)))
+      .slice(0, 4)
+      .forEach((log) => {
+        const row = document.createElement("div");
+        row.className = "task-hours-row";
+        const left = document.createElement("span");
+        left.textContent = `${log.logged_by_name || log.logged_by_email || "Someone"} · ${log.work_note || ""}`;
+        left.title = left.textContent;
+        const right = document.createElement("span");
+        const day = parseDateOnly(log.work_date);
+        right.textContent = `${Number(log.hours || 0)}h · ${day ? day.toLocaleDateString(undefined, { day: "numeric", month: "short" }) : ""}`;
+        row.append(left, right);
+        list.append(row);
+      });
+  }
 }
 
 function setTaskWorkflowVisibility(task) {
-  const session = getSession();
-  const currentEmail = String(session?.email || "").toLowerCase();
-  const assignedEmail = String(task.assigned_to_email || "").toLowerCase();
-  const stakeholderEmail = String(task.stakeholder_email || "").toLowerCase();
+  const viewer = getTaskViewer(task);
   const status = String(task.status || "OPEN").toUpperCase();
-  const isAdmin = String(session?.userClass || "").toUpperCase() === "ADMIN";
-  const isAssignee = Boolean(currentEmail && currentEmail === assignedEmail);
-  const isStakeholder = Boolean(currentEmail && currentEmail === stakeholderEmail);
-  const canUseAssigneeWorkflow = isAssignee || isAdmin;
-  const canUseStakeholderWorkflow = isStakeholder || isAdmin;
+  const show = (selector, visible) => document.querySelector(selector)?.classList.toggle("is-hidden", !visible);
+  show("#start-work-button", viewer.canWork && status === "OPEN");
+  show("#request-close-button", viewer.canWork && status === "IN PROGRESS");
+  show("#withdraw-close-button", viewer.isAssignee && status === "CLOSE REQUESTED");
+  show("#send-back-button", viewer.canReview && !viewer.isAssignee && status === "CLOSE REQUESTED");
+  show("#close-task-button", viewer.canReview && ["IN PROGRESS", "CLOSE REQUESTED"].includes(status));
+  show("#reopen-task-button", viewer.canReview && status === "CLOSED");
 
-  const startWorkButton = document.querySelector("#start-work-button");
-  const requestCloseButton = document.querySelector("#request-close-button");
-  const withdrawCloseButton = document.querySelector("#withdraw-close-button");
-  const closeTaskButton = document.querySelector("#close-task-button");
-  const reopenTaskButton = document.querySelector("#reopen-task-button");
-
-  if (startWorkButton) {
-    startWorkButton.classList.toggle(
-      "is-hidden",
-      !canUseAssigneeWorkflow || status !== "OPEN"
-    );
+  const closeButton = document.querySelector("#close-task-button");
+  if (closeButton) {
+    closeButton.textContent = status === "CLOSE REQUESTED" ? "Approve and close" : "Close task";
   }
 
-  if (requestCloseButton) {
-    requestCloseButton.classList.toggle(
-      "is-hidden",
-      !canUseAssigneeWorkflow || status !== "IN PROGRESS"
-    );
+  const next = describeNextStep(task, viewer);
+  const box = document.querySelector("#task-next");
+  if (box) {
+    box.className = `task-next ${next.tone}`;
   }
+  setText("#task-next-title", next.title);
+  setText("#task-next-sub", next.sub);
 
-  if (withdrawCloseButton) {
-    withdrawCloseButton.classList.toggle(
-      "is-hidden",
-      !canUseAssigneeWorkflow || status !== "CLOSE REQUESTED"
-    );
+  const editBox = document.querySelector("#task-edit-box");
+  if (editBox) {
+    editBox.hidden = !viewer.canEdit;
   }
-
-  if (closeTaskButton) {
-    closeTaskButton.classList.toggle(
-      "is-hidden",
-      !canUseStakeholderWorkflow ||
-        !["IN PROGRESS", "CLOSE REQUESTED"].includes(status)
-    );
+  const commentForm = document.querySelector("#task-comment-form");
+  if (commentForm) {
+    commentForm.hidden = !viewer.canComment;
   }
-
-  if (reopenTaskButton) {
-    reopenTaskButton.classList.toggle(
-      "is-hidden",
-      !canUseStakeholderWorkflow || status !== "CLOSED"
-    );
+  const workLogForm = document.querySelector("#task-work-log-form");
+  if (workLogForm) {
+    workLogForm.hidden = !(viewer.canComment || viewer.canWork) || status === "CLOSED";
   }
 }
 
-function renderComments(comments) {
+const TASK_EVENT_TEXT = {
+  TASK_CREATED: "created this task",
+  TASK_WORK_STARTED: "started working on it",
+  TASK_CLOSE_REQUESTED: "sent it for review",
+  TASK_CLOSE_REQUEST_WITHDRAWN: "withdrew it from review",
+  TASK_SENT_BACK: "sent it back for changes",
+  TASK_CLOSED: "approved and closed it",
+  TASK_REOPENED: "reopened it",
+  TASK_ASSIGNEE_CHANGED: "changed the assignee",
+  TASK_DUE_DATE_CHANGED: "moved the due date",
+};
+
+function renderComments(comments, workLogs = [], accessLogs = []) {
   const commentList = document.querySelector("#comment-list");
   if (!commentList) {
     return;
   }
 
   commentList.innerHTML = "";
-
-  if (!comments.length) {
-    renderEmptyState(commentList, "No comments yet.");
-    return;
-  }
-
   const sessionEmail = String(getSession()?.email || "").toLowerCase();
   const repliesByParent = new Map();
   const rootComments = [];
@@ -3796,9 +4514,24 @@ function renderComments(comments) {
       repliesByParent.set(parentId, replies);
       return;
     }
-
     rootComments.push(comment);
   });
+
+  function timeLabel(value) {
+    if (!value) {
+      return "";
+    }
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+      return formatDisplayDate(value);
+    }
+    const diffMinutes = Math.round((Date.now() - date.getTime()) / 60000);
+    if (diffMinutes < 1) return "just now";
+    if (diffMinutes < 60) return `${diffMinutes}m ago`;
+    if (diffMinutes < 24 * 60) return `${Math.round(diffMinutes / 60)}h ago`;
+    if (diffMinutes < 7 * 24 * 60) return `${Math.round(diffMinutes / 1440)}d ago`;
+    return formatDisplayDate(value);
+  }
 
   function createCommentCard(comment, isReply = false) {
     const card = document.createElement("article");
@@ -3806,10 +4539,13 @@ function renderComments(comments) {
     if (isReply) {
       card.classList.add("is-reply");
     }
-
-    const author = document.createElement("p");
-    author.className = "meta-text";
+    const head = document.createElement("p");
+    head.className = "feed-head";
+    const author = document.createElement("b");
     author.textContent = comment.commented_by_name || comment.commented_by_email || "User";
+    const when = document.createElement("time");
+    when.textContent = timeLabel(comment.created_at);
+    head.append(author, when);
 
     const isDeleted = Boolean(comment.is_deleted || comment.deleted_at);
     const isOwnComment =
@@ -3817,21 +4553,21 @@ function renderComments(comments) {
       String(comment.commented_by_email || "").toLowerCase() === sessionEmail;
 
     const body = document.createElement("p");
-    body.textContent = isDeleted ? "Comment deleted." : comment.comment_text || "";
-
-    card.append(author, body);
+    body.className = "feed-body";
+    body.textContent = isDeleted ? "Update deleted." : comment.comment_text || "";
+    card.append(head, body);
     if (comment.updated_at && !isDeleted) {
-      const edited = document.createElement("p");
-      edited.className = "meta-text";
-      edited.textContent = "Edited";
-      card.append(edited);
+      const edited = document.createElement("span");
+      edited.className = "feed-edited";
+      edited.textContent = "edited";
+      when.after(edited);
     }
     if (comment.deliverable_url && !isDeleted) {
       const url = document.createElement("p");
+      url.className = "feed-link";
       url.append(createTextLink(comment.deliverable_url, comment.deliverable_url));
       card.append(url);
     }
-
     if (isDeleted) {
       return card;
     }
@@ -3863,59 +4599,82 @@ function renderComments(comments) {
       deleteButton.textContent = "Delete";
       actions.append(deleteButton);
     }
-
     card.append(actions);
-
     return card;
   }
 
-  function appendCommentThread(comment, container, isReply = false) {
-    const card = createCommentCard(comment, isReply);
-    container.append(card);
-
+  function buildThread(comment, isReply = false) {
+    const wrap = document.createElement("div");
+    wrap.className = "feed-thread";
+    wrap.append(createCommentCard(comment, isReply));
     const replies = repliesByParent.get(comment.id) || [];
     if (replies.length) {
       const replyList = document.createElement("div");
       replyList.className = "comment-replies";
-      replies.forEach((reply) => appendCommentThread(reply, replyList, true));
-      container.append(replyList);
+      replies.forEach((reply) => replyList.append(buildThread(reply, true)));
+      wrap.append(replyList);
     }
+    return wrap;
   }
 
+  const items = [];
   rootComments.forEach((comment) => {
-    appendCommentThread(comment, commentList);
+    items.push({ at: comment.created_at, kind: "comment", node: () => buildThread(comment) });
   });
+  workLogs.forEach((log) => {
+    items.push({
+      at: log.created_at || log.work_date,
+      kind: "hours",
+      node: () => {
+        const row = document.createElement("p");
+        row.className = "feed-event is-hours";
+        const who = document.createElement("b");
+        who.textContent = log.logged_by_name || log.logged_by_email || "Someone";
+        const hours = document.createElement("b");
+        hours.textContent = `${Number(log.hours || 0)}h`;
+        const note = log.work_note ? ` · "${log.work_note}"` : "";
+        const when = document.createElement("time");
+        when.textContent = timeLabel(log.created_at) || formatDisplayDate(log.work_date);
+        row.append(who, " logged ", hours, ` on ${formatDisplayDate(log.work_date)}${note}`, when);
+        return row;
+      },
+    });
+  });
+  accessLogs
+    .filter((log) => TASK_EVENT_TEXT[log.event_type])
+    .forEach((log) => {
+      items.push({
+        at: log.created_at,
+        kind: "event",
+        node: () => {
+          const row = document.createElement("p");
+          row.className = `feed-event is-${String(log.event_type).toLowerCase().replace(/_/g, "-")}`;
+          const who = document.createElement("b");
+          who.textContent = log.actor_name || log.actor_email || "Someone";
+          let text = ` ${TASK_EVENT_TEXT[log.event_type]}`;
+          if (log.event_type === "TASK_ASSIGNEE_CHANGED" && (log.new_assignee_name || log.new_assignee_email)) {
+            text = ` assigned it to ${log.new_assignee_name || log.new_assignee_email}`;
+          }
+          const when = document.createElement("time");
+          when.textContent = timeLabel(log.created_at);
+          row.append(who, text, when);
+          return row;
+        },
+      });
+    });
+
+  if (!items.length) {
+    renderEmptyState(commentList, "Nothing yet. Updates, hours and status changes will appear here.");
+    return;
+  }
+
+  items
+    .sort((a, b) => String(b.at || "").localeCompare(String(a.at || "")))
+    .forEach((item) => commentList.append(item.node()));
 }
 
 function renderWorkLogs(workLogs) {
-  const workLogList = document.querySelector("#work-log-list");
-  if (!workLogList) {
-    return;
-  }
-
-  workLogList.innerHTML = "";
-
-  if (!workLogs.length) {
-    renderEmptyState(workLogList, "No work logs yet.");
-    return;
-  }
-
-  workLogs.forEach((workLog) => {
-    const card = document.createElement("article");
-    card.className = "comment-card";
-
-    const author = document.createElement("p");
-    author.className = "meta-text";
-    const loggedBy = workLog.logged_by_name || workLog.logged_by_email || "User";
-    const hours = workLog.hours ? ` - ${workLog.hours}h` : "";
-    author.textContent = `${loggedBy} - ${formatDisplayDate(workLog.work_date)}${hours}`;
-
-    const body = document.createElement("p");
-    body.textContent = workLog.work_note || "";
-
-    card.append(author, body);
-    workLogList.append(card);
-  });
+  renderTaskHours(workLogs);
 }
 
 function setupActivityTabs() {
@@ -4104,6 +4863,12 @@ function setupTaskPage() {
   }
 
   setupMentionAutocomplete(commentTextInput, mentionSuggestions);
+  const workDateInput = document.querySelector("#work_date");
+  if (workDateInput && !workDateInput.value) {
+    const now = new Date();
+    workDateInput.value = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+    workDateInput.max = workDateInput.value;
+  }
 
   function clearReplyTarget() {
     if (parentCommentInput) {
@@ -4121,7 +4886,7 @@ function setupTaskPage() {
     }
     editContext?.classList.add("is-hidden");
     if (commentSubmitButton) {
-      commentSubmitButton.textContent = "Add Comment";
+      commentSubmitButton.textContent = "Post update";
     }
   }
 
@@ -4151,7 +4916,7 @@ function setupTaskPage() {
     }
     editContext?.classList.remove("is-hidden");
     if (commentSubmitButton) {
-      commentSubmitButton.textContent = "Save Comment";
+      commentSubmitButton.textContent = "Save update";
     }
   }
 
@@ -4165,8 +4930,7 @@ function setupTaskPage() {
       const task = await getAuthorizedJson(`/tasks/${taskId}`);
       renderTaskDetail(task);
       setTaskWorkflowVisibility(task);
-      renderComments(task.comments || []);
-      renderWorkLogs(task.work_logs || []);
+      renderComments(task.comments || [], task.work_logs || [], task.access_logs || []);
       await populateUserSelect(taskAssigneeSelect, { includeCurrentUser: true });
       if (taskTitleInput) {
         taskTitleInput.value = task.task_title || "";
@@ -4180,15 +4944,7 @@ function setupTaskPage() {
       if (taskAssigneeSelect && task.assigned_to_email) {
         taskAssigneeSelect.value = task.assigned_to_email;
       }
-      const session = getSession();
-      const currentEmail = String(session?.email || "").toLowerCase();
-      const isAdmin = String(session?.userClass || "").toUpperCase() === "ADMIN";
-      const assignedEmail = String(task.assigned_to_email || "").toLowerCase();
-      const stakeholderEmail = String(task.stakeholder_email || "").toLowerCase();
-      const canChangeAssignee =
-        isAdmin ||
-        (Boolean(currentEmail) &&
-          (currentEmail === assignedEmail || currentEmail === stakeholderEmail));
+      const canChangeAssignee = getTaskViewer(task).canEdit;
       if (taskAssigneeSelect) {
         taskAssigneeSelect.disabled = !canChangeAssignee;
       }
@@ -4272,6 +5028,36 @@ function setupTaskPage() {
         setMessage(taskActionMessage, error.message, true);
       }
     });
+
+  document.querySelector("#send-back-button")?.addEventListener("click", async () => {
+    const note = commentTextInput?.value?.trim();
+    if (!note) {
+      setMessage(
+        taskActionMessage,
+        "Write what needs changing in the update box below, then click Send back.",
+        true
+      );
+      commentTextInput?.focus();
+      return;
+    }
+    setMessage(taskActionMessage, "Sending back...");
+    try {
+      await postAuthorizedJson(`/tasks/${taskId}/comments`, {
+        comment_text: note,
+        deliverable_url: null,
+        parent_comment_id: null,
+        idempotency_key: createIdempotencyKey("task-send-back"),
+      });
+      const data = await postAuthorizedJson(`/tasks/${taskId}/status`, {
+        status: "IN PROGRESS",
+      });
+      commentForm?.reset();
+      setMessage(taskActionMessage, data.detail ? "Sent back with your note." : "Sent back.");
+      await loadTask();
+    } catch (error) {
+      setMessage(taskActionMessage, error.message, true);
+    }
+  });
 
   document.querySelector("#close-task-button")?.addEventListener("click", async () => {
     setMessage(taskActionMessage, "Closing task...");
@@ -4418,6 +5204,9 @@ function setupTaskPage() {
         idempotency_key: createIdempotencyKey("task-work-log"),
       });
       workLogForm.reset();
+      if (workDateInput && workDateInput.max) {
+        workDateInput.value = workDateInput.max;
+      }
       setMessage(workLogMessage, data.detail || "Work log added.");
       await loadTask();
     } catch (error) {

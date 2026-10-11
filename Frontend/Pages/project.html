@@ -12,7 +12,7 @@
     <link rel="manifest" href="/manifest.webmanifest">
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png?v=20260723-user-classes">
     <link rel="icon" href="/icons/icon-192.png?v=20260723-user-classes" sizes="192x192" type="image/png">
-    <link rel="stylesheet" href="/Css/styles.css?v=20261011-redesign">
+    <link rel="stylesheet" href="/Css/styles.css?v=20261011-r2">
   </head>
   <body class="app-body">
     <main class="workspace-shell">
@@ -23,7 +23,7 @@
         </div>
         <div class="header-actions">
           <button class="btn btn-secondary is-hidden" id="project-status-button" type="button"></button>
-          <a class="btn btn-icon" id="create-task-link" href="/create-task" aria-label="Create task" title="Create task" data-management-only>+</a>
+          <a class="btn btn-icon" id="create-task-link" href="/create-task" aria-label="Create task" title="Create task" hidden>+</a>
           <a class="btn btn-icon" href="/projects" aria-label="Back to projects" title="Back to projects">&larr;</a>
         </div>
       </header>
@@ -39,8 +39,16 @@
             <p class="detail-copy" id="project-documents"></p>
           </div>
           <div>
-            <p class="eyebrow">Stakeholder</p>
+            <p class="eyebrow">Supervisors</p>
             <p class="detail-copy" id="project-stakeholder"></p>
+          </div>
+          <div>
+            <p class="eyebrow">Team</p>
+            <p class="detail-copy" id="project-team"></p>
+          </div>
+          <div>
+            <p class="eyebrow">Created by</p>
+            <p class="detail-copy" id="project-created-by"></p>
           </div>
           <div>
             <p class="eyebrow">Watchers</p>
@@ -63,7 +71,7 @@
             </label>
           </div>
           <label for="inline_project_stakeholder_email">
-            Stakeholder
+            Lead supervisor
             <select id="inline_project_stakeholder_email" name="stakeholder_email">
               <option value="">No stakeholder</option>
             </select>
@@ -89,6 +97,6 @@
 
     </main>
     <script src="/Js/config.js?v=20260723-user-classes"></script>
-    <script src="/Js/app.js?v=20261011-redesign"></script>
+    <script src="/Js/app.js?v=20261011-r2"></script>
   </body>
 </html>

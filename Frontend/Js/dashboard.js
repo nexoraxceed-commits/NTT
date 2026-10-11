@@ -19,7 +19,7 @@
   const STATUS_ORDER = ["open", "progress", "overdue", "closed"];
   const STATUS = {
     open: {
-      label: "Open",
+      label: "To do",
       filter: "OPEN",
       color: "var(--st-open)",
       icon: '<circle cx="12" cy="12" r="8.5"/>',
@@ -37,7 +37,7 @@
       icon: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5v5"/><path d="M12 16.2h.01"/>',
     },
     closed: {
-      label: "Closed",
+      label: "Done",
       filter: "CLOSED",
       color: "var(--st-closed)",
       icon: '<circle cx="12" cy="12" r="8.5"/><path d="m8.2 12.2 2.6 2.6 5-5.6"/>',
@@ -54,6 +54,8 @@
     customEnd: "",
     notifications: null,
     notificationsFetchedAt: 0,
+    leaderPeriod: "month",
+    users: null,
     container: null,
     details: [],
   };
@@ -338,7 +340,7 @@
     }
     if (key === "progress") {
       const review = list.filter((t) => String(t.status).toUpperCase() === "CLOSE REQUESTED").length;
-      return { text: review ? `${review} awaiting close review` : "Being worked on", tone: review ? "review" : "flat" };
+      return { text: review ? `${review} in review` : "Being worked on", tone: review ? "review" : "flat" };
     }
     if (key === "overdue") {
       const oldest = list.reduce((max, t) => {
@@ -425,7 +427,7 @@
             <span class="dash-row-dot" style="background:${STATUS[key].color}"></span>
             <span class="dash-row-main">
               <span class="dash-row-title">${esc(task.task_title || `Task #${task.id}`)}</span>
-              <span class="dash-row-sub">${esc(task.project_name || "")}${review ? ' · <em class="dash-review">Awaiting close</em>' : ""}</span>
+              <span class="dash-row-sub">${esc(task.project_name || "")}${review ? ' · <em class="dash-review">In review</em>' : ""}</span>
             </span>
             <span class="dash-row-owner" title="${esc(owner.name || owner.email || "Unassigned")}">${avatar(owner.name, owner.email)}</span>
             <span class="dash-row-due tone-${due.tone}">${esc(due.text)}</span>
@@ -912,6 +914,221 @@
       </article>`;
   }
 
+  /* --------------------------------------------- leaderboard and nudges */
+
+  function loadUsers() {
+    if (state.users !== null || typeof getActiveUsers !== "function") {
+      return;
+    }
+    state.users = [];
+    getActiveUsers()
+      .then((users) => {
+        state.users = (users || []).filter(
+          (user) => user.email && String(user.user_class || "").toUpperCase() !== "REDUNDANT_USER"
+        );
+        draw();
+      })
+      .catch(() => {
+        state.users = [];
+      });
+  }
+
+  function periodStart(today, period) {
+    return period === "week" ? weekStart(today) : new Date(today.getFullYear(), today.getMonth(), 1);
+  }
+
+  function contributionStats(tasks, today, period) {
+    const start = periodStart(today, period);
+    const people = new Map();
+    const ensure = (email, name) => {
+      const key = lower(email) || lower(name);
+      if (!key) {
+        return null;
+      }
+      if (!people.has(key)) {
+        people.set(key, { email: lower(email), name: name || email, hours: 0, done: 0, onTime: 0, open: 0, late: 0, lastLog: null });
+      }
+      const entry = people.get(key);
+      if (name && (!entry.name || entry.name === entry.email)) {
+        entry.name = name;
+      }
+      return entry;
+    };
+    (state.users || []).forEach((user) => ensure(user.email, user.user_name));
+    tasks.forEach((task) => {
+      const closed = closedOn(task);
+      const end = parseDay(task.end_date);
+      const status = String(task.status || "OPEN").toUpperCase();
+      assigneesOf(task).forEach((person) => {
+        if (!person.email) {
+          return;
+        }
+        const entry = ensure(person.email, person.name);
+        if (!entry) {
+          return;
+        }
+        if (status === "CLOSED" && closed && closed >= start && closed <= today) {
+          entry.done += 1;
+          if (!end || closed <= end) {
+            entry.onTime += 1;
+          }
+        }
+        if (status !== "CLOSED") {
+          entry.open += 1;
+          if (end && end < today) {
+            entry.late += 1;
+          }
+        }
+      });
+      (task.work_logs || []).forEach((log) => {
+        const day = parseDay(log.work_date);
+        const entry = ensure(log.logged_by_email, log.logged_by_name);
+        if (!entry || !day) {
+          return;
+        }
+        if (!entry.lastLog || day > entry.lastLog) {
+          entry.lastLog = day;
+        }
+        if (day >= start && day <= today) {
+          entry.hours += Number(log.hours || 0);
+        }
+      });
+    });
+    const list = Array.from(people.values());
+    list.forEach((entry) => {
+      // Hours carry the score; each task finished counts like an hour, and
+      // finishing on time adds a little more. Shown on the card so it's fair.
+      entry.score = entry.hours + entry.done * 1 + entry.onTime * 0.5;
+    });
+    return list.sort((a, b) => b.score - a.score || b.done - a.done || a.name.localeCompare(b.name));
+  }
+
+  function median(values) {
+    const sorted = values.slice().sort((a, b) => a - b);
+    if (!sorted.length) {
+      return 0;
+    }
+    const mid = Math.floor(sorted.length / 2);
+    return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+  }
+
+  function renderLeaderboard(stats, email) {
+    const ranked = stats.filter((entry) => entry.score > 0);
+    const top = ranked.slice(0, 5);
+    const myIndex = ranked.findIndex((entry) => entry.email === email);
+    const periodLabel = state.leaderPeriod === "week" ? "this week" : "this month";
+    const tabs = [["week", "Week"], ["month", "Month"]]
+      .map(([key, label]) => `<button type="button" data-dash-leader="${key}" aria-pressed="${state.leaderPeriod === key}">${label}</button>`)
+      .join("");
+    const max = Math.max(1, ...top.map((entry) => entry.score));
+    const medal = ["is-gold", "is-silver", "is-bronze"];
+    const rows = top.map((entry, index) => `
+      <li class="dash-leader ${entry.email === email ? "is-me" : ""}">
+        <span class="dash-rank ${medal[index] || ""}">${index + 1}</span>
+        ${avatar(entry.name, entry.email)}
+        <span class="dash-leader-main">
+          <span class="dash-leader-name">${esc(entry.name)}${entry.email === email ? ' <em>you</em>' : ""}</span>
+          <span class="dash-leader-bar"><span style="width:${Math.max(4, (entry.score / max) * 100)}%"></span></span>
+        </span>
+        <span class="dash-leader-stats"><b>${hoursText(entry.hours)}</b><span>${entry.done} done${entry.done ? ` · ${Math.round((entry.onTime / entry.done) * 100)}% on time` : ""}</span></span>
+      </li>`).join("");
+    const me = myIndex >= 5
+      ? `<p class="dash-leader-you">You're <b>#${myIndex + 1}</b> of ${ranked.length} ${periodLabel} with ${hoursText(ranked[myIndex].hours)} and ${ranked[myIndex].done} done.</p>`
+      : "";
+    return `
+      <article class="dash-card dash-leaders">
+        <header class="dash-card-head">
+          <div>
+            <p class="dash-eyebrow">Top contributors</p>
+            <p class="dash-card-sub">Hours logged and tasks finished ${periodLabel}</p>
+          </div>
+          <div class="dash-tabs" role="group" aria-label="Leaderboard period">${tabs}</div>
+        </header>
+        ${top.length
+          ? `<ol class="dash-leader-list">${rows}</ol>${me}`
+          : `<p class="dash-calm">No hours logged or tasks finished ${periodLabel} yet. Log hours on a task to get on the board.</p>`}
+        <p class="dash-foot dash-score-note">Score: 1 point per hour logged, 1 per task finished, +0.5 if it was on time.</p>
+      </article>`;
+  }
+
+  function renderStanding(stats, email, today, isManager) {
+    const periodLabel = state.leaderPeriod === "week" ? "this week" : "this month";
+    const active = stats.filter((entry) => entry.hours > 0 || entry.done > 0 || entry.open > 0);
+    const teamMedian = median(active.map((entry) => entry.hours));
+    const mine = stats.find((entry) => entry.email === email) || { hours: 0, done: 0, onTime: 0, open: 0, late: 0, lastLog: null };
+    const idleDays = mine.lastLog ? daysBetween(mine.lastLog, today) : null;
+
+    let tone = "good";
+    let headline = "You're keeping pace with the team";
+    let advice = "Keep logging hours as you go so your work is counted.";
+    if (mine.late > 0) {
+      tone = "bad";
+      headline = `${mine.late} of your task${mine.late === 1 ? " is" : "s are"} overdue`;
+      advice = "Finish or send them for review, or ask your supervisor to move the due date.";
+    } else if (teamMedian > 0 && mine.hours < teamMedian * 0.5) {
+      tone = "warn";
+      headline = "You're behind the team " + periodLabel;
+      advice = mine.open
+        ? "Log the hours you've already put in, and move one of your open tasks forward today."
+        : "Nothing is assigned to you. Pick up a task from the board or ask a supervisor.";
+    } else if (mine.hours >= teamMedian && mine.hours > 0) {
+      headline = "You're ahead of the team median";
+    }
+    if (idleDays !== null && idleDays >= 7 && tone !== "bad") {
+      tone = "warn";
+      headline = `No hours logged in ${idleDays} days`;
+    }
+
+    const compareMax = Math.max(1, mine.hours, teamMedian);
+    const mineCard = `
+      <div class="dash-standing is-${tone}">
+        <p class="dash-standing-head">${esc(headline)}</p>
+        <div class="dash-compare">
+          <div><span>You</span><span class="dash-compare-track"><span style="width:${(mine.hours / compareMax) * 100}%" class="is-me"></span></span><b>${hoursText(mine.hours)}</b></div>
+          <div><span>Team median</span><span class="dash-compare-track"><span style="width:${(teamMedian / compareMax) * 100}%"></span></span><b>${hoursText(teamMedian)}</b></div>
+        </div>
+        <p class="dash-standing-facts">${mine.done} done ${periodLabel} · ${mine.open} open · ${mine.late} overdue</p>
+        <p class="dash-standing-advice">${esc(advice)}</p>
+      </div>`;
+
+    let checkIn = "";
+    if (isManager) {
+      const needs = stats
+        .filter((entry) => entry.email && entry.email !== email)
+        .map((entry) => {
+          const idle = entry.lastLog ? daysBetween(entry.lastLog, today) : null;
+          const reasons = [];
+          if (entry.late >= 2) reasons.push(`${entry.late} overdue`);
+          if (idle === null && entry.open > 0) reasons.push("no hours logged yet");
+          else if (idle !== null && idle >= 14) reasons.push(`no hours in ${idle} days`);
+          if (teamMedian > 0 && entry.open > 0 && entry.hours < teamMedian * 0.3 && !reasons.length) reasons.push(`${hoursText(entry.hours)} vs ${hoursText(teamMedian)} median`);
+          return { entry, reasons, weight: entry.late * 2 + (idle === null ? 10 : idle / 7) };
+        })
+        .filter((item) => item.reasons.length)
+        .sort((a, b) => b.weight - a.weight)
+        .slice(0, 5);
+      checkIn = `
+        <div class="dash-checkin">
+          <p class="dash-checkin-head">Needs a check-in <span>Only seniors see this</span></p>
+          ${needs.length
+            ? `<ul>${needs.map((item) => `<li>${avatar(item.entry.name, item.entry.email)}<span class="dash-checkin-name">${esc(item.entry.name)}</span><span class="dash-checkin-why">${esc(item.reasons.join(" · "))}</span></li>`).join("")}</ul>`
+            : `<p class="dash-calm">Everyone is active and on time.</p>`}
+        </div>`;
+    }
+
+    return `
+      <article class="dash-card dash-standing-card">
+        <header class="dash-card-head">
+          <div>
+            <p class="dash-eyebrow">How you're doing</p>
+            <p class="dash-card-sub">Private to you · ${periodLabel}</p>
+          </div>
+        </header>
+        ${mineCard}
+        ${checkIn}
+      </article>`;
+  }
+
   /* -------------------------------------------------------------- render */
 
   function draw() {
@@ -926,6 +1143,10 @@
     const scoped = state.scope === "me" ? tasks.filter((t) => isMine(t, email)) : tasks;
     const buckets = { open: [], progress: [], overdue: [], closed: [] };
     scoped.forEach((task) => buckets[bucketOf(task, today)].push(task));
+    const stats = contributionStats(tasks, today, state.leaderPeriod);
+    const isManager = ["ADMIN", "SENIOR"].includes(
+      String((typeof getSession === "function" ? getSession()?.userClass : "") || "").toUpperCase()
+    );
 
     const html = `
       ${renderHead(myName(tasks, email), state.scope, now)}
@@ -934,6 +1155,8 @@
       <div class="dash-grid">
         ${renderNudges(buildNudges(tasks, email, today))}
         ${renderDueNext(scoped, today)}
+        ${renderLeaderboard(stats, email)}
+        ${renderStanding(stats, email, today, isManager)}
         ${renderHours(scopedLogs(tasks, email), today)}
         ${renderTrend(scoped, today)}
         ${renderSplit(scoped, today)}
@@ -1040,6 +1263,12 @@
         draw();
         return;
       }
+      const leaderTab = event.target.closest("[data-dash-leader]");
+      if (leaderTab) {
+        state.leaderPeriod = leaderTab.dataset.dashLeader === "week" ? "week" : "month";
+        draw();
+        return;
+      }
       const hoursTab = event.target.closest("[data-dash-hours]");
       if (hoursTab) {
         state.hours = hoursTab.dataset.dashHours;
@@ -1097,5 +1326,6 @@
     bindOnce(container);
     draw();
     refreshNotifications();
+    loadUsers();
   };
 })();
