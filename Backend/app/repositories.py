@@ -11,6 +11,9 @@ from app.constants import (
     NORMAL_STATUS,
     USER_CLASS_COLUMN,
     PUSH_SUBSCRIPTIONS_TABLE,
+    PROJECT_ROLE_SUPERVISOR,
+    PROJECT_ROLE_TEAM,
+    PROJECT_TEAM_TABLE,
     PROJECT_WATCHERS_TABLE,
     PROJECTS_TABLE,
     REF_USER_NAME_COLUMN,
@@ -370,6 +373,77 @@ def replace_project_watchers(
     ]
     if rows:
         supabase.table(PROJECT_WATCHERS_TABLE).insert(rows).execute()
+
+
+def get_project_team(
+    supabase: Client,
+    project_id: int,
+) -> list[dict]:
+    """Team and supervisor rows for one project.
+
+    Returns an empty list until the PROJECT_TEAM table exists, so the app keeps
+    working between deploying this code and running the database script.
+    """
+    try:
+        response = (
+            supabase.table(PROJECT_TEAM_TABLE)
+            .select("project_id,user_id,role,status")
+            .eq("project_id", project_id)
+            .eq("status", ACTIVE_STATUS)
+            .execute()
+        )
+    except Exception as exc:
+        if is_optional_analytics_table_error(exc) or "project_team" in str(exc).lower():
+            return []
+        raise
+    return getattr(response, "data", None) or []
+
+
+def get_project_team_for_projects(
+    supabase: Client,
+    project_ids: list[int],
+) -> dict[int, list[dict]]:
+    team_by_project: dict[int, list[dict]] = {int(pid): [] for pid in project_ids}
+    if not project_ids:
+        return team_by_project
+    try:
+        response = (
+            supabase.table(PROJECT_TEAM_TABLE)
+            .select("project_id,user_id,role,status")
+            .in_("project_id", list(set(project_ids)))
+            .eq("status", ACTIVE_STATUS)
+            .execute()
+        )
+    except Exception as exc:
+        if is_optional_analytics_table_error(exc) or "project_team" in str(exc).lower():
+            return team_by_project
+        raise
+    for row in getattr(response, "data", None) or []:
+        if row.get("project_id") is None:
+            continue
+        team_by_project.setdefault(int(row["project_id"]), []).append(row)
+    return team_by_project
+
+
+def replace_project_team(
+    supabase: Client,
+    project_id: int,
+    team_user_ids: list[str],
+    supervisor_user_ids: list[str],
+) -> None:
+    supabase.table(PROJECT_TEAM_TABLE).delete().eq("project_id", project_id).execute()
+    rows = [
+        {"project_id": project_id, "user_id": user_id, "role": PROJECT_ROLE_SUPERVISOR, "status": ACTIVE_STATUS}
+        for user_id in sorted(set(supervisor_user_ids))
+    ]
+    supervisor_set = set(supervisor_user_ids)
+    rows.extend(
+        {"project_id": project_id, "user_id": user_id, "role": PROJECT_ROLE_TEAM, "status": ACTIVE_STATUS}
+        for user_id in sorted(set(team_user_ids))
+        if user_id not in supervisor_set
+    )
+    if rows:
+        supabase.table(PROJECT_TEAM_TABLE).insert(rows).execute()
 
 
 def get_project_by_id(

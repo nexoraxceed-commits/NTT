@@ -22,6 +22,8 @@ from app.constants import (
     ACTIVE_STATUS,
     DELETED_STATUS,
     MANAGEMENT_USER_CLASSES,
+    PROJECT_ROLE_SUPERVISOR,
+    PROJECT_ROLE_TEAM,
     NORMAL_STATUS,
     PENDING_STATUS,
     NOTIFICATION_LOG_TABLE,
@@ -45,7 +47,7 @@ from app.constants import (
     USER_CLASS_REDUNDANT,
     USER_CLASS_SENIOR,
 )
-from app.dependencies import CurrentUser, get_current_user, require_admin
+from app.dependencies import CurrentUser, clear_auth_cache, get_current_user, require_admin
 from app.email_notifications import send_mailjet_notification
 from app.mappers import build_watcher_responses
 from app.repositories import (
@@ -59,6 +61,8 @@ from app.repositories import (
     get_notifications_for_user,
     get_project_by_id,
     get_project_watchers,
+    get_project_team,
+    get_project_team_for_projects,
     get_project_watchers_for_projects,
     get_ref_user,
     get_ref_users_by_emails,
@@ -74,6 +78,7 @@ from app.repositories import (
     is_optional_analytics_table_error,
     mark_all_notifications_read,
     mark_notification_read,
+    replace_project_team,
     replace_project_watchers,
     sync_ref_user_auth_uid,
     update_ref_user,
@@ -118,6 +123,7 @@ from app.schemas import (
     UpdateTaskRequest,
     UpdateTaskStatusRequest,
 )
+from app.background import run_in_background
 from app.supabase_client import get_supabase_admin_client, get_supabase_client
 from app.utils import normalize_optional_text
 
@@ -392,6 +398,8 @@ def get_ref_user_by_id(
 
 def invalidate_user_cache() -> None:
     backend_cache.delete("users:active")
+    # A user's class or status may have changed, so re-verify everyone.
+    clear_auth_cache()
 
 
 def invalidate_notification_cache(user_ids: set[str] | list[str] | None = None) -> None:
@@ -595,7 +603,8 @@ def queue_notification_log(
                 if is_optional_analytics_table_error(fallback_exc):
                     return
                 return
-        send_push_notifications(
+        run_in_background(
+            send_push_notifications,
             supabase_admin,
             app_settings,
             notification_rows,
@@ -698,7 +707,8 @@ def notify_user_ids(
             )
             if not recipient_email:
                 continue
-            send_mailjet_notification(
+            run_in_background(
+                send_mailjet_notification,
                 app_settings,
                 recipient_email,
                 normalize_optional_text(recipient.get(REF_USER_NAME_COLUMN)),
@@ -1056,6 +1066,121 @@ def is_project_editor(project: dict, watchers: list[dict], user_id: str) -> bool
         return True
 
     return any(str(watcher.get("user_id")) == str(user_id) for watcher in watchers)
+
+
+def save_project_team_or_explain(
+    supabase_admin: Client,
+    project_id: int,
+    team_user_ids: list[str],
+    supervisor_user_ids: list[str],
+) -> None:
+    try:
+        replace_project_team(supabase_admin, project_id, team_user_ids, supervisor_user_ids)
+    except Exception as exc:
+        if "project_team" in str(exc).lower() or is_optional_analytics_table_error(exc):
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=(
+                    "Project teams need a one-time database update. Ask an admin to run "
+                    "Resources/20261011_PROJECT_TEAM.sql in Supabase."
+                ),
+            ) from exc
+        raise
+
+
+def task_viewer_permissions(
+    current_user: object,
+    project: dict,
+    team: list[dict],
+    task: dict,
+    user_id: object,
+) -> dict:
+    """What the person viewing a task may do, so the page shows the right buttons."""
+    manager = is_management_user(current_user)
+    supervisor = is_project_supervisor(project, team, user_id)
+    assignee = is_task_assignee(task, user_id)
+    member = is_project_member(project, team, user_id)
+    read_only = str(getattr(current_user, "user_class", "") or "").upper() == USER_CLASS_REDUNDANT
+    if read_only:
+        return {"can_edit": False, "can_review": False, "can_work": False, "can_comment": False}
+    return {
+        "can_edit": manager or supervisor or assignee,
+        "can_review": manager or supervisor,
+        "can_work": assignee or manager,
+        "can_comment": manager or supervisor or assignee or member
+        or str(getattr(current_user, "user_class", "") or "").upper() != USER_CLASS_JUNIOR,
+    }
+
+
+def is_management_user(current_user: object) -> bool:
+    """Seniors and admins manage work across every project."""
+    return str(getattr(current_user, "user_class", "") or "").upper() in MANAGEMENT_USER_CLASSES
+
+
+def project_supervisor_ids(project: dict, team: list[dict]) -> list[str]:
+    ids: list[str] = []
+    if project.get("stakeholder_id"):
+        ids.append(str(project["stakeholder_id"]))
+    for row in team:
+        if row.get("user_id") and str(row.get("role") or "").upper() == PROJECT_ROLE_SUPERVISOR:
+            if str(row["user_id"]) not in ids:
+                ids.append(str(row["user_id"]))
+    return ids
+
+
+def project_team_ids(team: list[dict]) -> list[str]:
+    ids: list[str] = []
+    for row in team:
+        if row.get("user_id") and str(row.get("role") or "").upper() == PROJECT_ROLE_TEAM:
+            if str(row["user_id"]) not in ids:
+                ids.append(str(row["user_id"]))
+    return ids
+
+
+def is_project_supervisor(project: dict, team: list[dict], user_id: object) -> bool:
+    return bool(user_id) and str(user_id) in project_supervisor_ids(project, team)
+
+
+def is_project_member(project: dict, team: list[dict], user_id: object) -> bool:
+    """Supervisors, team members and the person who created the project."""
+    if not user_id:
+        return False
+    user_id = str(user_id)
+    return (
+        user_id in project_supervisor_ids(project, team)
+        or user_id in project_team_ids(team)
+        or str(project.get("created_by") or "") == user_id
+    )
+
+
+def project_people_user_ids(project: dict, team: list[dict]) -> list[str]:
+    ids = project_supervisor_ids(project, team) + project_team_ids(team)
+    if project.get("created_by"):
+        ids.append(str(project["created_by"]))
+    return ids
+
+
+def project_people_fields(
+    project: dict,
+    team: list[dict],
+    users_by_auth_uid: dict[str, dict],
+    app_settings: Settings,
+) -> dict:
+    creator = users_by_auth_uid.get(str(project.get("created_by") or "")) or {}
+    return {
+        "created_by_email": creator.get(app_settings.signup_allowed_users_email_column),
+        "created_by_name": creator.get(REF_USER_NAME_COLUMN),
+        "supervisors": build_watcher_responses(
+            [{"user_id": uid} for uid in project_supervisor_ids(project, team)],
+            users_by_auth_uid,
+            app_settings,
+        ),
+        "team": build_watcher_responses(
+            [{"user_id": uid} for uid in project_team_ids(team)],
+            users_by_auth_uid,
+            app_settings,
+        ),
+    }
 
 
 def build_task_access_log_responses(
@@ -2189,7 +2314,7 @@ def create_app() -> FastAPI:
             supabase_admin.table(PROJECTS_TABLE)
             .select(
                 "id,project_name,description,document_name,document_url,documents,"
-                "status,stakeholder_id"
+                "status,stakeholder_id,created_by"
             )
             .order("created_at", desc=True)
             .execute()
@@ -2205,7 +2330,12 @@ def create_app() -> FastAPI:
             supabase_admin,
             loaded_project_ids,
         )
+        team_by_project = get_project_team_for_projects(supabase_admin, loaded_project_ids)
         all_member_ids: list[str] = []
+        for project in projects:
+            all_member_ids.extend(
+                project_people_user_ids(project, team_by_project.get(int(project["id"]), []))
+            )
         all_member_ids.extend(
             str(watcher["user_id"])
             for watchers in watchers_by_project.values()
@@ -2252,12 +2382,13 @@ def create_app() -> FastAPI:
                     users_by_auth_uid,
                     app_settings,
                 ),
-                can_edit=is_project_editor(
+                can_edit=is_management_user(current_user),
+                **project_people_fields(
                     project,
-                    watchers_by_project.get(int(project["id"]), []),
-                    user_id,
-                )
-                or is_admin_user(current_user),
+                    team_by_project.get(int(project["id"]), []),
+                    users_by_auth_uid,
+                    app_settings,
+                ),
             )
             for project in projects
         ]
@@ -2290,7 +2421,7 @@ def create_app() -> FastAPI:
             supabase_admin.table(PROJECTS_TABLE)
             .select(
                 "id,project_name,description,document_name,document_url,documents,"
-                "status,stakeholder_id"
+                "status,stakeholder_id,created_by"
             )
             .order("created_at", desc=True)
             .execute()
@@ -2307,6 +2438,7 @@ def create_app() -> FastAPI:
             supabase_admin,
             project_ids,
         )
+        team_by_project = get_project_team_for_projects(supabase_admin, project_ids)
         projects_by_id = {int(project["id"]): project for project in projects}
 
         tasks: list[dict] = []
@@ -2346,6 +2478,10 @@ def create_app() -> FastAPI:
 
         for project in projects:
             add_user_id(project.get("stakeholder_id"))
+            for person_id in project_people_user_ids(
+                project, team_by_project.get(int(project["id"]), [])
+            ):
+                add_user_id(person_id)
         for watchers in project_watchers_by_project.values():
             for watcher in watchers:
                 add_user_id(watcher.get("user_id"))
@@ -2393,12 +2529,13 @@ def create_app() -> FastAPI:
                     users_by_auth_uid,
                     app_settings,
                 ),
-                can_edit=is_project_editor(
+                can_edit=is_management_user(current_user),
+                **project_people_fields(
                     project,
-                    project_watchers_by_project.get(int(project["id"]), []),
-                    user_id,
-                )
-                or is_admin_user(current_user),
+                    team_by_project.get(int(project["id"]), []),
+                    users_by_auth_uid,
+                    app_settings,
+                ),
             )
             for project in projects
         ]
@@ -2504,6 +2641,7 @@ def create_app() -> FastAPI:
         project = get_project_by_id(supabase_admin, project_id)
         ensure_project_is_active(project)
         project_watchers = get_project_watchers(supabase_admin, project_id)
+        project_team = get_project_team(supabase_admin, project_id)
 
         cache_key = f"projects:detail:{project_id}:{user_id}"
         cached_project = backend_cache.get(cache_key)
@@ -2550,6 +2688,7 @@ def create_app() -> FastAPI:
         )
         if project.get("stakeholder_id"):
             user_ids.append(str(project["stakeholder_id"]))
+        user_ids.extend(project_people_user_ids(project, project_team))
         user_ids.extend(
             str(work_log["logged_by"])
             for work_logs in task_work_logs_by_task.values()
@@ -2600,8 +2739,8 @@ def create_app() -> FastAPI:
                 users_by_auth_uid,
                 app_settings,
             ),
-            can_edit=is_project_editor(project, project_watchers, user_id)
-            or is_admin_user(current_user),
+            can_edit=is_management_user(current_user),
+            **project_people_fields(project, project_team, users_by_auth_uid, app_settings),
             tasks=[
                 TaskSummaryResponse(
                     id=task["id"],
@@ -2697,14 +2836,8 @@ def create_app() -> FastAPI:
         project = get_project_by_id(supabase_admin, project_id)
         ensure_project_is_active(project)
         project_watchers = get_project_watchers(supabase_admin, project_id)
-        if not (
-            is_project_editor(project, project_watchers, user_id)
-            or is_admin_user(current_user)
-        ):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Only the project stakeholder or watcher can edit this project.",
-            )
+        project_team = get_project_team(supabase_admin, project_id)
+        # Seniors and admins can edit any project (checked above).
 
         update_payload = {
             "description": normalize_optional_text(payload.description),
@@ -2738,8 +2871,55 @@ def create_app() -> FastAPI:
             app_settings,
             payload.watcher_emails,
             "watcher",
-            MANAGEMENT_USER_CLASSES,
+            ASSIGNABLE_USER_CLASSES,
         )
+        if payload.team_emails is not None or payload.supervisor_emails is not None:
+            supervisor_user_ids = (
+                resolve_active_user_ids(
+                    supabase_admin,
+                    app_settings,
+                    payload.supervisor_emails,
+                    "supervisor",
+                    MANAGEMENT_USER_CLASSES,
+                )
+                if payload.supervisor_emails is not None
+                else [
+                    str(row["user_id"])
+                    for row in project_team
+                    if str(row.get("role") or "").upper() == PROJECT_ROLE_SUPERVISOR
+                ]
+            )
+            team_user_ids = (
+                resolve_active_user_ids(
+                    supabase_admin,
+                    app_settings,
+                    payload.team_emails,
+                    "team member",
+                    ASSIGNABLE_USER_CLASSES,
+                )
+                if payload.team_emails is not None
+                else project_team_ids(project_team)
+            )
+            save_project_team_or_explain(
+                supabase_admin, project_id, team_user_ids, supervisor_user_ids
+            )
+            previous_people = set(project_people_user_ids(project, project_team))
+            newly_added = [
+                uid for uid in team_user_ids + supervisor_user_ids if uid not in previous_people
+            ]
+            if newly_added:
+                project_name = normalize_optional_text(project.get("project_name")) or f"Project #{project_id}"
+                notify_user_ids(
+                    supabase_admin,
+                    app_settings,
+                    newly_added,
+                    f"You were added to {project_name}",
+                    f'You are now part of the project "{project_name}".',
+                    "PROJECT",
+                    project_id,
+                    target_url=get_project_target_url(project_id),
+                    exclude_user_ids={str(user_id)},
+                )
         previous_watcher_user_ids = {
             str(watcher["user_id"])
             for watcher in project_watchers
@@ -2888,12 +3068,29 @@ def create_app() -> FastAPI:
             )
             stakeholder_user_id = stakeholder_ref_user.get(AUTH_UID_COLUMN)
 
+        supervisor_user_ids = resolve_active_user_ids(
+            supabase_admin,
+            app_settings,
+            payload.supervisor_emails,
+            "supervisor",
+            MANAGEMENT_USER_CLASSES,
+        )
+        if not stakeholder_user_id and supervisor_user_ids:
+            # The first supervisor is the primary reviewer stored on the project.
+            stakeholder_user_id = supervisor_user_ids[0]
+        team_user_ids = resolve_active_user_ids(
+            supabase_admin,
+            app_settings,
+            payload.team_emails,
+            "team member",
+            ASSIGNABLE_USER_CLASSES,
+        )
         watcher_user_ids = resolve_active_user_ids(
             supabase_admin,
             app_settings,
             payload.watcher_emails,
             "watcher",
-            MANAGEMENT_USER_CLASSES,
+            ASSIGNABLE_USER_CLASSES,
         )
 
         project_payload = {
@@ -2925,6 +3122,24 @@ def create_app() -> FastAPI:
 
         try:
             replace_project_watchers(supabase_admin, project_id, watcher_user_ids)
+            if team_user_ids or supervisor_user_ids:
+                save_project_team_or_explain(
+                    supabase_admin,
+                    int(project_id),
+                    team_user_ids,
+                    supervisor_user_ids,
+                )
+                notify_user_ids(
+                    supabase_admin,
+                    app_settings,
+                    team_user_ids + supervisor_user_ids,
+                    f"You were added to {payload.project_name.strip()}",
+                    f'You are now part of the project "{payload.project_name.strip()}".',
+                    "PROJECT",
+                    int(project_id),
+                    target_url=get_project_target_url(int(project_id)),
+                    exclude_user_ids={str(user_id), str(stakeholder_user_id or "")},
+                )
             notify_project_roles(
                 supabase_admin,
                 app_settings,
@@ -2967,7 +3182,6 @@ def create_app() -> FastAPI:
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Session expired. Please sign in again.",
             )
-        require_management_user(current_user)
         cached_response = get_cached_command_response(
             "create-task",
             str(user_id),
@@ -2979,6 +3193,15 @@ def create_app() -> FastAPI:
         project = get_project_by_id(supabase_admin, project_id)
         ensure_project_is_active(project)
         project_watchers = get_project_watchers(supabase_admin, project_id)
+        project_team = get_project_team(supabase_admin, project_id)
+        if not (
+            is_management_user(current_user)
+            or is_project_member(project, project_team, user_id)
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only people on this project's team can add tasks to it.",
+            )
         assigned_user_id = None
         assigned_to_email = normalize_optional_text(payload.assigned_to_email)
         if assigned_to_email:
@@ -2990,6 +3213,13 @@ def create_app() -> FastAPI:
                 ASSIGNABLE_USER_CLASSES,
             )
             assigned_user_id = assigned_ref_user[AUTH_UID_COLUMN]
+            if not is_management_user(current_user) and str(assigned_user_id) != str(user_id) and not is_project_member(
+                project, project_team, assigned_user_id
+            ):
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="You can assign tasks to yourself or to people on this project's team.",
+                )
 
         end_date = parse_iso_date(payload.end_date, "Task end date")
 
@@ -3029,7 +3259,8 @@ def create_app() -> FastAPI:
                 task_id,
                 assigned_user_id=assigned_user_id,
                 stakeholder_user_id=project.get("stakeholder_id"),
-                watcher_user_ids=project_watcher_user_ids(project_watchers),
+                watcher_user_ids=project_watcher_user_ids(project_watchers)
+                + project_supervisor_ids(project, project_team)[1:],
                 exclude_user_ids={str(user_id)},
             )
 
@@ -3065,11 +3296,17 @@ def create_app() -> FastAPI:
         project = get_project_by_id(supabase_admin, project_id)
         ensure_project_is_active(project)
         project_watchers = get_project_watchers(supabase_admin, project_id)
-        if not (can_change_task_assignee(project, task, user_id) or is_admin_user(current_user)):
+        project_team = get_project_team(supabase_admin, project_id)
+        can_manage_task = (
+            is_management_user(current_user)
+            or is_project_supervisor(project, project_team, user_id)
+            or is_task_assignee(task, user_id)
+        )
+        if not can_manage_task:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=(
-                    "Only the project stakeholder or current task assignee "
+                    "Only the assignee, a project supervisor or a senior "
                     "can update this task."
                 ),
             )
@@ -3077,11 +3314,12 @@ def create_app() -> FastAPI:
         update_payload = {}
         task_status = str(task.get("status") or TASK_STATUS_OPEN).upper()
         if task_status == TASK_STATUS_CLOSED and not (
-            is_project_stakeholder(project, user_id) or is_admin_user(current_user)
+            is_project_supervisor(project, project_team, user_id)
+            or is_management_user(current_user)
         ):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Closed tasks can only be edited by the stakeholder or admin.",
+                detail="Closed tasks can only be edited by a supervisor or senior.",
             )
 
         if payload.task_title is not None:
@@ -3098,11 +3336,11 @@ def create_app() -> FastAPI:
         assigned_user_id = None
         assigned_to_email = normalize_optional_text(payload.assigned_to_email)
         if assigned_to_email:
-            if not (can_change_task_assignee(project, task, user_id) or is_admin_user(current_user)):
+            if not can_manage_task:
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
                     detail=(
-                        "Only the project stakeholder or current task assignee "
+                        "Only the assignee, a project supervisor or a senior "
                         "can change the task assignee."
                     ),
                 )
@@ -3116,11 +3354,11 @@ def create_app() -> FastAPI:
             assigned_user_id = assigned_ref_user[AUTH_UID_COLUMN]
             update_payload["assigned_to"] = assigned_user_id
         elif payload.assigned_to_email == "":
-            if not (can_change_task_assignee(project, task, user_id) or is_admin_user(current_user)):
+            if not can_manage_task:
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
                     detail=(
-                        "Only the project stakeholder or current task assignee "
+                        "Only the assignee, a project supervisor or a senior "
                         "can change the task assignee."
                     ),
                 )
@@ -3204,6 +3442,7 @@ def create_app() -> FastAPI:
         project = get_project_by_id(supabase_admin, project_id)
         ensure_project_is_active(project)
         project_watchers = get_project_watchers(supabase_admin, project_id)
+        project_team = get_project_team(supabase_admin, project_id)
         requested_status = payload.status.strip().upper()
         allowed_statuses = {
             TASK_STATUS_OPEN,
@@ -3225,10 +3464,17 @@ def create_app() -> FastAPI:
             )
 
         current_user_is_assignee = is_task_assignee(task, user_id)
-        current_user_is_stakeholder = is_project_stakeholder(project, user_id)
-        current_user_is_admin = is_admin_user(current_user)
-        assignee_or_admin = current_user_is_assignee or current_user_is_admin
-        stakeholder_or_admin = current_user_is_stakeholder or current_user_is_admin
+        current_user_is_manager = is_management_user(current_user)
+        current_user_is_reviewer = (
+            is_project_supervisor(project, project_team, user_id) or current_user_is_manager
+        )
+        assignee_or_admin = current_user_is_assignee or current_user_is_manager
+        stakeholder_or_admin = current_user_is_reviewer
+        is_send_back = (
+            requested_status == TASK_STATUS_IN_PROGRESS
+            and current_status == TASK_STATUS_CLOSE_REQUESTED
+            and not current_user_is_assignee
+        )
 
         if requested_status == TASK_STATUS_IN_PROGRESS:
             if current_status not in {TASK_STATUS_OPEN, TASK_STATUS_CLOSE_REQUESTED}:
@@ -3236,10 +3482,10 @@ def create_app() -> FastAPI:
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail="Only open or close-requested tasks can move to in progress.",
                 )
-            if not assignee_or_admin:
+            if not (assignee_or_admin or (is_send_back and current_user_is_reviewer)):
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
-                    detail="Only the assignee can start or withdraw close review.",
+                    detail="Only the assignee can start work; a supervisor can send work back.",
                 )
 
         if requested_status == TASK_STATUS_CLOSE_REQUESTED:
@@ -3266,7 +3512,7 @@ def create_app() -> FastAPI:
             if not stakeholder_or_admin:
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
-                    detail="Only the stakeholder can close this task.",
+                    detail="Only a project supervisor or senior can close this task.",
                 )
 
         if requested_status == TASK_STATUS_OPEN:
@@ -3278,7 +3524,7 @@ def create_app() -> FastAPI:
             if not stakeholder_or_admin:
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
-                    detail="Only the stakeholder can reopen this task.",
+                    detail="Only a project supervisor or senior can reopen this task.",
                 )
 
         task_name = normalize_optional_text(task.get("task_title")) or f"Task #{task_id}"
@@ -3303,7 +3549,7 @@ def create_app() -> FastAPI:
             requested_status == TASK_STATUS_IN_PROGRESS
             and current_status == TASK_STATUS_CLOSE_REQUESTED
         ):
-            event_type = "TASK_CLOSE_REQUEST_WITHDRAWN"
+            event_type = "TASK_SENT_BACK" if is_send_back else "TASK_CLOSE_REQUEST_WITHDRAWN"
         insert_task_access_log(
             supabase_admin,
             task_id=task_id,
@@ -3321,13 +3567,26 @@ def create_app() -> FastAPI:
             event_note=f"Task status changed to {requested_status}.",
         )
 
-        if requested_status == TASK_STATUS_CLOSE_REQUESTED and project.get(
-            "stakeholder_id"
+        if is_send_back and task.get("assigned_to"):
+            notify_user_ids(
+                supabase_admin,
+                app_settings,
+                [str(task["assigned_to"])],
+                f"{actor_name} sent {task_name} back",
+                f'{actor_name} reviewed "{task_name}" and sent it back for changes.',
+                "TASK",
+                task_id,
+                target_url=get_task_target_url(task_id),
+                exclude_user_ids={str(user_id)},
+            )
+
+        if requested_status == TASK_STATUS_CLOSE_REQUESTED and project_supervisor_ids(
+            project, project_team
         ):
             notify_user_ids(
                 supabase_admin,
                 app_settings,
-                [str(project["stakeholder_id"])],
+                project_supervisor_ids(project, project_team),
                 f"{actor_name} requested to close task",
                 f'{actor_name} requested to close "{task_name}".',
                 "TASK",
@@ -3368,13 +3627,18 @@ def create_app() -> FastAPI:
         task = get_task_by_id(supabase_admin, task_id)
         project_id = int(task["project_id"])
         cache_key = f"tasks:detail:{task_id}"
-        cached_task = backend_cache.get(cache_key)
-        if cached_task is not None:
-            return TaskDetailResponse(**cached_task)
+        cached = backend_cache.get(cache_key)
+        if cached is not None and isinstance(cached, dict) and "task" in cached:
+            return TaskDetailResponse(**cached["task"]).model_copy(
+                update=task_viewer_permissions(
+                    current_user, cached["project"], cached["team"], task, user_id
+                )
+            )
 
         project = get_project_by_id(supabase_admin, project_id)
         ensure_project_is_active(project)
         project_watchers = get_project_watchers(supabase_admin, project_id)
+        project_team = get_project_team(supabase_admin, project_id)
         task = task_with_project_roles(task, project)
 
         try:
@@ -3414,6 +3678,9 @@ def create_app() -> FastAPI:
             for watcher in project_watchers
             if watcher.get("user_id")
         )
+        user_ids.extend(project_people_user_ids(project, project_team))
+        if task.get("created_by"):
+            user_ids.append(str(task["created_by"]))
         user_ids.extend(
             str(comment["commented_by"])
             for comment in comments
@@ -3521,13 +3788,33 @@ def create_app() -> FastAPI:
                 users_by_auth_uid,
                 app_settings,
             ),
+            supervisors=project_people_fields(
+                project, project_team, users_by_auth_uid, app_settings
+            )["supervisors"],
+            team=project_people_fields(
+                project, project_team, users_by_auth_uid, app_settings
+            )["team"],
+            created_by_name=(
+                users_by_auth_uid.get(str(task.get("created_by") or ""), {}).get(
+                    REF_USER_NAME_COLUMN
+                )
+            ),
         )
         backend_cache.set(
             cache_key,
-            response.model_dump(),
+            {
+                "task": response.model_dump(),
+                "project": {
+                    "stakeholder_id": project.get("stakeholder_id"),
+                    "created_by": project.get("created_by"),
+                },
+                "team": project_team,
+            },
             app_settings.backend_cache_tasks_ttl_seconds,
         )
-        return response
+        return response.model_copy(
+            update=task_viewer_permissions(current_user, project, project_team, task, user_id)
+        )
 
     @app.post("/tasks/{task_id}/comments", response_model=MessageResponse)
     def create_task_comment(
@@ -3559,10 +3846,14 @@ def create_app() -> FastAPI:
         if (
             current_user.user_class == USER_CLASS_JUNIOR
             and str(task.get("assigned_to") or "") != str(user_id)
+            and not is_project_member(
+                project, get_project_team(supabase_admin, project_id), user_id
+            )
+            and str(user_id) not in project_watcher_user_ids(project_watchers)
         ):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Junior users can only comment on tasks assigned to them.",
+                detail="You can comment on tasks in projects you're part of.",
             )
         comment_payload = {
             "task_id": task_id,
@@ -3826,10 +4117,14 @@ def create_app() -> FastAPI:
         project = get_project_by_id(supabase_admin, project_id)
         ensure_project_is_active(project)
 
-        if str(task.get("assigned_to") or "") != str(user_id):
+        if not (
+            str(task.get("assigned_to") or "") == str(user_id)
+            or is_management_user(current_user)
+            or is_project_member(project, get_project_team(supabase_admin, int(task["project_id"])), user_id)
+        ):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Only the task assignee can log work on this task.",
+                detail="You can log hours on tasks in projects you're part of.",
             )
 
         task_status = str(task.get("status") or "").upper()

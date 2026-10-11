@@ -33,6 +33,8 @@ class CreateProjectRequest(BaseModel):
     document_url: str | None = Field(default=None, max_length=2000)
     stakeholder_email: str | None = Field(default=None, max_length=320)
     watcher_emails: list[str] = Field(default_factory=list)
+    team_emails: list[str] = Field(default_factory=list)
+    supervisor_emails: list[str] = Field(default_factory=list)
     idempotency_key: str | None = Field(default=None, max_length=120)
 
 
@@ -42,6 +44,9 @@ class UpdateProjectRequest(BaseModel):
     document_url: str | None = Field(default=None, max_length=2000)
     stakeholder_email: str | None = Field(default=None, max_length=320)
     watcher_emails: list[str] = Field(default_factory=list)
+    # None leaves the team or supervisors unchanged; a list replaces them.
+    team_emails: list[str] | None = None
+    supervisor_emails: list[str] | None = None
 
 
 class CreateTaskRequest(BaseModel):
@@ -140,6 +145,10 @@ class ProjectSummaryResponse(BaseModel):
     stakeholder_name: str | None = None
     watchers: list[WatcherResponse] = Field(default_factory=list)
     can_edit: bool = False
+    created_by_email: str | None = None
+    created_by_name: str | None = None
+    supervisors: list[WatcherResponse] = Field(default_factory=list)
+    team: list[WatcherResponse] = Field(default_factory=list)
 
 
 class TaskWorkLogResponse(BaseModel):
@@ -204,6 +213,14 @@ class TaskDetailResponse(TaskSummaryResponse):
     project_name: str
     comments: list[TaskCommentResponse]
     work_logs: list[TaskWorkLogResponse] = Field(default_factory=list)
+    supervisors: list[WatcherResponse] = Field(default_factory=list)
+    team: list[WatcherResponse] = Field(default_factory=list)
+    created_by_name: str | None = None
+    # What the person viewing the task may do (computed per request).
+    can_edit: bool = False
+    can_review: bool = False
+    can_work: bool = False
+    can_comment: bool = False
 
 
 class ProjectDetailResponse(ProjectSummaryResponse):

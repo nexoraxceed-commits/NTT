@@ -1,9 +1,11 @@
-from dataclasses import dataclass
+import hashlib
+from dataclasses import asdict, dataclass
 
 from fastapi import Depends, Header, HTTPException, Request, status
 from supabase import Client
 
 from app.access_policy import is_request_allowed_for_user_class
+from app.cache import backend_cache
 from app.config import Settings, get_settings
 from app.constants import (
     AUTH_UID_COLUMN,
@@ -14,6 +16,21 @@ from app.constants import (
 )
 from app.repositories import get_ref_user
 from app.supabase_client import get_supabase_admin_client
+
+
+# Verifying a token costs two network calls (Supabase Auth, then REF_USERS).
+# Polling endpoints hit this many times a minute, so a verified user is
+# remembered briefly. Deactivating someone takes effect within this window.
+AUTH_CACHE_TTL_SECONDS = 30
+AUTH_CACHE_PREFIX = "auth:user:"
+
+
+def _auth_cache_key(token: str) -> str:
+    return AUTH_CACHE_PREFIX + hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def clear_auth_cache() -> None:
+    backend_cache.delete_prefix(AUTH_CACHE_PREFIX)
 
 
 @dataclass(frozen=True)
@@ -49,6 +66,12 @@ def get_current_user(
     app_settings: Settings = Depends(get_settings),
 ) -> CurrentUser:
     token = get_bearer_token(authorization)
+    cache_key = _auth_cache_key(token)
+    cached_user = backend_cache.get(cache_key)
+    if cached_user is not None:
+        current_user = CurrentUser(**cached_user)
+        enforce_read_only_access(current_user, request.method, request.url.path)
+        return current_user
 
     try:
         result = supabase_admin.auth.get_user(token)
@@ -92,6 +115,7 @@ def get_current_user(
         status=current_status,
         user_name=ref_user.get("user_name"),
     )
+    backend_cache.set(cache_key, asdict(current_user), AUTH_CACHE_TTL_SECONDS)
     enforce_read_only_access(current_user, request.method, request.url.path)
     return current_user
 
