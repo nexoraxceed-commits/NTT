@@ -820,10 +820,34 @@ function getMentionContext(textarea) {
   };
 }
 
-function filterMentionUsers(users, query) {
+// People shown on the current task page (assignee, reviewers, team, creator).
+function getTaskPageEmails() {
+  return new Set(
+    Array.from(document.querySelectorAll("[data-role-email]")).map((el) => el.dataset.roleEmail)
+  );
+}
+
+function filterMentionUsers(users, query, group = "all") {
   const normalizedQuery = String(query || "").toLowerCase();
+  const taskEmails = group === "task" ? getTaskPageEmails() : null;
 
   return users
+    .filter((user) => {
+      const userClass = String(user.user_class || "").toUpperCase();
+      if (userClass === "REDUNDANT_USER") {
+        return false;
+      }
+      if (group === "senior" && !["SENIOR", "ADMIN"].includes(userClass)) {
+        return false;
+      }
+      if (group === "junior" && userClass !== "JUNIOR") {
+        return false;
+      }
+      if (taskEmails && !taskEmails.has(String(user.email || "").toLowerCase())) {
+        return false;
+      }
+      return true;
+    })
     .filter((user) => {
       const name = String(user.user_name || "").toLowerCase();
       const email = String(user.email || "").toLowerCase();
@@ -840,7 +864,7 @@ function filterMentionUsers(users, query) {
         (compactQuery && candidate.includes(compactQuery))
       );
     })
-    .slice(0, 8);
+    .slice(0, group === "all" ? 8 : 12);
 }
 
 function setupMentionAutocomplete(textarea, panel) {
@@ -852,6 +876,46 @@ function setupMentionAutocomplete(textarea, panel) {
   let mentionUsers = [];
   let activeIndex = 0;
   let requestId = 0;
+  let mentionGroup = null;
+  const mentionGroups = [
+    ["task", "On this task"],
+    ["senior", "Seniors"],
+    ["junior", "Juniors"],
+    ["all", "Everyone"],
+  ];
+
+  function currentGroup() {
+    if (mentionGroup) {
+      return mentionGroup;
+    }
+    return getTaskPageEmails().size ? "task" : "all";
+  }
+
+  function renderGroupChips() {
+    const bar = document.createElement("div");
+    bar.className = "mention-filters";
+    bar.setAttribute("role", "group");
+    bar.setAttribute("aria-label", "Show people");
+    const active = currentGroup();
+    mentionGroups.forEach(([key, label]) => {
+      if (key === "task" && !getTaskPageEmails().size) {
+        return;
+      }
+      const chip = document.createElement("button");
+      chip.type = "button";
+      chip.className = "mention-filter";
+      chip.textContent = label;
+      chip.setAttribute("aria-pressed", String(key === active));
+      chip.addEventListener("mousedown", (event) => event.preventDefault());
+      chip.addEventListener("click", () => {
+        mentionGroup = key;
+        refreshSuggestions();
+        textarea.focus();
+      });
+      bar.append(chip);
+    });
+    return bar;
+  }
 
   function hideSuggestions() {
     panel.classList.add("is-hidden");
@@ -899,12 +963,14 @@ function setupMentionAutocomplete(textarea, panel) {
   function renderSuggestions(users) {
     panel.innerHTML = "";
 
-    if (!users.length) {
-      hideSuggestions();
-      return;
-    }
-
     const fragment = document.createDocumentFragment();
+    fragment.append(renderGroupChips());
+    if (!users.length) {
+      const empty = document.createElement("p");
+      empty.className = "mention-empty";
+      empty.textContent = "No one here matches. Try another filter.";
+      fragment.append(empty);
+    }
     users.forEach((user, index) => {
       const item = document.createElement("button");
       item.type = "button";
@@ -927,6 +993,15 @@ function setupMentionAutocomplete(textarea, panel) {
       const handle = document.createElement("span");
       handle.className = "mention-handle";
       handle.textContent = `@${getMentionToken(user)}`;
+
+      const userClass = String(user.user_class || "").toUpperCase();
+      const roleLabel = ["SENIOR", "ADMIN"].includes(userClass) ? "Senior" : userClass === "JUNIOR" ? "Junior" : "";
+      if (roleLabel) {
+        const tag = document.createElement("span");
+        tag.className = `role-tag is-${roleLabel.toLowerCase()}`;
+        tag.textContent = roleLabel;
+        name.append(tag);
+      }
 
       details.append(name, handle);
       item.append(avatar, details);
@@ -962,7 +1037,7 @@ function setupMentionAutocomplete(textarea, panel) {
         return;
       }
 
-      mentionUsers = filterMentionUsers(users, mentionContext.query);
+      mentionUsers = filterMentionUsers(users, mentionContext.query, currentGroup());
       activeIndex = 0;
       renderSuggestions(mentionUsers);
     } catch (_error) {
@@ -2699,6 +2774,8 @@ function setupCreateProjectForm() {
     const payload = {
       project_name: String(formData.get("project_name") ?? "").trim(),
       description: String(formData.get("description") ?? "").trim() || null,
+      priority: String(formData.get("priority") ?? "") || null,
+      target_date: String(formData.get("target_date") ?? "") || null,
       document_name: String(formData.get("document_name") ?? "").trim() || null,
       document_url: String(formData.get("document_url") ?? "").trim() || null,
       stakeholder_email: supervisors[0] || null,
@@ -3308,6 +3385,7 @@ function setupDashboardProjects() {
   const analyticsElement = document.querySelector("#dashboard-analytics");
   const deleteAccessLogButton = document.querySelector("#delete-access-log-button");
   const projectCountElement = document.querySelector("#project-count");
+  const projectBoardState = { query: "", priority: "", sort: "priority", open: {} };
   let dashboardProjects = [];
   let dashboardDetails = [];
   const toDateInputValue = (value) => {
@@ -3607,156 +3685,234 @@ function setupDashboardProjects() {
     });
   }
 
-  function renderProjectRows(projects, activeFilters = {}) {
+  // Projects grouped by what needs doing: overdue work first, then what's due
+  // soon, in progress, waiting for tasks, done, and closed. Each group folds.
+  function renderProjectRows(_projects, _activeFilters = {}) {
     if (!projectList) {
       return;
     }
+    const view = projectBoardState;
+    const today = parseDateOnly(new Date().toISOString().slice(0, 10)) || new Date();
+    const dayMs = 86400000;
+    const daysBetween = (from, to) => Math.round((to - from) / dayMs);
+    const shortDate = (d) => d.toLocaleDateString(undefined, { day: "numeric", month: "short" });
+    const tasksByProject = new Map(
+      (dashboardDetails || []).map((detail) => [Number(detail.id), detail.tasks || []])
+    );
+    const priorityRank = { HIGH: 0, MEDIUM: 1, LOW: 2 };
 
-    projectList.innerHTML = "";
-    const watchers = Array.from(
-      new Set(
-        dashboardProjects.flatMap((project) =>
-          getProjectWatchers(project).map(
-            (watcher) => watcher.name || watcher.email || "No watchers"
-          )
-        )
-      )
-    ).sort();
-    const stakeholders = Array.from(
-      new Set(
-        dashboardProjects.map(
-          (project) =>
-            project.stakeholder_name || project.stakeholder_email || "No stakeholder"
-        )
-      )
-    ).sort();
-    if (!activeFilters.status) {
-      activeFilters.status = "OPEN";
-    }
+    const items = (dashboardProjects || []).map((project) => {
+      const tasks = tasksByProject.get(Number(project.id)) || [];
+      const open = tasks.filter((t) => String(t.status).toUpperCase() !== "CLOSED");
+      const review = open.filter((t) => String(t.status).toUpperCase() === "CLOSE REQUESTED");
+      const overdue = open
+        .filter((t) => String(t.status).toUpperCase() !== "CLOSE REQUESTED" && isTaskOverdue(t))
+        .sort((x, y) => (parseDateOnly(x.end_date) || 0) - (parseDateOnly(y.end_date) || 0));
+      const upcoming = open
+        .filter((t) => !isTaskOverdue(t) && parseDateOnly(t.end_date))
+        .sort((x, y) => parseDateOnly(x.end_date) - parseDateOnly(y.end_date));
+      const target = parseDateOnly(project.target_date);
+      const created = project.created_at ? new Date(project.created_at) : null;
+      const closedProject = String(project.status || "").toUpperCase() === "CLOSED";
+      const nextDue = upcoming[0] ? parseDateOnly(upcoming[0].end_date) : null;
+      const soonest = [target, nextDue].filter(Boolean).sort((x, y) => x - y)[0] || null;
 
-    const tableWrap = document.createElement("div");
-    tableWrap.className = "data-table-wrap";
-
-    const table = document.createElement("table");
-    table.className = "data-table";
-
-    const thead = document.createElement("thead");
-    const headerRow = document.createElement("tr");
-    [
-      {
-        label: "Project title",
-        filter: "title",
-        type: "search",
-        placeholder: "Search project title",
-      },
-      { label: "Watchers", filter: "watcher", options: watchers },
-      { label: "Stakeholder", filter: "stakeholder", options: stakeholders },
-      { label: "Status", filter: "status", options: ["OPEN", "CLOSED"] },
-    ].forEach((column) => {
-      const cell = document.createElement("th");
-      cell.scope = "col";
-      cell.textContent = column.label;
-      if (column.filter && column.type === "search") {
-        const input = document.createElement("input");
-        input.className = "table-filter";
-        input.type = "search";
-        input.placeholder = column.placeholder;
-        input.value = activeFilters[column.filter] || "";
-        input.dataset.projectFilter = column.filter;
-        cell.append(input);
-      } else if (column.filter) {
-        const select = document.createElement("select");
-        select.className = "table-filter";
-        select.dataset.projectFilter = column.filter;
-        if (column.filter !== "status") {
-          select.innerHTML = `<option value="">All</option>`;
-        }
-        column.options.forEach((optionValue) => {
-          const option = document.createElement("option");
-          option.value = optionValue;
-          option.textContent = optionValue;
-          option.selected = activeFilters[column.filter] === optionValue;
-          select.append(option);
-        });
-        cell.append(select);
-      }
-      headerRow.append(cell);
-    });
-    thead.append(headerRow);
-
-    const tbody = document.createElement("tbody");
-
-    function renderProjectTableBody(visibleProjects) {
-      tbody.innerHTML = "";
-      if (projectCountElement) {
-        const count = visibleProjects.length;
-        projectCountElement.textContent = `${count} project${count === 1 ? "" : "s"}`;
+      let group;
+      if (closedProject) {
+        group = "closed";
+      } else if (overdue.length || (target && target < today && open.length)) {
+        group = "attention";
+      } else if (!tasks.length) {
+        group = "empty";
+      } else if (!open.length) {
+        group = "done";
+      } else if (soonest && daysBetween(today, soonest) <= 7) {
+        group = "soon";
+      } else {
+        group = "progress";
       }
 
-      if (!visibleProjects.length) {
-        const row = document.createElement("tr");
-        const cell = document.createElement("td");
-        cell.colSpan = 4;
-        cell.textContent = "No projects found.";
-        row.append(cell);
-        tbody.append(row);
-        return;
+      let next;
+      if (closedProject) {
+        next = "Closed";
+      } else if (overdue.length) {
+        const late = daysBetween(parseDateOnly(overdue[0].end_date), today);
+        next = `${overdue.length} overdue · "${overdue[0].task_title}" is ${late} day${late === 1 ? "" : "s"} late`;
+      } else if (target && target < today && open.length) {
+        next = `Target date passed ${daysBetween(target, today)} days ago · ${open.length} task${open.length === 1 ? "" : "s"} open`;
+      } else if (!tasks.length) {
+        next = "No tasks yet · add the first task";
+      } else if (!open.length) {
+        next = "All tasks done · ready to close";
+      } else if (review.length) {
+        next = `${review.length} waiting for review${upcoming[0] ? ` · next due "${upcoming[0].task_title}" ${shortDate(nextDue)}` : ""}`;
+      } else if (upcoming[0]) {
+        next = `Next: "${upcoming[0].task_title}" due ${shortDate(nextDue)}`;
+      } else {
+        next = `${open.length} open task${open.length === 1 ? "" : "s"} without due dates`;
       }
 
-      visibleProjects.forEach((project) => {
-        const row = document.createElement("tr");
-        row.className = "project-row";
-        applyIdentityColor(row, "project", project);
-        row.addEventListener("click", () => {
-          window.location.href = `/project?id=${project.id}`;
-        });
-
-        const titleCell = document.createElement("td");
-        titleCell.dataset.label = "Project title";
-        const projectLink = document.createElement("a");
-        projectLink.href = `/project?id=${project.id}`;
-        projectLink.textContent = project.project_name;
-        titleCell.append(projectLink);
-
-        const watcherCell = document.createElement("td");
-        watcherCell.dataset.label = "Watchers";
-        watcherCell.textContent = getProjectWatcherLabel(project);
-
-        const stakeholderCell = document.createElement("td");
-        stakeholderCell.dataset.label = "Stakeholder";
-        stakeholderCell.textContent =
-          project.stakeholder_name || project.stakeholder_email || "No stakeholder";
-
-        const statusCell = document.createElement("td");
-        statusCell.dataset.label = "Status";
-        statusCell.append(createStatusBadge(
-          String(project.status || "OPEN").toUpperCase() === "ACTIVE"
-            ? "OPEN"
-            : project.status
-        ));
-
-        row.append(titleCell, watcherCell, stakeholderCell, statusCell);
-        tbody.append(row);
-      });
-    }
-
-    table.append(thead, tbody);
-    tableWrap.append(table);
-    projectList.append(tableWrap);
-    renderProjectTableBody(projects);
-
-    table.querySelectorAll("[data-project-filter]").forEach((filter) => {
-      const applyProjectFilters = () => {
-        const activeFilters = getProjectTableFilters(table);
-        const filtered = filterProjectsForTable(dashboardProjects, activeFilters);
-        renderProjectTableBody(filtered);
+      const closedCount = tasks.length - open.length;
+      return {
+        project,
+        group,
+        next,
+        total: tasks.length,
+        done: closedCount,
+        overdue: overdue.length,
+        priority: String(project.priority || "").toUpperCase(),
+        target,
+        soonest,
+        ageDays: created ? Math.max(0, daysBetween(created, today)) : null,
       };
-      filter.addEventListener(
-        filter.tagName === "INPUT" ? "input" : "change",
-        applyProjectFilters
-      );
+    });
+
+    const groups = [
+      ["attention", "Needs attention", "Overdue tasks or a missed target date"],
+      ["soon", "Due this week", "Target or next task due within 7 days"],
+      ["progress", "In progress", "Moving, nothing urgent"],
+      ["empty", "Waiting for tasks", "Set up, but no tasks added yet"],
+      ["done", "Ready to close", "Every task is done"],
+      ["closed", "Closed", "Finished projects"],
+    ];
+
+    const query = view.query.trim().toLowerCase();
+    const sorters = {
+      priority: (x, y) =>
+        (priorityRank[x.priority] ?? 3) - (priorityRank[y.priority] ?? 3) ||
+        (x.soonest || Infinity) - (y.soonest || Infinity),
+      due: (x, y) => (x.soonest || Infinity) - (y.soonest || Infinity),
+      age: (x, y) => (y.ageDays ?? -1) - (x.ageDays ?? -1),
+      name: (x, y) => String(x.project.project_name).localeCompare(String(y.project.project_name)),
+    };
+    const visible = items
+      .filter((item) => !query || String(item.project.project_name || "").toLowerCase().includes(query))
+      .filter((item) => !view.priority || item.priority === view.priority)
+      .sort(sorters[view.sort] || sorters.priority);
+
+    if (projectCountElement) {
+      const active = items.filter((i) => i.group !== "closed").length;
+      projectCountElement.textContent = `${active} active project${active === 1 ? "" : "s"}`;
+    }
+
+    const esc = (value) =>
+      String(value ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+
+    const row = (item) => {
+      const p = item.project;
+      const pct = item.total ? Math.round((item.done / item.total) * 100) : 0;
+      const priority = item.priority
+        ? `<span class="pj-priority is-${item.priority.toLowerCase()}">${item.priority.charAt(0)}${item.priority.slice(1).toLowerCase()}</span>`
+        : "";
+      const meta = [];
+      if (item.target) {
+        const left = daysBetween(today, item.target);
+        meta.push(left >= 0 ? `Target ${shortDate(item.target)} · ${left} day${left === 1 ? "" : "s"} left` : `Target was ${shortDate(item.target)}`);
+      }
+      if (item.ageDays !== null) {
+        meta.push(`Opened ${item.ageDays} day${item.ageDays === 1 ? "" : "s"} ago`);
+      }
+      const people = (p.supervisors || []).map((x) => x.user_name || x.email).filter(Boolean);
+      if (people.length) {
+        meta.push(`Reviewer${people.length === 1 ? "" : "s"}: ${people.slice(0, 2).join(", ")}${people.length > 2 ? ` +${people.length - 2}` : ""}`);
+      }
+      return `
+        <a class="pj-row is-${item.group}" href="/project?id=${encodeURIComponent(p.id)}">
+          <span class="pj-main">
+            <span class="pj-name">${esc(p.project_name)}${priority}</span>
+            <span class="pj-next">${esc(item.next)}</span>
+            ${meta.length ? `<span class="pj-meta">${esc(meta.join(" · "))}</span>` : ""}
+          </span>
+          <span class="pj-progress" aria-label="${item.done} of ${item.total} tasks done">
+            <span class="pj-bar"><span style="width:${pct}%"></span></span>
+            <small>${item.done}/${item.total} done</small>
+          </span>
+        </a>`;
+    };
+
+    const sections = groups
+      .map(([key, label, sub]) => {
+        const list = visible.filter((item) => item.group === key);
+        if (!list.length) {
+          return "";
+        }
+        const open = view.open[key] ?? key !== "closed";
+        return `
+          <details class="pj-group is-${key}" data-pj-group="${key}" ${open ? "open" : ""}>
+            <summary>
+              <span class="pj-dot" aria-hidden="true"></span>
+              <span class="pj-group-title">${label}</span>
+              <span class="pj-count">${list.length}</span>
+              <span class="pj-group-sub">${sub}</span>
+            </summary>
+            <div class="pj-list">${list.map(row).join("")}</div>
+          </details>`;
+      })
+      .join("");
+
+    projectList.innerHTML = `
+      <div class="pj-toolbar">
+        <input type="search" class="pj-search" id="pj-search" placeholder="Search projects" value="${esc(view.query)}" aria-label="Search projects" autocomplete="off">
+        <label class="pj-select">Priority
+          <select id="pj-priority">
+            <option value="">All</option>
+            <option value="HIGH"${view.priority === "HIGH" ? " selected" : ""}>High</option>
+            <option value="MEDIUM"${view.priority === "MEDIUM" ? " selected" : ""}>Medium</option>
+            <option value="LOW"${view.priority === "LOW" ? " selected" : ""}>Low</option>
+          </select>
+        </label>
+        <label class="pj-select">Sort
+          <select id="pj-sort">
+            <option value="priority"${view.sort === "priority" ? " selected" : ""}>Priority</option>
+            <option value="due"${view.sort === "due" ? " selected" : ""}>Due soonest</option>
+            <option value="age"${view.sort === "age" ? " selected" : ""}>Oldest first</option>
+            <option value="name"${view.sort === "name" ? " selected" : ""}>Name</option>
+          </select>
+        </label>
+      </div>
+      <div class="pj-summary">${groups
+        .filter(([key]) => key !== "closed")
+        .map(([key, label]) => {
+          const n = items.filter((i) => i.group === key).length;
+          return `<button type="button" class="pj-chip is-${key}" data-pj-jump="${key}" ${n ? "" : "disabled"}><b>${n}</b>${label}</button>`;
+        })
+        .join("")}</div>
+      ${sections || '<p class="empty-state">No projects match.</p>'}`;
+
+    const search = projectList.querySelector("#pj-search");
+    search?.addEventListener("input", () => {
+      const pos = search.selectionStart;
+      view.query = search.value;
+      renderProjectRows();
+      const again = projectList.querySelector("#pj-search");
+      again.focus();
+      again.setSelectionRange(pos, pos);
+    });
+    projectList.querySelector("#pj-priority")?.addEventListener("change", (event) => {
+      view.priority = event.target.value;
+      renderProjectRows();
+    });
+    projectList.querySelector("#pj-sort")?.addEventListener("change", (event) => {
+      view.sort = event.target.value;
+      renderProjectRows();
+    });
+    projectList.querySelectorAll("[data-pj-group]").forEach((details) => {
+      details.addEventListener("toggle", () => {
+        view.open[details.dataset.pjGroup] = details.open;
+      });
+    });
+    projectList.querySelectorAll("[data-pj-jump]").forEach((chip) => {
+      chip.addEventListener("click", () => {
+        const target = projectList.querySelector(`[data-pj-group="${chip.dataset.pjJump}"]`);
+        if (target) {
+          target.open = true;
+          view.open[chip.dataset.pjJump] = true;
+          target.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+      });
     });
   }
+
 
   function renderGlobalTaskRows(tasks, activeFilters = {}) {
     if (!taskList) {
@@ -4124,6 +4280,14 @@ function setupEditProjectPage() {
     try {
       const project = await getAuthorizedJson(`/projects/${projectId}`);
       document.querySelector("#edit_description").value = project.description || "";
+      const editPriority = document.querySelector("#edit_priority");
+      if (editPriority) {
+        editPriority.value = project.priority || "";
+      }
+      const editTarget = document.querySelector("#edit_target_date");
+      if (editTarget) {
+        editTarget.value = project.target_date || "";
+      }
       document.querySelector("#edit_document_name").value =
         project.document_name || "";
       document.querySelector("#edit_document_url").value =
@@ -4161,6 +4325,8 @@ function setupEditProjectPage() {
         description: String(formData.get("description") ?? "").trim() || null,
         document_name: String(formData.get("document_name") ?? "").trim() || null,
         document_url: String(formData.get("document_url") ?? "").trim() || null,
+        priority: String(formData.get("priority") ?? ""),
+        target_date: String(formData.get("target_date") ?? ""),
         stakeholder_email: supervisors[0],
         supervisor_emails: supervisors,
         team_emails: getPickedEmails(teamPicker),

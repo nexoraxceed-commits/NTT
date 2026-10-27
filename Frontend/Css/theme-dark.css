@@ -210,3 +210,28 @@ html.theme-switching *::after {
 :root[data-theme="dark"] .task-list-due.is-soon {
   color: #ffb35c;
 }
+
+/* "How you're doing" warning state */
+:root[data-theme="dark"] .dash-standing.is-warn {
+  background: rgba(255, 159, 67, 0.14);
+}
+
+:root[data-theme="dark"] .dash-standing.is-warn .dash-standing-head {
+  color: #ffb35c;
+}
+
+:root[data-theme="dark"] .dino-status,
+:root[data-theme="dark"] .arcade-overlay p:not(.arcade-overlay-title),
+:root[data-theme="dark"] .arcade-scoreboard span {
+  color: var(--muted);
+}
+
+:root[data-theme="dark"] .arcade-icon-card-art,
+:root[data-theme="dark"] .arcade-icon-card:focus-visible {
+  background: rgba(103, 97, 221, 0.2);
+  color: #b3afff;
+}
+
+:root[data-theme="dark"] .pj-priority.is-medium {
+  color: #ffb35c;
+}

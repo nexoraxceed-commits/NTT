@@ -185,6 +185,17 @@
     return `<span class="pp-spark" aria-hidden="true">${bars}</span>`;
   }
 
+  // Recency dot: green within 3 days, amber within 10, grey after.
+  // Juniors only see it on juniors' cards.
+  function pulse(person) {
+    if (!person.lastActive || !canSeeLoad(person)) {
+      return "";
+    }
+    const days = Math.round((startOfDay(new Date()) - person.lastActive) / 86400000);
+    const tone = days <= 3 ? "is-fresh" : days <= 10 ? "is-recent" : "is-quiet";
+    return `<i class="pp-pulse ${tone}" aria-hidden="true"></i>`;
+  }
+
   function roleTag(cls) {
     return isSenior(cls)
       ? '<span class="role-tag is-senior">Senior</span>'
@@ -221,26 +232,26 @@
           ${avatar(person.name, person.email)}
           <span class="pp-main">
             <span class="pp-name">${esc(person.name)}${me ? " <em>you</em>" : ""}${roleTag(person.cls)}${vertical}</span>
-            <span class="pp-sub">${esc(lastActive)}</span>
+            <span class="pp-sub">${pulse(person)}${esc(lastActive)}</span>
           </span>
           ${spark(person)}
           <span class="pp-stats">
-            <span><b>${hoursText(person.hours)}</b><small>hours</small></span>
-            <span><b>${person.done.length}</b><small>finished</small></span>
+            <span class="${person.hours ? "has-hours" : "is-zero"}"><b>${hoursText(person.hours)}</b><small>hours</small></span>
+            <span class="${person.done.length ? "has-done" : "is-zero"}"><b>${person.done.length}</b><small>finished</small></span>
           </span>
         </button>
         ${detail}
       </li>`;
   }
 
-  function section(title, sub, people) {
+  function section(title, sub, people, key = "") {
     if (!people.length) {
       return "";
     }
     const hours = people.reduce((t, p) => t + p.hours, 0);
     const done = people.reduce((t, p) => t + p.done.length, 0);
     return `
-      <section class="pp-section">
+      <section class="pp-section${key ? ` is-${key}` : ""}">
         <header class="pp-section-head">
           <div>
             <h2>${esc(title)} <span>${people.length}</span></h2>
@@ -288,8 +299,8 @@
         <label>To <input type="date" id="people-to" value="${isoDay(state.end)}" max="${isoDay(startOfDay(new Date()))}"></label>
         <button type="button" class="link-button" data-reset-window>Last 30 days</button>
       </div>
-      ${state.group !== "junior" ? section("Senior team", "Supervisors and admins who set up projects and review work", seniors) : ""}
-      ${state.group !== "senior" ? section("Juniors", "Members working on assigned projects and tasks", juniors) : ""}
+      ${state.group !== "junior" ? section("Senior team", "Supervisors and admins who set up projects and review work", seniors, "seniors") : ""}
+      ${state.group !== "senior" ? section("Juniors", "Members working on assigned projects and tasks", juniors, "juniors") : ""}
       ${!seniors.length && !juniors.length ? '<p class="empty-state">No one matches that search.</p>' : ""}`;
   }
 

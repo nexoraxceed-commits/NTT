@@ -56,6 +56,8 @@ class CreateProjectRequest(BaseModel):
     team_emails: list[str] = Field(default_factory=list)
     supervisor_emails: list[str] = Field(default_factory=list)
     idempotency_key: str | None = Field(default=None, max_length=120)
+    priority: str | None = Field(default=None, max_length=10)
+    target_date: str | None = Field(default=None, max_length=10)
 
 
 class UpdateProjectRequest(BaseModel):
@@ -67,6 +69,9 @@ class UpdateProjectRequest(BaseModel):
     # None leaves the team or supervisors unchanged; a list replaces them.
     team_emails: list[str] | None = None
     supervisor_emails: list[str] | None = None
+    # None leaves them unchanged; "" clears.
+    priority: str | None = Field(default=None, max_length=10)
+    target_date: str | None = Field(default=None, max_length=10)
 
 
 class CreateTaskRequest(BaseModel):
@@ -170,6 +175,9 @@ class ProjectSummaryResponse(BaseModel):
     created_by_name: str | None = None
     supervisors: list[WatcherResponse] = Field(default_factory=list)
     team: list[WatcherResponse] = Field(default_factory=list)
+    priority: str | None = None
+    target_date: str | None = None
+    created_at: str | None = None
 
 
 class TaskWorkLogResponse(BaseModel):

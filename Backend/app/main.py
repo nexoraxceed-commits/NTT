@@ -1,7 +1,9 @@
 import json
+import os
 import re
 import time
 from datetime import date, datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 from hmac import compare_digest
 
 import httpx
@@ -130,6 +132,7 @@ from app.schemas import (
 from app.background import run_in_background
 from app.supabase_client import get_supabase_admin_client, get_supabase_client
 from app.email_codes import email_codes_available, send_code_email, verify_code
+from app.project_plans import get_project_plans, plan_fields, save_project_plan
 from app.profiles import (
     ProfileResponse,
     ProfileUpdateRequest,
@@ -998,6 +1001,144 @@ def send_due_soon_reminders(
     return sent_count
 
 
+WITTY_SUBJECTS = [
+    "Your task \"{task}\" called. It says it misses you.",
+    "Plot twist: \"{task}\" is still waiting, {days} days on",
+    "Breaking news: \"{task}\" spotted overdue for {days} days",
+    "We checked under the sofa. \"{task}\" is still not done",
+    "Happy {days}-day overdue anniversary, \"{task}\"",
+    "Houston, we have a deadline problem: \"{task}\"",
+    "Knock knock. Who's there? \"{task}\". Still.",
+    "\"{task}\" has entered its villain era ({days} days overdue)",
+]
+
+SECRETARY_EMAIL_DEFAULT = "h25167@astra.xlri.ac.in"
+
+
+def reminder_schedule(user_class: str, days_overdue: int) -> dict:
+    """What to send today for a task this many days past its due date.
+
+    Juniors: a reminder every day; from day 3 the secretary is asked to
+    follow up (day 3, then every 4 days). Seniors and admins: a reminder every
+    second day (days 1, 3, 5...); from the third reminder the subject turns witty.
+    """
+    plan = {"remind": False, "witty": False, "escalate": False}
+    if days_overdue < 1:
+        return plan
+    if user_class == "JUNIOR":
+        plan["remind"] = True
+        plan["escalate"] = days_overdue >= 3 and (days_overdue - 3) % 4 == 0
+    elif user_class in {"SENIOR", "ADMIN"}:
+        plan["remind"] = days_overdue % 2 == 1
+        plan["witty"] = plan["remind"] and days_overdue >= 5
+    return plan
+
+
+def send_daily_task_reminders(
+    supabase_admin: Client,
+    app_settings: Settings,
+    current_date: date | None = None,
+) -> dict:
+    """Email people about their overdue tasks, on the cadence in reminder_schedule.
+
+    Idempotent per day: TASK_REMINDER_LOG's unique key stops repeats, so this
+    can be triggered more than once a day safely.
+    """
+    today = current_date or datetime.now(ZoneInfo("Asia/Kolkata")).date()
+    response = (
+        supabase_admin.table(TASKS_TABLE)
+        .select("id,project_id,task_title,end_date,status,assigned_to")
+        .lt("end_date", today.isoformat())
+        .in_("status", [TASK_STATUS_OPEN, TASK_STATUS_IN_PROGRESS])
+        .execute()
+    )
+    tasks = [task for task in (getattr(response, "data", None) or []) if task.get("assigned_to")]
+    summary = {"reminders": 0, "escalations": 0, "tasks_checked": len(tasks)}
+    if not tasks:
+        return summary
+
+    users_by_id = get_ref_users_by_auth_uids(
+        supabase_admin, app_settings, list({str(t["assigned_to"]) for t in tasks})
+    )
+    secretary_email = (os.environ.get("NTT_SECRETARY_EMAIL") or SECRETARY_EMAIL_DEFAULT).strip().lower()
+    secretary = get_ref_user(supabase_admin, app_settings, secretary_email)
+    secretary_id = str(secretary.get(AUTH_UID_COLUMN)) if secretary and secretary.get(AUTH_UID_COLUMN) else None
+    project_cache: dict[int, dict | None] = {}
+
+    for task in tasks:
+        task_id = int(task["id"])
+        project_id = int(task["project_id"])
+        if project_id not in project_cache:
+            try:
+                project = get_project_by_id(supabase_admin, project_id)
+                ensure_project_is_active(project)
+                project_cache[project_id] = project
+            except HTTPException:
+                project_cache[project_id] = None
+        if not project_cache[project_id]:
+            continue
+        assignee_id = str(task["assigned_to"])
+        assignee = users_by_id.get(assignee_id)
+        if not assignee or str(assignee.get(app_settings.signup_allowed_users_status_column) or "").upper() != NORMAL_STATUS:
+            continue
+        user_class = str(assignee.get(USER_CLASS_COLUMN) or "").upper()
+        try:
+            due = date.fromisoformat(str(task.get("end_date"))[:10])
+        except ValueError:
+            continue
+        days = (today - due).days
+        plan = reminder_schedule(user_class, days)
+        task_name = normalize_optional_text(task.get("task_title")) or f"Task #{task_id}"
+        person = normalize_optional_text(assignee.get(REF_USER_NAME_COLUMN)) or "there"
+        assignee_email = normalize_optional_text(assignee.get(app_settings.signup_allowed_users_email_column))
+        day_word = f"{days} day{'s' if days != 1 else ''}"
+
+        if plan["remind"] and insert_task_reminder_log(
+            supabase_admin,
+            task_id=task_id,
+            project_id=project_id,
+            recipient_user_id=assignee_id,
+            recipient_email=assignee_email,
+            reminder_type="OVERDUE_DAILY",
+            sent_for_date=today.isoformat(),
+        ):
+            if plan["witty"]:
+                subject = WITTY_SUBJECTS[(task_id + days) % len(WITTY_SUBJECTS)].format(task=task_name[:60], days=days)
+            else:
+                subject = f"Reminder: \"{task_name}\" is {day_word} overdue"
+            body = (
+                f"Hi {person}, \"{task_name}\" was due on {due.strftime('%d %b')} and is now {day_word} overdue. "
+                "Finish it and send it for review, or ask your supervisor to move the due date."
+            )
+            notify_user_ids(
+                supabase_admin, app_settings, [assignee_id], subject, body, "TASK", task_id,
+                target_url=get_task_target_url(task_id), send_email=True,
+            )
+            summary["reminders"] += 1
+
+        if plan["escalate"] and secretary_id and secretary_id != assignee_id and insert_task_reminder_log(
+            supabase_admin,
+            task_id=task_id,
+            project_id=project_id,
+            recipient_user_id=secretary_id,
+            recipient_email=secretary_email,
+            reminder_type="OVERDUE_ESCALATION",
+            sent_for_date=today.isoformat(),
+        ):
+            subject = f"Follow-up needed: {person}'s task is {day_word} overdue"
+            body = (
+                f"{person} ({assignee_email}) hasn't closed \"{task_name}\", due {due.strftime('%d %b')} "
+                f"({day_word} overdue), after daily reminders. Please follow up with them."
+            )
+            notify_user_ids(
+                supabase_admin, app_settings, [secretary_id], subject, body, "TASK", task_id,
+                target_url=get_task_target_url(task_id), send_email=True,
+            )
+            summary["escalations"] += 1
+
+    return summary
+
+
 def send_backlog_reminders(
     supabase_admin: Client,
     app_settings: Settings,
@@ -1487,9 +1628,9 @@ def create_app() -> FastAPI:
     )
     backlog_service = BacklogService(
         backlog_config,
-        lambda current_date: send_backlog_reminders(
+        lambda current_date: send_daily_task_reminders(
             get_supabase_admin_client(), settings, current_date
-        ),
+        )["reminders"],
     )
 
     app = FastAPI(
@@ -2038,6 +2179,19 @@ def create_app() -> FastAPI:
             ) from exc
         backend_cache.delete("users:profiles")
         return MessageResponse(detail="Profile saved.")
+
+    @app.post("/internal/daily-reminders")
+    def trigger_daily_reminders(
+        supabase_admin: Client = Depends(get_supabase_admin_client),
+        app_settings: Settings = Depends(get_settings),
+    ) -> dict:
+        """Called by the keep-warm schedule. Safe to call repeatedly: each person
+        gets at most one reminder per task per day, and nothing goes out before 9 AM IST."""
+        now_ist = datetime.now(ZoneInfo("Asia/Kolkata"))
+        if now_ist.hour < 9:
+            return {"skipped": "before 9 AM IST"}
+        summary = send_daily_task_reminders(supabase_admin, app_settings, now_ist.date())
+        return {"date": now_ist.date().isoformat(), **summary}
 
     @app.post("/admin/test-email", response_model=MessageResponse)
     def send_test_email(
@@ -2626,6 +2780,7 @@ def create_app() -> FastAPI:
             loaded_project_ids,
         )
         team_by_project = get_project_team_for_projects(supabase_admin, loaded_project_ids)
+        project_plans = get_project_plans(supabase_admin, loaded_project_ids)
         all_member_ids: list[str] = []
         for project in projects:
             all_member_ids.extend(
@@ -2678,6 +2833,7 @@ def create_app() -> FastAPI:
                     app_settings,
                 ),
                 can_edit=is_management_user(current_user),
+                **plan_fields(project_plans, project["id"]),
                 **project_people_fields(
                     project,
                     team_by_project.get(int(project["id"]), []),
@@ -2735,6 +2891,7 @@ def create_app() -> FastAPI:
         )
         team_by_project = get_project_team_for_projects(supabase_admin, project_ids)
         projects_by_id = {int(project["id"]): project for project in projects}
+        project_plans = get_project_plans(supabase_admin, project_ids)
 
         tasks: list[dict] = []
         if project_ids:
@@ -2825,6 +2982,7 @@ def create_app() -> FastAPI:
                     app_settings,
                 ),
                 can_edit=is_management_user(current_user),
+                **plan_fields(project_plans, project["id"]),
                 **project_people_fields(
                     project,
                     team_by_project.get(int(project["id"]), []),
@@ -3044,6 +3202,7 @@ def create_app() -> FastAPI:
             ),
             can_edit=is_management_user(current_user),
             **project_people_fields(project, project_team, users_by_auth_uid, app_settings),
+            **plan_fields(get_project_plans(supabase_admin, [project_id]), project_id),
             tasks=[
                 TaskSummaryResponse(
                     id=task["id"],
@@ -3168,6 +3327,8 @@ def create_app() -> FastAPI:
         elif payload.stakeholder_email == "":
             update_payload["stakeholder_id"] = None
 
+        if payload.priority is not None or payload.target_date is not None:
+            save_project_plan(supabase_admin, project_id, payload.priority, payload.target_date)
         (
             supabase_admin.table(PROJECTS_TABLE)
             .update(update_payload)
@@ -3423,6 +3584,7 @@ def create_app() -> FastAPI:
 
             if not project_id:
                 raise RuntimeError("Project insert did not return an id.")
+            save_project_plan(supabase_admin, int(project_id), payload.priority, payload.target_date)
         except Exception as exc:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
