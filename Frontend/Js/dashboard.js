@@ -1163,6 +1163,29 @@
       </div>`;
     container.innerHTML = html;
     bindTrend(container);
+
+    // Motion and the status orb live in ui-kit.js; skipped if it didn't load.
+    if (window.NTTUI && typeof window.NTTUI.enhanceDashboard === "function") {
+      const dueSoon = buckets.open.filter((t) => {
+        const end = parseDay(t.end_date);
+        return end && daysBetween(today, end) <= 7;
+      }).length;
+      try {
+        window.NTTUI.enhanceDashboard(container, {
+          scope: state.scope,
+          open: state.open,
+          dueSoon,
+          counts: {
+            open: buckets.open.length,
+            progress: buckets.progress.length,
+            overdue: buckets.overdue.length,
+            closed: buckets.closed.length,
+          },
+        });
+      } catch (_error) {
+        // Never let decoration break the dashboard.
+      }
+    }
   }
 
   /* ------------------------------------------------------------ tooltip */
