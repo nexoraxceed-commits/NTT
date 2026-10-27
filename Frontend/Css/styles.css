@@ -6914,3 +6914,94 @@ body.has-live-bg .login-panel {
 .pp-pulse.is-quiet {
   background: var(--quiet);
 }
+
+/* welcome: live project briefs */
+.welcome-briefs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.welcome-brief {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface-soft);
+  font-size: 0.8125rem;
+}
+
+.welcome-brief.is-mine {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 6%, var(--surface));
+}
+
+.welcome-brief-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.welcome-brief-head b {
+  font-size: 0.9375rem;
+}
+
+.welcome-brief-you {
+  padding: 1px 8px;
+  border-radius: 999px;
+  color: #fff;
+  background: var(--accent);
+  font-size: 0.6875rem;
+  font-weight: 650;
+}
+
+.welcome-brief p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.welcome-brief-bar {
+  height: 5px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: var(--fill-strong);
+}
+
+.welcome-brief-bar span {
+  display: block;
+  height: 100%;
+  background: var(--st-closed);
+}
+
+.welcome-brief dl {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+}
+
+.welcome-brief dl div {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: 8px;
+}
+
+.welcome-brief dt {
+  color: var(--muted);
+}
+
+.welcome-brief dd {
+  margin: 0;
+}
+
+@media (max-width: 700px) {
+  .welcome-briefs {
+    grid-template-columns: 1fr;
+  }
+}

@@ -1,6 +1,6 @@
 /*
  * Welcome / intro for new members (shown to juniors on first sign-in, open to
- * everyone from the Guide). Five short steps, ending with the profile form.
+ * everyone from the Guide). Short steps, ending with the profile form.
  */
 (function () {
   "use strict";
@@ -28,6 +28,7 @@
     step: 0,
     profile: null,
     seniors: [],
+    briefs: [],
     form: { roll_no: "", phone: "", linkedin_url: "", skills: "" },
     saving: false,
     error: "",
@@ -73,6 +74,16 @@
         </div>`,
     },
     {
+      title: "What's happening",
+      render: () => `
+        <p class="welcome-kicker">Live projects</p>
+        <h2 class="welcome-title">What the team is working on right now</h2>
+        <p class="welcome-copy">A quick look at the projects juniors are part of. Open any of them from the Projects page.</p>
+        ${state.briefs.length
+          ? `<ul class="welcome-briefs">${state.briefs.map(briefCard).join("")}</ul>`
+          : '<p class="welcome-empty">Projects will appear here once you\'re added to a team.</p>'}`,
+    },
+    {
       title: "Your seniors",
       render: () => `
         <p class="welcome-kicker">Your senior team</p>
@@ -111,6 +122,81 @@
         </form>`,
     },
   ];
+
+  function briefCard(b) {
+    const pct = b.total ? Math.round((b.done / b.total) * 100) : 0;
+    return `
+      <li class="welcome-brief${b.mine ? " is-mine" : ""}">
+        <div class="welcome-brief-head">
+          <b>${esc(b.name)}</b>
+          ${b.mine ? '<span class="welcome-brief-you">You\'re on this</span>' : ""}
+        </div>
+        ${b.about ? `<p>${esc(b.about)}</p>` : ""}
+        <div class="welcome-brief-bar" aria-hidden="true"><span style="width:${pct}%"></span></div>
+        <dl>
+          <div><dt>Progress</dt><dd>${b.done}/${b.total} tasks done</dd></div>
+          <div><dt>Next up</dt><dd>${esc(b.next)}</dd></div>
+          ${b.team.length ? `<div><dt>Team</dt><dd>${esc(b.team.join(", "))}</dd></div>` : ""}
+          ${b.reviewers.length ? `<div><dt>Reviewer</dt><dd>${esc(b.reviewers.join(", "))}</dd></div>` : ""}
+        </dl>
+      </li>`;
+  }
+
+  // Live projects that juniors are part of (a junior on the team). Seniors'
+  // own side projects, onboarding and external work have no junior on the
+  // team, so they stay out of the briefing.
+  function buildBriefs(dashboard, users) {
+    const me = String(session().email || "").toLowerCase();
+    const classOf = new Map((users || []).map((u) => [String(u.email || "").toLowerCase(), String(u.user_class || "").toUpperCase()]));
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const day = (v) => {
+      const m = String(v || "").match(/^(\d{4})-(\d{2})-(\d{2})/);
+      return m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : null;
+    };
+    const rank = { HIGH: 0, MEDIUM: 1, LOW: 2 };
+    return (dashboard.project_details || [])
+      .filter((p) => String(p.status || "").toUpperCase() !== "CLOSED")
+      .map((p) => {
+        const team = (p.team || []).filter((t) => t.email);
+        const juniors = team.filter((t) => classOf.get(String(t.email).toLowerCase()) === "JUNIOR");
+        if (!juniors.length) {
+          return null;
+        }
+        const tasks = p.tasks || [];
+        const open = tasks.filter((t) => String(t.status || "").toUpperCase() !== "CLOSED");
+        const dated = open
+          .map((t) => ({ t, d: day(t.end_date) }))
+          .filter((x) => x.d && x.d >= today)
+          .sort((a, b) => a.d - b.d);
+        let next;
+        if (!tasks.length) {
+          next = "Tasks are being set up";
+        } else if (!open.length) {
+          next = "All current tasks are done";
+        } else if (dated[0]) {
+          next = `"${dated[0].t.task_title}" by ${dated[0].d.toLocaleDateString(undefined, { day: "numeric", month: "short" })}`;
+        } else {
+          next = `${open.length} task${open.length === 1 ? "" : "s"} in progress`;
+        }
+        const about = String(p.description || "").trim().split(/(?<=[.!?])\s+/)[0].slice(0, 160);
+        return {
+          name: p.project_name,
+          about,
+          total: tasks.length,
+          done: tasks.length - open.length,
+          next,
+          mine: team.some((t) => String(t.email).toLowerCase() === me),
+          team: juniors.map((t) => t.user_name || t.email).slice(0, 4),
+          reviewers: (p.supervisors || []).map((x) => x.user_name || x.email).filter(Boolean).slice(0, 2),
+          rank: rank[String(p.priority || "").toUpperCase()] ?? 3,
+          soon: dated[0] ? dated[0].d.getTime() : Infinity,
+        };
+      })
+      .filter(Boolean)
+      .sort((a, b) => Number(b.mine) - Number(a.mine) || a.rank - b.rank || a.soon - b.soon)
+      .slice(0, 6);
+  }
 
   function hue(text) {
     let h = 0;
@@ -228,6 +314,15 @@
         .sort((a, b) => String(a.user_name || "").localeCompare(String(b.user_name || "")));
     } catch (_error) {
       state.form.roll_no = guessRoll();
+    }
+    try {
+      const [dashboard, users] = await Promise.all([
+        getAuthorizedJson("/dashboard"),
+        typeof getActiveUsers === "function" ? getActiveUsers() : getAuthorizedJson("/users"),
+      ]);
+      state.briefs = buildBriefs(dashboard, users);
+    } catch (_error) {
+      state.briefs = [];
     }
     root.removeAttribute("aria-busy");
     draw();
