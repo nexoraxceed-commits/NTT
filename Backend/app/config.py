@@ -71,7 +71,12 @@ def get_project_properties() -> dict[str, str]:
 
 
 def _get_config_value(name: str, default: str | None = None) -> str | None:
-    return os.getenv(name) or get_project_properties().get(name) or default
+    # Values pasted into a hosting dashboard often pick up a trailing space or
+    # newline, which silently breaks API keys. Trim them.
+    for raw in (os.getenv(name), get_project_properties().get(name)):
+        if raw is not None and str(raw).strip():
+            return str(raw).strip()
+    return default
 
 
 def _get_required_env(name: str) -> str:

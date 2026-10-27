@@ -88,7 +88,10 @@ def _explain_mailjet(status_code: int, text: str) -> str:
     """Turn Mailjet's reply into a plain-English reason for admins."""
     lowered = text.lower()
     if status_code == 401:
-        return "Mailjet rejected the API keys (401). Check MAILJET_API_KEY and MAILJET_SECRET_KEY on Render."
+        return (
+            "Mailjet rejected the API key + secret pair (401). The secret doesn't belong to this API key, "
+            "or the key was deleted in Mailjet."
+        )
     if "sender" in lowered and ("not" in lowered and ("valid" in lowered or "authoriz" in lowered or "allowed" in lowered)):
         return (
             "Mailjet says the sender address isn't verified. In Mailjet go to Account settings -> "
@@ -99,6 +102,13 @@ def _explain_mailjet(status_code: int, text: str) -> str:
     if status_code == 429 or "rate" in lowered:
         return "Mailjet's sending limit was reached. Free accounts allow 200 emails a day and 6,000 a month."
     return f"Mailjet returned {status_code}: {text[:300]}"
+
+
+def key_fingerprint(app_settings: Settings) -> str:
+    """Safe description of the keys the server sees: lengths and the API key's last 4 only."""
+    key = app_settings.mailjet_api_key or ""
+    secret = app_settings.mailjet_secret_key or ""
+    return f"API key ...{key[-4:]} ({len(key)} chars), secret {len(secret)} chars"
 
 
 def send_code_email(

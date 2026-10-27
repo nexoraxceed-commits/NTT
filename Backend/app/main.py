@@ -133,7 +133,7 @@ from app.schemas import (
 )
 from app.background import run_in_background
 from app.supabase_client import get_supabase_admin_client, get_supabase_client
-from app.email_codes import LAST_ERROR as EMAIL_LAST_ERROR, email_codes_available, send_code_email, verify_code
+from app.email_codes import LAST_ERROR as EMAIL_LAST_ERROR, email_codes_available, key_fingerprint, send_code_email, verify_code
 from app.project_plans import get_project_plans, plan_fields, save_project_plan
 from app.profiles import (
     ProfileResponse,
@@ -2349,7 +2349,10 @@ def create_app() -> FastAPI:
         if not send_code_email(app_settings, "signup", current_user.email, current_user.user_name):
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
-                detail=f"Sender {app_settings.mailjet_from_email}: {EMAIL_LAST_ERROR['detail'] or 'Mailjet refused the email.'}",
+                detail=(
+                    f"{EMAIL_LAST_ERROR['detail'] or 'Mailjet refused the email.'} "
+                    f"Server sees: {key_fingerprint(app_settings)}; sender {app_settings.mailjet_from_email}."
+                ),
             )
         return MessageResponse(detail=f"Test email sent to {current_user.email} from {app_settings.mailjet_from_email}.")
 
