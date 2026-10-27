@@ -6430,3 +6430,69 @@ body.has-live-bg .login-panel {
     white-space: normal;
   }
 }
+
+/* ================================ brand logos ================================ */
+.brand-logo {
+  display: block;
+  width: auto;
+  height: 40px;
+  margin-bottom: 18px;
+}
+
+.brand-partner {
+  display: grid;
+  justify-items: start;
+  gap: 8px;
+  margin: 18px 0 0;
+}
+
+.brand-partner figcaption {
+  color: rgba(255, 255, 255, 0.62);
+  font-size: 0.75rem;
+  font-weight: 550;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.brand-partner img {
+  display: block;
+  width: auto;
+  height: 52px;
+  border-radius: 8px;
+}
+
+.workspace-brand-text::before {
+  content: none;
+  display: none;
+}
+
+.workspace-brand-text img {
+  display: block;
+  width: auto;
+  height: 20px;
+}
+
+@media (max-width: 700px) {
+  .brand-logo {
+    height: 30px;
+    margin-bottom: 12px;
+  }
+
+  .brand-partner img {
+    height: 42px;
+  }
+
+  .workspace-brand-text img {
+    height: 17px;
+  }
+}
+
+@media (max-width: 860px) {
+  .auth-body .brand-logo {
+    margin-inline: auto;
+  }
+
+  .auth-body .brand-partner {
+    justify-items: center;
+  }
+}

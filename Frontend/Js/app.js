@@ -1854,7 +1854,8 @@ function setupWorkspaceNavigation() {
     const brandText = document.createElement("a");
     brandText.className = "workspace-brand-text";
     brandText.href = "/post-login";
-    brandText.textContent = "Nexora";
+    brandText.setAttribute("aria-label", "Nexora home");
+    brandText.innerHTML = '<img src="/brand/nexora-ink.png?v=1" alt="Nexora" width="1419" height="275">';
     // A page-specific eyebrow (like the project name above a task) stays with
     // the page title; the generic "Nexora" one is already shown as the brand.
     if (eyebrow && eyebrow.textContent.trim().toLowerCase() === "nexora") {
