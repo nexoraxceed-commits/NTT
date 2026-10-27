@@ -2327,9 +2327,10 @@ def create_app() -> FastAPI:
 
     @app.post("/admin/test-email", response_model=MessageResponse)
     def send_test_email(
-        current_user: CurrentUser = Depends(require_admin),
+        current_user: CurrentUser = Depends(get_current_user),
         app_settings: Settings = Depends(get_settings),
     ) -> MessageResponse:
+        require_management_user(current_user)
         """Lets an admin check that NTT can send email (codes, reminders)."""
         if not email_codes_available(app_settings):
             missing = [

@@ -56,6 +56,12 @@
           <summary><span class="guide-icon" aria-hidden="true">★</span><span><b>For the senior team</b><small>Projects, assigning work and reviews</small></span></summary>
           <ol class="guide-steps"><li><b>Create a project</b><span>Projects → +. Add the team (juniors doing the work), supervisors (seniors who review) and optional watchers.</span></li><li><b>Create and assign tasks</b><span>Inside a project, add a task with an owner, a reviewer and a due date. Anyone on the project team can add tasks too.</span></li><li><b>Review work</b><span>Tasks sent to you appear under Needs your attention. Open one, check the linked work, then Approve and close or Send back with a note.</span></li><li><b>Keep juniors moving</b><span>The Needs a check-in list on the dashboard (seniors only) shows who hasn't logged hours recently.</span></li></ol>
         </details>
+        <section class="workspace-panel" data-management-only style="margin-top:8px">
+          <h2 style="margin:0 0 4px;font-size:1.0625rem">Email check (seniors)</h2>
+          <p class="meta-text" style="margin:0 0 10px">Sends a sample sign-up code to your own inbox. If it fails, the reason from Mailjet is shown here.</p>
+          <button type="button" class="btn btn-secondary" id="guide-test-email">Send me a test email</button>
+          <p class="form-message" id="guide-test-email-msg" role="status" aria-live="polite"></p>
+        </section>
         <section class="guide-faq">
           <h2>Quick answers</h2>
           <dl>
@@ -77,6 +83,17 @@
         }
         window.addEventListener("hashchange", openFromHash);
         document.addEventListener("DOMContentLoaded", function () {
+          var testBtn = document.getElementById("guide-test-email");
+          var testMsg = document.getElementById("guide-test-email-msg");
+          if (testBtn) {
+            testBtn.addEventListener("click", async function () {
+              setButtonBusy(testBtn, true);
+              setMessage(testMsg, "Sending...");
+              try { var d = await postAuthorizedJson("/admin/test-email", {}); setMessage(testMsg, d.detail); }
+              catch (e) { setMessage(testMsg, e.message, true); }
+              finally { setButtonBusy(testBtn, false); }
+            });
+          }
           var first = document.querySelector(".guide-topic");
           if (first && !location.hash) { first.open = true; }
           openFromHash();
