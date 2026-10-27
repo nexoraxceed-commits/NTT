@@ -1,0 +1,18 @@
+# Keeps the Render free-plan backend awake during working hours so the first
+# visitor doesn't wait 30-60 seconds for a cold start.
+# Runs every 10 minutes from about 8:00 AM to 2:00 AM IST (02:00-20:59 UTC).
+# Note: GitHub only runs scheduled workflows from the repository's default branch.
+name: Keep backend warm
+
+on:
+  schedule:
+    - cron: "*/10 2-20 * * *"
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Ping health endpoint
+        run: curl -fsS --max-time 90 https://ntt-c122.onrender.com/health || true
