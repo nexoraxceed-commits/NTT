@@ -93,6 +93,7 @@ class ProjectUserResponse(BaseModel):
     email: str
     user_name: str | None = None
     user_class: str
+    vertical: str | None = None
 
 
 class CurrentUserResponse(BaseModel):

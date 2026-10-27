@@ -67,6 +67,15 @@ const dashboardPages = new Set([
   "/dino-game",
   "/dino-game.html",
   "/Pages/dino-game.html",
+  "/people",
+  "/people.html",
+  "/Pages/people.html",
+  "/guide",
+  "/guide.html",
+  "/Pages/guide.html",
+  "/welcome",
+  "/welcome.html",
+  "/Pages/welcome.html",
 ]);
 
 function normalizePath(pathname) {
@@ -1711,6 +1720,12 @@ function setupWorkspaceNavigation() {
     if (navPath === "/batches") {
       return "batches";
     }
+    if (navPath === "/people") {
+      return "people";
+    }
+    if (navPath === "/guide" || navPath === "/welcome") {
+      return "guide";
+    }
     if (navPath === "/dino-game") {
       return "game";
     }
@@ -1734,6 +1749,10 @@ function setupWorkspaceNavigation() {
       '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6.1 7.9 4.7 6.5 3.3 7.9l2.8 2.8 4.8-4.8-1.4-1.4-3.4 3.4ZM13 7h8v2h-8V7Zm-6.9 8.9-1.4-1.4-1.4 1.4 2.8 2.8 4.8-4.8-1.4-1.4-3.4 3.4ZM13 15h8v2h-8v-2Z"/></svg>',
     users:
       '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm6.5-1a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM2 20a7 7 0 0 1 14 0H2Zm14.5-6c3.04 0 5.5 2.24 5.5 5v1h-4a9 9 0 0 0-2.17-5.86c.22-.09.44-.14.67-.14Z"/></svg>',
+    people:
+      '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm0-2a2 2 0 1 1 0-4 2 2 0 0 1 0 4Zm7.5 2a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM2 20a7 7 0 0 1 14 0h-2a5 5 0 0 0-10 0H2Zm14.2-5.9A6.5 6.5 0 0 1 22 20h-2a4.5 4.5 0 0 0-4.5-4.5h-.36l1.06-1.4Z"/></svg>',
+    guide:
+      '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4.5A2.5 2.5 0 0 1 7.5 2H20v16H7.5a.5.5 0 0 0 0 1H20v2H7.5A2.5 2.5 0 0 1 5 18.5v-14ZM7.5 4a.5.5 0 0 0-.5.5v12.55c.16-.03.33-.05.5-.05H18V4H7.5ZM9 6h7v2H9V6Zm0 4h5v2H9v-2Z"/></svg>',
     batches:
       '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16v5H4V4Zm2 2v1h12V6H6Zm-2 5h16v9H4v-9Zm2 2v5h12v-5H6Zm2 1h3v2H8v-2Z"/></svg>',
     game:
@@ -1747,6 +1766,8 @@ function setupWorkspaceNavigation() {
     { href: "/post-login", label: "Dashboard", key: "dashboard" },
     { href: "/projects", label: "Projects", key: "projects" },
     { href: "/tasks", label: "Tasks", key: "tasks" },
+    { href: "/people", label: "People", key: "people" },
+    { href: "/guide", label: "Guide", key: "guide" },
   ];
   if (String(getSession()?.userClass || "").toUpperCase() !== "REDUNDANT_USER") {
     links.push({ href: "/project-game", label: "Project Game", key: "game" });
@@ -3694,6 +3715,7 @@ function setupDashboardProjects() {
     }
     try {
       const dashboardData = await getAuthorizedJson("/dashboard");
+      window.NTT_MERIT_LOGS = dashboardData.merit_logs || [];
       const projects = dashboardData.projects || [];
       dashboardProjects = projects;
       dashboardDetails = dashboardData.project_details || [];
@@ -4172,8 +4194,39 @@ function renderPeopleList(element, people, emptyText) {
     const name = document.createElement("span");
     name.textContent = personName(person);
     chip.append(avatar, name);
+    if (person.email) {
+      chip.dataset.roleEmail = String(person.email).toLowerCase();
+    }
     element.append(chip);
   });
+  addRoleTags(element);
+}
+
+// Small "Senior" / "Junior" label after a person's name, from the member list.
+function addRoleTags(element) {
+  if (typeof getActiveUsers !== "function") {
+    return;
+  }
+  getActiveUsers()
+    .then((users) => {
+      const classes = new Map(
+        (users || []).map((user) => [String(user.email || "").toLowerCase(), String(user.user_class || "").toUpperCase()])
+      );
+      element.querySelectorAll("[data-role-email]").forEach((chip) => {
+        if (chip.querySelector(".role-tag")) {
+          return;
+        }
+        const userClass = classes.get(chip.dataset.roleEmail);
+        const label = ["ADMIN", "SENIOR"].includes(userClass) ? "Senior" : userClass === "JUNIOR" ? "Junior" : "";
+        if (label) {
+          const tag = document.createElement("span");
+          tag.className = `role-tag is-${label.toLowerCase()}`;
+          tag.textContent = label;
+          chip.append(tag);
+        }
+      });
+    })
+    .catch(() => {});
 }
 
 function renderTaskSteps(task) {
@@ -5223,6 +5276,38 @@ function setupTaskPage() {
   });
 }
 
+// Juniors see the welcome (intro + profile) once, the first time they reach
+// the dashboard after signing in. Checked once per browser session.
+async function maybeShowWelcome() {
+  const path = normalizePath(window.location.pathname);
+  if (!["/post-login", "/post-login.html", "/Pages/post-login.html"].includes(path)) {
+    return;
+  }
+  if (String(getSession()?.userClass || "").toUpperCase() !== "JUNIOR") {
+    return;
+  }
+  try {
+    if (window.sessionStorage.getItem("ntt_welcome_checked")) {
+      return;
+    }
+  } catch (_error) {
+    // Without storage, check every time; it's one small request.
+  }
+  try {
+    const profile = await getAuthorizedJson("/me/profile");
+    try {
+      window.sessionStorage.setItem("ntt_welcome_checked", "1");
+    } catch (_error) {
+      // Ignore.
+    }
+    if (profile.profiles_available && !profile.onboarded) {
+      window.location.replace("/welcome");
+    }
+  } catch (_error) {
+    // Never block the dashboard on this check.
+  }
+}
+
 window.addEventListener("pageshow", guardPageAccess);
 guardPageAccess();
 applyRoleVisibility();
@@ -5245,3 +5330,4 @@ setupAutomaticPushNotifications();
 handleNotificationOpenFromUrl();
 startLiveRefreshLoop();
 synchronizeCurrentUserClass();
+maybeShowWelcome();

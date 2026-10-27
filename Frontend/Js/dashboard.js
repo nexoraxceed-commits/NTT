@@ -55,6 +55,7 @@
     notifications: null,
     notificationsFetchedAt: 0,
     leaderPeriod: "month",
+    leaderGroup: "all",
     users: null,
     container: null,
     details: [],
@@ -174,6 +175,36 @@
 
   function currentEmail() {
     return lower(typeof getSession === "function" ? getSession()?.email : "");
+  }
+
+  // Hours from tasks a junior isn't shown (seniors' open work). The server
+  // sends only date, hours and who logged them, so merits still count.
+  function meritLogs() {
+    return Array.isArray(window.NTT_MERIT_LOGS) ? window.NTT_MERIT_LOGS : [];
+  }
+
+  function viewerClass() {
+    return String((typeof getSession === "function" ? getSession()?.userClass : "") || "").toUpperCase();
+  }
+
+  function classOf(email) {
+    const user = (state.users || []).find((u) => lower(u.email) === lower(email));
+    return String(user?.user_class || "").toUpperCase();
+  }
+
+  function isSeniorClass(cls) {
+    return cls === "SENIOR" || cls === "ADMIN";
+  }
+
+  function roleTag(email) {
+    const cls = classOf(email);
+    if (isSeniorClass(cls)) {
+      return '<span class="role-tag is-senior">Senior</span>';
+    }
+    if (cls === "JUNIOR") {
+      return '<span class="role-tag is-junior">Junior</span>';
+    }
+    return "";
   }
 
   function assigneesOf(task) {
@@ -634,6 +665,21 @@
         });
       });
     });
+    if (state.scope !== "me") {
+      meritLogs().forEach((log) => {
+        const day = parseDay(log.work_date);
+        const hours = Number(log.hours || 0);
+        if (day && hours) {
+          logs.push({
+            day,
+            hours,
+            person: log.logged_by_name || log.logged_by_email || "Unknown",
+            personEmail: lower(log.logged_by_email),
+            project: "Senior team",
+          });
+        }
+      });
+    }
     return logs;
   }
 
@@ -994,6 +1040,19 @@
         }
       });
     });
+    meritLogs().forEach((log) => {
+      const day = parseDay(log.work_date);
+      const entry = ensure(log.logged_by_email, log.logged_by_name);
+      if (!entry || !day) {
+        return;
+      }
+      if (!entry.lastLog || day > entry.lastLog) {
+        entry.lastLog = day;
+      }
+      if (day >= start && day <= today) {
+        entry.hours += Number(log.hours || 0);
+      }
+    });
     const list = Array.from(people.values());
     list.forEach((entry) => {
       // Hours carry the score; each task finished counts like an hour, and
@@ -1013,7 +1072,18 @@
   }
 
   function renderLeaderboard(stats, email) {
-    const ranked = stats.filter((entry) => entry.score > 0);
+    const group = state.leaderGroup;
+    const ranked = stats.filter((entry) => {
+      if (entry.score <= 0) {
+        return false;
+      }
+      const cls = classOf(entry.email);
+      return group === "all" || (group === "senior" ? isSeniorClass(cls) : cls === "JUNIOR");
+    });
+    const juniorViewer = viewerClass() === "JUNIOR";
+    const groups = [["all", "Everyone"], ["senior", "Seniors"], ["junior", "Juniors"]]
+      .map(([key, label]) => `<button type="button" data-dash-group="${key}" aria-pressed="${group === key}">${label}</button>`)
+      .join("");
     const top = ranked.slice(0, 5);
     const myIndex = ranked.findIndex((entry) => entry.email === email);
     const periodLabel = state.leaderPeriod === "week" ? "this week" : "this month";
@@ -1027,10 +1097,10 @@
         <span class="dash-rank ${medal[index] || ""}">${index + 1}</span>
         ${avatar(entry.name, entry.email)}
         <span class="dash-leader-main">
-          <span class="dash-leader-name">${esc(entry.name)}${entry.email === email ? ' <em>you</em>' : ""}</span>
+          <span class="dash-leader-name">${esc(entry.name)}${entry.email === email ? ' <em>you</em>' : ""}${roleTag(entry.email)}</span>
           <span class="dash-leader-bar"><span style="width:${Math.max(4, (entry.score / max) * 100)}%"></span></span>
         </span>
-        <span class="dash-leader-stats"><b>${hoursText(entry.hours)}</b><span>${entry.done} done${entry.done ? ` · ${Math.round((entry.onTime / entry.done) * 100)}% on time` : ""}</span></span>
+        <span class="dash-leader-stats"><b>${hoursText(entry.hours)}</b><span>${entry.done} done${entry.done && !(juniorViewer && isSeniorClass(classOf(entry.email))) ? ` · ${Math.round((entry.onTime / entry.done) * 100)}% on time` : ""}</span></span>
       </li>`).join("");
     const me = myIndex >= 5
       ? `<p class="dash-leader-you">You're <b>#${myIndex + 1}</b> of ${ranked.length} ${periodLabel} with ${hoursText(ranked[myIndex].hours)} and ${ranked[myIndex].done} done.</p>`
@@ -1044,6 +1114,7 @@
           </div>
           <div class="dash-tabs" role="group" aria-label="Leaderboard period">${tabs}</div>
         </header>
+        <div class="dash-tabs dash-group-tabs" role="group" aria-label="Show">${groups}</div>
         ${top.length
           ? `<ol class="dash-leader-list">${rows}</ol>${me}`
           : `<p class="dash-calm">No hours logged or tasks finished ${periodLabel} yet. Log hours on a task to get on the board.</p>`}
@@ -1160,6 +1231,9 @@
       }
     });
 
+    if (state.scope !== "me") {
+      meritLogs().forEach((log) => bump(parseDay(log.work_date), "hours", Number(log.hours || 0)));
+    }
     const scoreOf = (entry) => (entry ? entry.hours + entry.done : 0);
     const values = Array.from(days.values()).map(scoreOf).filter((v) => v > 0);
     const peak = Math.max(1, ...values);
@@ -1384,6 +1458,12 @@
       }
       if (event.target.closest("[data-dash-close]")) {
         state.open = null;
+        draw();
+        return;
+      }
+      const groupTab = event.target.closest("[data-dash-group]");
+      if (groupTab) {
+        state.leaderGroup = groupTab.dataset.dashGroup;
         draw();
         return;
       }

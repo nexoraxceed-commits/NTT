@@ -125,6 +125,18 @@ from app.schemas import (
 )
 from app.background import run_in_background
 from app.supabase_client import get_supabase_admin_client, get_supabase_client
+from app.profiles import (
+    ProfileResponse,
+    ProfileUpdateRequest,
+    get_profiles_by_email,
+    update_profile,
+)
+from app.visibility import (
+    classes_by_email,
+    filter_tasks_for_junior,
+    is_junior,
+    junior_may_open_task,
+)
 from app.utils import normalize_optional_text
 
 
@@ -396,8 +408,64 @@ def get_ref_user_by_id(
     return matching_users[0]
 
 
+def visibility_classes(supabase_admin: Client, app_settings: Settings) -> dict[str, str]:
+    """Email -> user class for every active user, cached briefly."""
+    cached = backend_cache.get("visibility:classes")
+    if cached is not None:
+        return cached
+    classes = classes_by_email(
+        get_active_ref_users(supabase_admin, app_settings),
+        app_settings.signup_allowed_users_email_column,
+        USER_CLASS_COLUMN,
+    )
+    backend_cache.set("visibility:classes", classes, 120)
+    return classes
+
+
+def junior_task_view(
+    current_user: object,
+    supabase_admin: Client,
+    app_settings: Settings,
+    tasks: list[dict],
+) -> tuple[list[dict], list[dict]]:
+    """Tasks a junior may see plus merit-only hours from hidden ones."""
+    if not is_junior(current_user):
+        return tasks, []
+    return filter_tasks_for_junior(
+        tasks,
+        str(getattr(current_user, "email", "") or ""),
+        visibility_classes(supabase_admin, app_settings),
+    )
+
+
+def guard_task_for_junior(
+    current_user: object,
+    supabase_admin: Client,
+    app_settings: Settings,
+    response: "TaskDetailResponse",
+) -> "TaskDetailResponse":
+    if is_junior(current_user) and not junior_may_open_task(
+        response.model_dump(),
+        str(getattr(current_user, "email", "") or ""),
+        visibility_classes(supabase_admin, app_settings),
+    ):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found.")
+    return response
+
+
+def cached_profiles(supabase_admin: Client, app_settings: Settings) -> dict[str, dict] | None:
+    cached = backend_cache.get("users:profiles")
+    if cached is not None:
+        return cached or None
+    profiles = get_profiles_by_email(supabase_admin, app_settings)
+    backend_cache.set("users:profiles", profiles or {}, 300)
+    return profiles
+
+
 def invalidate_user_cache() -> None:
+    backend_cache.delete("users:profiles")
     backend_cache.delete("users:active")
+    backend_cache.delete("visibility:classes")
     # A user's class or status may have changed, so re-verify everyone.
     clear_auth_cache()
 
@@ -1766,11 +1834,16 @@ def create_app() -> FastAPI:
                 detail="Could not load project users.",
             ) from exc
 
+        profiles = cached_profiles(supabase_admin, app_settings) or {}
         response = [
             ProjectUserResponse(
                 email=user.get(app_settings.signup_allowed_users_email_column),
                 user_name=user.get(REF_USER_NAME_COLUMN),
                 user_class=str(user.get(USER_CLASS_COLUMN) or "").upper(),
+                vertical=profiles.get(
+                    str(user.get(app_settings.signup_allowed_users_email_column) or "").lower(),
+                    {},
+                ).get("vertical"),
             )
             for user in users
             if user.get(app_settings.signup_allowed_users_email_column)
@@ -1787,6 +1860,50 @@ def create_app() -> FastAPI:
             user_class=current_user.user_class,
             status=current_user.status,
         )
+
+    @app.get("/me/profile", response_model=ProfileResponse)
+    def get_profile(
+        current_user: CurrentUser = Depends(get_current_user),
+        supabase_admin: Client = Depends(get_supabase_admin_client),
+        app_settings: Settings = Depends(get_settings),
+    ) -> ProfileResponse:
+        profiles = get_profiles_by_email(supabase_admin, app_settings)
+        row = (profiles or {}).get(str(current_user.email or "").lower(), {})
+        return ProfileResponse(
+            email=current_user.email,
+            user_name=current_user.user_name,
+            user_class=current_user.user_class,
+            vertical=row.get("vertical"),
+            roll_no=row.get("roll_no"),
+            phone=row.get("phone"),
+            linkedin_url=row.get("linkedin_url"),
+            skills=row.get("skills"),
+            onboarded=bool(row.get("onboarded_at")),
+            profiles_available=profiles is not None,
+        )
+
+    @app.patch("/me/profile", response_model=MessageResponse)
+    def save_profile(
+        payload: ProfileUpdateRequest,
+        current_user: CurrentUser = Depends(get_current_user),
+        supabase_admin: Client = Depends(get_supabase_admin_client),
+        app_settings: Settings = Depends(get_settings),
+    ) -> MessageResponse:
+        if str(current_user.user_class or "").upper() == "JUNIOR" and payload.mark_onboarded:
+            if not payload.vertical or not payload.roll_no:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="Please pick your vertical and enter your roll number.",
+                )
+        try:
+            update_profile(supabase_admin, app_settings, current_user.email, payload)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Profiles aren't switched on yet. Ask an admin to run the profile setup script.",
+            ) from exc
+        backend_cache.delete("users:profiles")
+        return MessageResponse(detail="Profile saved.")
 
     @app.get("/admin/users", response_model=list[AdminUserResponse])
     def list_admin_users(
@@ -2585,6 +2702,14 @@ def create_app() -> FastAPI:
                 for project in project_responses
             ],
         }
+        if is_junior(current_user):
+            merit_logs: list[dict] = []
+            for detail in dashboard["project_details"]:
+                detail["tasks"], hidden_logs = junior_task_view(
+                    current_user, supabase_admin, app_settings, detail["tasks"]
+                )
+                merit_logs.extend(hidden_logs)
+            dashboard["merit_logs"] = merit_logs
         backend_cache.set(
             cache_key,
             dashboard,
@@ -2824,6 +2949,12 @@ def create_app() -> FastAPI:
                 for task in tasks
             ],
         )
+        if is_junior(current_user):
+            dumped = response.model_dump()
+            dumped["tasks"], _hidden_logs = junior_task_view(
+                current_user, supabase_admin, app_settings, dumped["tasks"]
+            )
+            response = ProjectDetailResponse(**dumped)
         backend_cache.set(
             cache_key,
             response.model_dump(),
@@ -3643,10 +3774,15 @@ def create_app() -> FastAPI:
         cache_key = f"tasks:detail:{task_id}"
         cached = backend_cache.get(cache_key)
         if cached is not None and isinstance(cached, dict) and "task" in cached:
-            return TaskDetailResponse(**cached["task"]).model_copy(
-                update=task_viewer_permissions(
-                    current_user, cached["project"], cached["team"], task, user_id
-                )
+            return guard_task_for_junior(
+                current_user,
+                supabase_admin,
+                app_settings,
+                TaskDetailResponse(**cached["task"]).model_copy(
+                    update=task_viewer_permissions(
+                        current_user, cached["project"], cached["team"], task, user_id
+                    )
+                ),
             )
 
         project = get_project_by_id(supabase_admin, project_id)
@@ -3826,8 +3962,13 @@ def create_app() -> FastAPI:
             },
             app_settings.backend_cache_tasks_ttl_seconds,
         )
-        return response.model_copy(
-            update=task_viewer_permissions(current_user, project, project_team, task, user_id)
+        return guard_task_for_junior(
+            current_user,
+            supabase_admin,
+            app_settings,
+            response.model_copy(
+                update=task_viewer_permissions(current_user, project, project_team, task, user_id)
+            ),
         )
 
     @app.post("/tasks/{task_id}/comments", response_model=MessageResponse)

@@ -1,4 +1,4 @@
-const NEXORA_CACHE_VERSION = "nexora-ui-kit-v39";
+const NEXORA_CACHE_VERSION = "nexora-ui-kit-v40";
 const STATIC_CACHE = `${NEXORA_CACHE_VERSION}:static`;
 const PAGE_CACHE = `${NEXORA_CACHE_VERSION}:pages`;
 
@@ -6,12 +6,12 @@ const STATIC_ASSETS = [
   "/",
   "/offline.html",
   "/manifest.webmanifest",
-  "/Css/styles.css?v=20261027-ui3",
+  "/Css/styles.css?v=20261027-ui4",
   "/Js/config.js?v=20260723-user-classes",
-  "/Js/app.js?v=20261011-r2",
-  "/Js/dashboard.js?v=20261027-ui3",
-  "/Js/ui-kit.js?v=20261027-ui3",
-  "/Css/ui-kit.css?v=20261027-ui3",
+  "/Js/app.js?v=20261027-ui4",
+  "/Js/dashboard.js?v=20261027-ui4",
+  "/Js/ui-kit.js?v=20261027-ui4",
+  "/Css/ui-kit.css?v=20261027-ui4",
   "/Js/login-bg.js?v=20261011-r2",
   "/Js/dino-game.js?v=20260728-arcade-layout",
   "/Js/project-game.js?v=20260808-project-game-v9",
@@ -41,7 +41,10 @@ const PAGE_ASSETS = [
   "/create-task",
   "/project",
   "/task",
-  "/signed-out"
+  "/signed-out",
+  "/people",
+  "/guide",
+  "/welcome"
 ];
 
 self.addEventListener("install", (event) => {
