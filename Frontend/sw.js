@@ -1,4 +1,4 @@
-const NEXORA_CACHE_VERSION = "nexora-ui-kit-v46";
+const NEXORA_CACHE_VERSION = "nexora-ui-kit-v47";
 const STATIC_CACHE = `${NEXORA_CACHE_VERSION}:static`;
 const PAGE_CACHE = `${NEXORA_CACHE_VERSION}:pages`;
 
@@ -6,10 +6,10 @@ const STATIC_ASSETS = [
   "/",
   "/offline.html",
   "/manifest.webmanifest",
-  "/Css/styles.css?v=20261027-ui10",
+  "/Css/styles.css?v=20261027-ui12",
   "/Js/config.js?v=20260723-user-classes",
-  "/Js/app.js?v=20261027-ui9",
-  "/Js/dashboard.js?v=20261027-ui9",
+  "/Js/app.js?v=20261027-ui12",
+  "/Js/dashboard.js?v=20261027-ui12",
   "/Js/ui-kit.js?v=20261027-ui9",
   "/Css/ui-kit.css?v=20261027-ui9",
   "/Js/login-bg.js?v=20261011-r2",

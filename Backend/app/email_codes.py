@@ -81,6 +81,26 @@ def verify_code(
     )
 
 
+LAST_ERROR: dict[str, str] = {"detail": ""}
+
+
+def _explain_mailjet(status_code: int, text: str) -> str:
+    """Turn Mailjet's reply into a plain-English reason for admins."""
+    lowered = text.lower()
+    if status_code == 401:
+        return "Mailjet rejected the API keys (401). Check MAILJET_API_KEY and MAILJET_SECRET_KEY on Render."
+    if "sender" in lowered and ("not" in lowered and ("valid" in lowered or "authoriz" in lowered or "allowed" in lowered)):
+        return (
+            "Mailjet says the sender address isn't verified. In Mailjet go to Account settings -> "
+            "Senders & domains and verify the MAILJET_FROM_EMAIL address."
+        )
+    if "suspend" in lowered or "blocked" in lowered or "under review" in lowered or "pending" in lowered:
+        return "Mailjet has the account suspended or under review. Check the Mailjet dashboard for a notice."
+    if status_code == 429 or "rate" in lowered:
+        return "Mailjet's sending limit was reached. Free accounts allow 200 emails a day and 6,000 a month."
+    return f"Mailjet returned {status_code}: {text[:300]}"
+
+
 def send_code_email(
     app_settings: Settings,
     purpose: str,
@@ -88,7 +108,9 @@ def send_code_email(
     name: str | None = None,
 ) -> bool:
     """Send the current code. Returns False if Mailjet refused or is not set up."""
+    LAST_ERROR["detail"] = ""
     if not email_codes_available(app_settings):
+        LAST_ERROR["detail"] = "Mailjet keys or sender are missing on the server."
         return False
     copy = PURPOSES[purpose]
     code = make_code(app_settings, purpose, email)
@@ -122,11 +144,13 @@ def send_code_email(
             json={"Messages": [message]},
             timeout=15,
         )
-    except httpx.HTTPError:
+    except httpx.HTTPError as exc:
         logger.exception("Mailjet request failed for %s code", purpose)
+        LAST_ERROR["detail"] = f"Couldn't reach Mailjet: {exc}"
         return False
     if response.status_code >= 400:
         logger.warning("Mailjet rejected %s code email: %s %s", purpose, response.status_code, response.text[:500])
+        LAST_ERROR["detail"] = _explain_mailjet(response.status_code, response.text)
         return False
     try:
         status_value = response.json()["Messages"][0]["Status"]
@@ -134,5 +158,6 @@ def send_code_email(
         status_value = "unknown"
     if str(status_value).lower() != "success":
         logger.warning("Mailjet did not accept %s code email: %s", purpose, response.text[:500])
+        LAST_ERROR["detail"] = _explain_mailjet(response.status_code, response.text)
         return False
     return True

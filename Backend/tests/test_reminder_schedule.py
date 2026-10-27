@@ -15,6 +15,9 @@ class ReminderScheduleTest(unittest.TestCase):
         self.assertEqual(reminded, list(range(1, 12)))
         self.assertEqual(escalated, [3, 7, 11])
         self.assertFalse(reminder_schedule("JUNIOR", 5)["witty"])
+        oversee = [d for d in range(1, 12) if reminder_schedule("JUNIOR", d)["oversee"]]
+        self.assertEqual(oversee, [1, 4, 7, 10])
+        self.assertFalse(any(reminder_schedule("SENIOR", d)["oversee"] for d in range(1, 12)))
 
     def test_seniors_every_second_day_then_witty(self):
         reminded = [d for d in range(1, 10) if reminder_schedule("SENIOR", d)["remind"]]

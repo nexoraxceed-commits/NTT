@@ -222,16 +222,32 @@
     return Boolean(email) && lower(task.stakeholder_email) === email;
   }
 
+  // "My work" is only what you are doing yourself. Tasks you review or watch
+  // are oversight: they surface under Needs your attention when they need you
+  // (a review, or the task has gone overdue), not in your own counts.
   function isMine(task, email) {
-    return isAssignee(task, email) || isStakeholder(task, email);
+    return isAssignee(task, email);
+  }
+
+  function isReviewing(task, email) {
+    return (
+      Boolean(email) &&
+      !isAssignee(task, email) &&
+      (isStakeholder(task, email) || (task.project_supervisors || []).some((p) => lower(p.email) === email))
+    );
   }
 
   function isWatching(task, email) {
     return (
       Boolean(email) &&
-      !isMine(task, email) &&
+      !isAssignee(task, email) &&
+      !isReviewing(task, email) &&
       (task.watchers || []).some((w) => lower(w.email) === email)
     );
+  }
+
+  function isOverseeing(task, email) {
+    return isReviewing(task, email) || isWatching(task, email);
   }
 
   function bucketOf(task, today) {
@@ -279,6 +295,7 @@
         ...task,
         project_name: project.project_name,
         project_id: task.project_id ?? project.id,
+        project_supervisors: project.supervisors || [],
       }))
     );
   }
@@ -340,7 +357,7 @@
     const title = scope === "me" ? `${greeting(now)}${name ? `, ${esc(name)}` : ""}` : "Team overview";
     const sub =
       scope === "me"
-        ? "Tasks you own or are the stakeholder for, and the hours you logged."
+        ? "Tasks assigned to you, and the hours you logged."
         : "Everything the team is working on right now.";
     const dateLabel = now.toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" });
     return `
@@ -489,7 +506,7 @@
     const tasksById = new Map(tasks.map((t) => [Number(t.id), t]));
 
     tasks.forEach((task) => {
-      if (String(task.status).toUpperCase() === "CLOSE REQUESTED" && isStakeholder(task, email)) {
+      if (String(task.status).toUpperCase() === "CLOSE REQUESTED" && isReviewing(task, email)) {
         const owner = assigneesOf(task)[0] || {};
         const who = lower(owner.email) === email ? "You" : owner.name || "The assignee";
         items.push({
@@ -529,35 +546,27 @@
       });
 
     tasks.forEach((task) => {
-      if (!isWatching(task, email) || seen.has(Number(task.id)) || String(task.status).toUpperCase() === "CLOSED") {
+      if (!isOverseeing(task, email) || seen.has(Number(task.id))) {
+        return;
+      }
+      const status = String(task.status).toUpperCase();
+      if (status === "CLOSED" || status === "CLOSE REQUESTED") {
         return;
       }
       const end = parseDay(task.end_date);
       const late = end && end < today ? daysBetween(end, today) : 0;
-      const recent = lastActivity(task, email);
-      const recentDays = recent ? daysBetween(recent.at, today) : 99;
-      if (!late && recentDays > 3) {
+      if (!late) {
         return;
       }
-      const what = recent && recentDays <= 3
-        ? {
-            TASK_COMMENT_ADDED: "new comment",
-            TASK_CLOSE_REQUESTED: "close requested",
-            TASK_WORK_LOGGED: "work logged",
-            TASK_ASSIGNEE_CHANGED: "reassigned",
-            TASK_DUE_DATE_CHANGED: "due date moved",
-          }[recent.log.event_type] || "updated"
-        : null;
+      const owner = assigneesOf(task)[0] || {};
+      const who = owner.name || owner.email || "Nobody";
+      const reviewing = isReviewing(task, email);
       items.push({
-        rank: late ? 2 : 3,
+        rank: 2,
         kind: "watch",
-        tag: "Watching",
+        tag: reviewing ? "Check in" : "Keep track",
         title: task.task_title,
-        sub: [
-          late ? `${late} day${late === 1 ? "" : "s"} late` : null,
-          what ? `${what} by ${recent.log.actor_name || "a teammate"}` : null,
-          task.project_name,
-        ].filter(Boolean).join(" · "),
+        sub: `${who} is ${late} day${late === 1 ? "" : "s"} late · ${reviewing ? "you review this" : "you're watching"} · ${task.project_name}`,
         href: `/task?id=${task.id}`,
         taskId: Number(task.id),
       });
@@ -565,6 +574,14 @@
     });
 
     return items.sort((a, b) => a.rank - b.rank);
+  }
+
+  function oversightNote() {
+    const email = currentEmail();
+    const tasks = flattenTasks(state.details).filter(
+      (t) => isOverseeing(t, email) && String(t.status).toUpperCase() !== "CLOSED"
+    );
+    return tasks.length ? ` · overseeing ${tasks.length} task${tasks.length === 1 ? "" : "s"}` : "";
   }
 
   function renderNudges(items) {
@@ -587,13 +604,13 @@
               <span class="dash-tag is-${item.kind}">${esc(item.tag)}</span>
             </a>
           </li>`).join("")}</ul>${items.length > shown.length ? `<p class="dash-foot"><a href="/notifications">${items.length - shown.length} more in Notifications</a></p>` : ""}`
-      : `<p class="dash-calm">${icon('<circle cx="12" cy="12" r="8.5"/><path d="m8.2 12.2 2.6 2.6 5-5.6"/>')}You're all caught up. Close requests, @mentions and activity on tasks you watch will show up here.</p>`;
+      : `<p class="dash-calm">${icon('<circle cx="12" cy="12" r="8.5"/><path d="m8.2 12.2 2.6 2.6 5-5.6"/>')}You're all caught up. Reviews waiting for you, @mentions, and overdue tasks you oversee will show up here.</p>`;
     return `
       <article class="dash-card dash-attention">
         <header class="dash-card-head">
           <div>
             <p class="dash-eyebrow">Needs your attention</p>
-            <p class="dash-card-sub">Reviews, mentions and tasks you watch</p>
+            <p class="dash-card-sub">Reviews, mentions and late tasks you oversee${oversightNote()}</p>
           </div>
           ${items.length ? `<span class="dash-count">${items.length}</span>` : ""}
         </header>

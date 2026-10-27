@@ -7005,3 +7005,65 @@ body.has-live-bg .login-panel {
     grid-template-columns: 1fr;
   }
 }
+
+.pj-row {
+  grid-template-columns: minmax(0, 1fr) auto 150px;
+  cursor: pointer;
+}
+
+.pj-name {
+  color: var(--ink);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.pj-name:hover {
+  text-decoration: underline;
+}
+
+.pj-close {
+  min-height: 32px;
+  padding: 0 14px;
+  border: 1px solid color-mix(in srgb, var(--st-closed) 45%, transparent);
+  border-radius: 999px;
+  color: var(--st-closed-ink);
+  background: var(--st-closed-soft);
+  font-size: 0.8125rem;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.pj-close:hover {
+  color: #fff;
+  background: var(--st-closed);
+}
+
+.pj-close.is-armed {
+  color: #fff;
+  border-color: var(--st-closed);
+  background: var(--st-closed);
+  animation: ui-dot-pop 420ms var(--ui-snap, ease);
+}
+
+.pj-row.is-closed .pj-close {
+  border-color: var(--line-strong);
+  color: var(--muted);
+  background: var(--surface);
+}
+
+@media (max-width: 700px) {
+  .pj-row {
+    grid-template-columns: 1fr;
+  }
+
+  .pj-close {
+    justify-self: start;
+  }
+}
+
+.pj-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+}

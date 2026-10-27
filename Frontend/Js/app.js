@@ -3700,6 +3700,7 @@ function setupDashboardProjects() {
       (dashboardDetails || []).map((detail) => [Number(detail.id), detail.tasks || []])
     );
     const priorityRank = { HIGH: 0, MEDIUM: 1, LOW: 2 };
+    const canCloseProjects = ["ADMIN", "SENIOR"].includes(String(getSession()?.userClass || "").toUpperCase());
 
     const items = (dashboardProjects || []).map((project) => {
       const tasks = tasksByProject.get(Number(project.id)) || [];
@@ -3817,17 +3818,20 @@ function setupDashboardProjects() {
         meta.push(`Reviewer${people.length === 1 ? "" : "s"}: ${people.slice(0, 2).join(", ")}${people.length > 2 ? ` +${people.length - 2}` : ""}`);
       }
       return `
-        <a class="pj-row is-${item.group}" href="/project?id=${encodeURIComponent(p.id)}">
+        <div class="pj-row is-${item.group}" data-pj-href="/project?id=${encodeURIComponent(p.id)}">
           <span class="pj-main">
-            <span class="pj-name">${esc(p.project_name)}${priority}</span>
+            <span class="pj-title"><a class="pj-name" href="/project?id=${encodeURIComponent(p.id)}">${esc(p.project_name)}</a>${priority}</span>
             <span class="pj-next">${esc(item.next)}</span>
             ${meta.length ? `<span class="pj-meta">${esc(meta.join(" · "))}</span>` : ""}
           </span>
+          ${canCloseProjects && (item.group === "done" || item.group === "closed")
+            ? `<button type="button" class="pj-close" data-pj-status="${item.group === "closed" ? "OPEN" : "CLOSED"}" data-pj-id="${esc(p.id)}">${item.group === "closed" ? "Reopen" : "Close project"}</button>`
+            : ""}
           <span class="pj-progress" aria-label="${item.done} of ${item.total} tasks done">
             <span class="pj-bar"><span style="width:${pct}%"></span></span>
             <small>${item.done}/${item.total} done</small>
           </span>
-        </a>`;
+        </div>`;
     };
 
     const sections = groups
@@ -3899,6 +3903,42 @@ function setupDashboardProjects() {
     projectList.querySelectorAll("[data-pj-group]").forEach((details) => {
       details.addEventListener("toggle", () => {
         view.open[details.dataset.pjGroup] = details.open;
+      });
+    });
+    projectList.querySelectorAll("[data-pj-href]").forEach((row) => {
+      row.addEventListener("click", (event) => {
+        if (!event.target.closest("a, button")) {
+          window.location.href = row.dataset.pjHref;
+        }
+      });
+    });
+    projectList.querySelectorAll("[data-pj-status]").forEach((button) => {
+      button.addEventListener("click", async (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        const next = button.dataset.pjStatus;
+        if (button.dataset.armed !== "1") {
+          button.dataset.armed = "1";
+          button.textContent = next === "CLOSED" ? "Tap again to close" : "Tap again to reopen";
+          button.classList.add("is-armed");
+          setTimeout(() => {
+            if (button.isConnected && button.dataset.armed === "1") {
+              button.dataset.armed = "";
+              button.classList.remove("is-armed");
+              button.textContent = next === "CLOSED" ? "Close project" : "Reopen";
+            }
+          }, 3000);
+          return;
+        }
+        setButtonBusy(button, true);
+        try {
+          const data = await postAuthorizedJson(`/projects/${button.dataset.pjId}/status`, { status: next });
+          setMessage(messageElement, data.detail || "Project updated.");
+          await loadProjects({ silent: true });
+        } catch (error) {
+          setMessage(messageElement, error.message, true);
+          setButtonBusy(button, false);
+        }
       });
     });
     projectList.querySelectorAll("[data-pj-jump]").forEach((chip) => {
@@ -4172,7 +4212,7 @@ function setupProjectPage() {
       currentProject = project;
       renderProjectDetail(project);
       renderTaskList(project.tasks || []);
-      const isAdmin = String(getSession()?.userClass || "").toUpperCase() === "ADMIN";
+      const isAdmin = ["ADMIN", "SENIOR"].includes(String(getSession()?.userClass || "").toUpperCase());
       const projectStatus = String(project.status || "OPEN").toUpperCase() === "ACTIVE"
         ? "OPEN"
         : String(project.status || "OPEN").toUpperCase();
@@ -4537,12 +4577,16 @@ function describeNextStep(task, viewer) {
     }
     return viewer.isAssignee
       ? { tone: "is-you", title: "Your turn: start working on this", sub: "Click Start work when you begin, so the team can see it's moving." }
-      : { tone: "", title: `Waiting for ${assignee} to start`, sub: "No action needed from you right now." };
+      : viewer.isReviewer
+        ? { tone: "", title: `You're reviewing this · waiting for ${assignee} to start`, sub: "Nothing to do yet. You'll be asked to review when it's sent to you, and emailed if it goes overdue." }
+        : { tone: "", title: `You're keeping track · waiting for ${assignee} to start`, sub: "No action needed. You'll hear if it goes overdue." };
   }
   if (status === "IN PROGRESS") {
     return viewer.isAssignee
       ? { tone: "is-you", title: "Your turn: finish and send for review", sub: `Post a link to your work below, log your hours, then send it to ${reviewerText}.` }
-      : { tone: "", title: `${assignee || "The assignee"} is working on this`, sub: "You'll be notified when it's sent for review." };
+      : viewer.isReviewer
+        ? { tone: "", title: `You're reviewing this · ${assignee || "the assignee"} is working on it`, sub: "Nothing to do yet. You'll be asked to review when it's sent to you, and emailed if it goes overdue." }
+        : { tone: "", title: `You're keeping track · ${assignee || "the assignee"} is working on it`, sub: "No action needed. You'll hear if it goes overdue." };
   }
   if (status === "CLOSE REQUESTED") {
     if (viewer.canReview && !viewer.isAssignee) {

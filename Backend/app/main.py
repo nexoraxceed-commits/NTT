@@ -133,7 +133,7 @@ from app.schemas import (
 )
 from app.background import run_in_background
 from app.supabase_client import get_supabase_admin_client, get_supabase_client
-from app.email_codes import email_codes_available, send_code_email, verify_code
+from app.email_codes import LAST_ERROR as EMAIL_LAST_ERROR, email_codes_available, send_code_email, verify_code
 from app.project_plans import get_project_plans, plan_fields, save_project_plan
 from app.profiles import (
     ProfileResponse,
@@ -1103,12 +1103,15 @@ def reminder_schedule(user_class: str, days_overdue: int) -> dict:
     follow up (day 3, then every 4 days). Seniors and admins: a reminder every
     second day (days 1, 3, 5...); from the third reminder the subject turns witty.
     """
-    plan = {"remind": False, "witty": False, "escalate": False}
+    plan = {"remind": False, "witty": False, "escalate": False, "oversee": False}
     if days_overdue < 1:
         return plan
     if user_class == "JUNIOR":
         plan["remind"] = True
         plan["escalate"] = days_overdue >= 3 and (days_overdue - 3) % 4 == 0
+        # Reviewers and watchers hear about a junior's late task on day 1,
+        # then every 3 days (1, 4, 7...).
+        plan["oversee"] = (days_overdue - 1) % 3 == 0
     elif user_class in {"SENIOR", "ADMIN"}:
         plan["remind"] = days_overdue % 2 == 1
         plan["witty"] = plan["remind"] and days_overdue >= 5
@@ -1196,6 +1199,52 @@ def send_daily_task_reminders(
                 target_url=get_task_target_url(task_id), send_email=True,
             )
             summary["reminders"] += 1
+
+        if plan["oversee"]:
+            project = project_cache[project_id]
+            overseer_ids: set[str] = set()
+            if project.get("stakeholder_id"):
+                overseer_ids.add(str(project["stakeholder_id"]))
+            try:
+                overseer_ids.update(
+                    str(row["user_id"])
+                    for row in get_project_team(supabase_admin, project_id)
+                    if str(row.get("role") or "").upper() == PROJECT_ROLE_SUPERVISOR
+                    and str(row.get("status") or ACTIVE_STATUS).upper() == ACTIVE_STATUS
+                )
+                overseer_ids.update(project_watcher_user_ids(get_project_watchers(supabase_admin, project_id)))
+            except Exception:
+                pass
+            overseer_ids.discard(assignee_id)
+            if plan["escalate"] and secretary_id:
+                overseer_ids.discard(secretary_id)
+            overseers = get_ref_users_by_auth_uids(supabase_admin, app_settings, list(overseer_ids)) if overseer_ids else {}
+            for overseer_id, overseer in overseers.items():
+                if str(overseer.get(USER_CLASS_COLUMN) or "").upper() not in MANAGEMENT_USER_CLASSES:
+                    continue
+                if str(overseer.get(app_settings.signup_allowed_users_status_column) or "").upper() != NORMAL_STATUS:
+                    continue
+                if not insert_task_reminder_log(
+                    supabase_admin,
+                    task_id=task_id,
+                    project_id=project_id,
+                    recipient_user_id=str(overseer_id),
+                    recipient_email=normalize_optional_text(overseer.get(app_settings.signup_allowed_users_email_column)),
+                    reminder_type="OVERDUE_OVERSIGHT",
+                    sent_for_date=today.isoformat(),
+                ):
+                    continue
+                subject = f"{person} is {day_word} late on \"{task_name}\""
+                body = (
+                    f"You're overseeing \"{task_name}\". {person} hasn't finished it; it was due "
+                    f"{due.strftime('%d %b')} and is now {day_word} overdue. They've been reminded. "
+                    "A quick check-in from you usually unblocks it."
+                )
+                notify_user_ids(
+                    supabase_admin, app_settings, [str(overseer_id)], subject, body, "TASK", task_id,
+                    target_url=get_task_target_url(task_id), send_email=True,
+                )
+                summary["oversight"] = summary.get("oversight", 0) + 1
 
         if plan["escalate"] and secretary_id and secretary_id != assignee_id and insert_task_reminder_log(
             supabase_admin,
@@ -2299,10 +2348,7 @@ def create_app() -> FastAPI:
         if not send_code_email(app_settings, "signup", current_user.email, current_user.user_name):
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
-                detail=(
-                    "Mailjet refused the email. Check that the sender "
-                    f"{app_settings.mailjet_from_email} is verified in Mailjet and the keys are correct."
-                ),
+                detail=f"Sender {app_settings.mailjet_from_email}: {EMAIL_LAST_ERROR['detail'] or 'Mailjet refused the email.'}",
             )
         return MessageResponse(detail=f"Test email sent to {current_user.email} from {app_settings.mailjet_from_email}.")
 
@@ -3529,9 +3575,10 @@ def create_app() -> FastAPI:
     def update_project_status(
         project_id: int,
         payload: UpdateProjectStatusRequest,
-        current_user: CurrentUser = Depends(require_admin),
+        current_user: CurrentUser = Depends(get_current_user),
         supabase_admin: Client = Depends(get_supabase_admin_client),
     ) -> MessageResponse:
+        require_management_user(current_user)
         requested_status = payload.status.strip().upper()
         if requested_status not in {PROJECT_STATUS_OPEN, PROJECT_STATUS_CLOSED}:
             raise HTTPException(
