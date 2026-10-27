@@ -969,6 +969,218 @@
     sheet.addEventListener("pointercancel", endDrag);
   }
 
+  /* --------------------------------------------------------- theme */
+
+  // "system" follows the device; "light"/"dark" are explicit choices.
+  const THEME_KEY = "ntt-theme";
+  const darkQuery = window.matchMedia("(prefers-color-scheme: dark)");
+
+  function themeChoice() {
+    try {
+      const saved = window.localStorage.getItem(THEME_KEY);
+      return saved === "light" || saved === "dark" ? saved : "system";
+    } catch (_error) {
+      return "system";
+    }
+  }
+
+  function effectiveTheme(choice = themeChoice()) {
+    return choice === "system" ? (darkQuery.matches ? "dark" : "light") : choice;
+  }
+
+  function applyTheme(choice, animate) {
+    const root = document.documentElement;
+    if (animate && !reduceMotion) {
+      root.classList.add("theme-switching");
+      setTimeout(() => root.classList.remove("theme-switching"), 320);
+    }
+    const mode = effectiveTheme(choice);
+    if (mode === "dark") {
+      root.setAttribute("data-theme", "dark");
+    } else {
+      root.removeAttribute("data-theme");
+    }
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta && !document.body.classList.contains("project-game-body")) {
+      meta.setAttribute("content", mode === "dark" ? "#0e0e11" : "#f2f2f7");
+    }
+    document.querySelectorAll("[data-theme-choice]").forEach((el) => {
+      el.setAttribute("aria-pressed", String(el.dataset.themeChoice === choice));
+    });
+    document.querySelectorAll(".ui-theme-toggle").forEach((el) => {
+      el.setAttribute("aria-label", mode === "dark" ? "Switch to light mode" : "Switch to dark mode");
+      el.title = mode === "dark" ? "Light mode" : "Dark mode";
+      el.dataset.mode = mode;
+    });
+  }
+
+  function setTheme(choice) {
+    try {
+      if (choice === "system") {
+        window.localStorage.removeItem(THEME_KEY);
+      } else {
+        window.localStorage.setItem(THEME_KEY, choice);
+      }
+    } catch (_error) {
+      // Still switch for this page.
+    }
+    applyTheme(choice, true);
+    haptic(6);
+  }
+
+  darkQuery.addEventListener?.("change", () => {
+    if (themeChoice() === "system") {
+      applyTheme("system", true);
+    }
+  });
+
+  const SUN_MOON =
+    '<svg viewBox="0 0 24 24" aria-hidden="true">' +
+    '<mask id="ui-moon-mask"><rect width="24" height="24" fill="#fff"/><circle class="ui-moon-bite" cx="24" cy="4" r="7" fill="#000"/></mask>' +
+    '<circle class="ui-sun-core" cx="12" cy="12" r="5" mask="url(#ui-moon-mask)" fill="currentColor"/>' +
+    '<g class="ui-sun-rays" stroke="currentColor" stroke-width="2" stroke-linecap="round">' +
+    '<path d="M12 1.5v2M12 20.5v2M4.6 4.6 6 6M18 18l1.4 1.4M1.5 12h2M20.5 12h2M4.6 19.4 6 18M18 6l1.4-1.4"/></g></svg>';
+
+  /* ------------------------------------- top bar: theme + who's signed in */
+
+  function initials(name) {
+    return (
+      String(name || "?")
+        .split(/[\s._@-]+/)
+        .filter(Boolean)
+        .slice(0, 2)
+        .map((p) => p[0].toUpperCase())
+        .join("") || "?"
+    );
+  }
+
+  function avatarHue(text) {
+    let h = 0;
+    for (const ch of String(text)) {
+      h = (h * 31 + ch.charCodeAt(0)) % 360;
+    }
+    return h;
+  }
+
+  function setupTopbarControls() {
+    const actions = document.querySelector(".workspace-topbar-actions");
+    const session = typeof window.getSession === "function" ? window.getSession() : null;
+    if (!actions || actions.dataset.uiControls || !session?.email) {
+      return;
+    }
+    actions.dataset.uiControls = "true";
+
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = "btn btn-icon ui-theme-toggle";
+    toggle.innerHTML = SUN_MOON;
+    toggle.addEventListener("click", () => setTheme(effectiveTheme() === "dark" ? "light" : "dark"));
+
+    const email = String(session.email).toLowerCase();
+    const cls = String(session.userClass || "").toUpperCase();
+    const roleLabel = cls === "ADMIN" ? "Admin" : cls === "SENIOR" ? "Senior" : cls === "JUNIOR" ? "Junior" : "";
+    const roleClass = cls === "JUNIOR" ? "is-junior" : "is-senior";
+    const local = email.split("@")[0];
+    let name = local;
+
+    const me = document.createElement("div");
+    me.className = "ui-me";
+    me.innerHTML = `
+      <button type="button" class="ui-me-btn" aria-haspopup="true" aria-expanded="false">
+        <span class="ui-me-avatar"></span>
+        <span class="ui-me-text"><b class="ui-me-name"></b>${roleLabel ? `<small>${roleLabel}</small>` : ""}</span>
+        <svg class="ui-me-chev" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <div class="ui-me-menu" role="menu" hidden>
+        <div class="ui-me-head">
+          <span class="ui-me-avatar is-lg"></span>
+          <span><b class="ui-me-name"></b><small class="ui-me-email"></small>${roleLabel ? `<span class="role-tag ${roleClass}">${roleLabel}</span>` : ""}</span>
+        </div>
+        <p class="ui-me-label">Appearance</p>
+        <div class="ui-theme-tiles" role="group" aria-label="Appearance">
+          <button type="button" data-theme-choice="system" aria-pressed="false"><span class="ui-tile is-system" aria-hidden="true"><i></i><i></i></span>System</button>
+          <button type="button" data-theme-choice="light" aria-pressed="false"><span class="ui-tile is-light" aria-hidden="true"><i></i><i></i></span>Light</button>
+          <button type="button" data-theme-choice="dark" aria-pressed="false"><span class="ui-tile is-dark" aria-hidden="true"><i></i><i></i></span>Dark</button>
+        </div>
+        <nav class="ui-me-links">
+          <a href="/welcome" role="menuitem">Edit my profile</a>
+          <a href="/guide" role="menuitem">Guide</a>
+          <button type="button" role="menuitem" data-ui-logout>Log out</button>
+        </nav>
+      </div>`;
+
+    function paintName() {
+      me.querySelectorAll(".ui-me-name").forEach((el) => {
+        el.textContent = name;
+      });
+      me.querySelector(".ui-me-email").textContent = email;
+      const h = avatarHue(email);
+      me.querySelectorAll(".ui-me-avatar").forEach((el) => {
+        el.textContent = initials(name);
+        el.style.setProperty("--av-bg", `hsl(${h} 60% 90%)`);
+        el.style.setProperty("--av-ink", `hsl(${h} 45% 30%)`);
+      });
+      me.querySelector(".ui-me-btn").setAttribute("aria-label", `Signed in as ${name}${roleLabel ? `, ${roleLabel}` : ""}. Account menu`);
+    }
+    paintName();
+    if (typeof window.getActiveUsers === "function") {
+      window
+        .getActiveUsers()
+        .then((users) => {
+          const user = (users || []).find((u) => String(u.email || "").toLowerCase() === email);
+          if (user?.user_name) {
+            name = user.user_name;
+            paintName();
+          }
+        })
+        .catch(() => {});
+    }
+
+    const button = me.querySelector(".ui-me-btn");
+    const menu = me.querySelector(".ui-me-menu");
+    function openMenu(open) {
+      menu.hidden = !open;
+      button.setAttribute("aria-expanded", String(open));
+      me.classList.toggle("is-open", open);
+      if (open) {
+        applyTheme(themeChoice(), false);
+      }
+    }
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      openMenu(menu.hidden);
+    });
+    menu.addEventListener("click", (event) => {
+      const choice = event.target.closest("[data-theme-choice]");
+      if (choice) {
+        setTheme(choice.dataset.themeChoice);
+        return;
+      }
+      if (event.target.closest("[data-ui-logout]")) {
+        if (typeof window.logout === "function") {
+          window.logout();
+        } else {
+          window.location.href = "/signed-out";
+        }
+      }
+    });
+    document.addEventListener("click", (event) => {
+      if (!me.contains(event.target)) {
+        openMenu(false);
+      }
+    });
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && !menu.hidden) {
+        openMenu(false);
+        button.focus();
+      }
+    });
+
+    actions.prepend(toggle);
+    actions.append(me);
+    applyTheme(themeChoice(), false);
+  }
+
   // One shared, frame-throttled watcher for DOM changes app.js makes.
   const domListeners = [];
   let domQueued = false;
@@ -1001,12 +1213,13 @@
     haptic,
     rollNumber,
     createOrb,
+    setTheme,
     enhanceDashboard,
   };
 
   prewarm();
   document.addEventListener("DOMContentLoaded", () => {
-    [hookSetMessage, enhanceHoursInput, enhancePasswordInputs, setupHoldToDelete, watchTaskSteps, watchNotificationBell, setupTaskSheet].forEach((fn) => {
+    [hookSetMessage, setupTopbarControls, enhanceHoursInput, enhancePasswordInputs, setupHoldToDelete, watchTaskSteps, watchNotificationBell, setupTaskSheet].forEach((fn) => {
       try {
         fn();
       } catch (_error) {

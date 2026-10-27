@@ -757,3 +757,322 @@
 .task-log-row:has(.ui-stepper) {
   grid-template-columns: 132px minmax(0, 1fr);
 }
+
+/* ------------------------------------------------- theme toggle */
+
+.ui-theme-toggle svg {
+  width: 19px;
+  height: 19px;
+  overflow: visible;
+}
+
+.ui-sun-core {
+  transition: r 420ms var(--ui-spring);
+}
+
+.ui-moon-bite {
+  transition: cx 420ms var(--ui-spring), cy 420ms var(--ui-spring);
+}
+
+.ui-sun-rays {
+  transform-origin: 12px 12px;
+  transition: transform 420ms var(--ui-spring), opacity 260ms ease;
+}
+
+/* In dark mode the icon becomes a moon: bigger core, bite moves in, rays fold away. */
+.ui-theme-toggle[data-mode="dark"] .ui-sun-core {
+  r: 8.5px;
+}
+
+.ui-theme-toggle[data-mode="dark"] .ui-moon-bite {
+  cx: 16.5px;
+  cy: 7.5px;
+}
+
+.ui-theme-toggle[data-mode="dark"] .ui-sun-rays {
+  opacity: 0;
+  transform: rotate(-60deg) scale(0.5);
+}
+
+/* ------------------------------------------- who's signed in + menu */
+
+.ui-me {
+  position: relative;
+}
+
+.ui-me-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 3px 10px 3px 3px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--ink);
+  background: var(--surface);
+  box-shadow: var(--shadow-hair);
+}
+
+.ui-me-btn:hover,
+.ui-me.is-open .ui-me-btn {
+  color: var(--ink);
+  border-color: var(--line-strong);
+  background: var(--surface);
+}
+
+.ui-me-avatar {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  color: var(--av-ink, #333);
+  background: var(--av-bg, #eee);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.ui-me-avatar.is-lg {
+  width: 42px;
+  height: 42px;
+  font-size: 0.9rem;
+}
+
+.ui-me-text {
+  display: grid;
+  line-height: 1.15;
+  text-align: left;
+}
+
+.ui-me-text b {
+  max-width: 140px;
+  overflow: hidden;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ui-me-text small {
+  color: var(--muted);
+  font-size: 0.6875rem;
+  font-weight: 550;
+}
+
+.ui-me-chev {
+  width: 14px;
+  height: 14px;
+  color: var(--muted);
+  transition: transform 220ms var(--ui-spring);
+}
+
+.ui-me.is-open .ui-me-chev {
+  transform: rotate(180deg);
+}
+
+.ui-me-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 60;
+  width: 280px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--surface);
+  box-shadow: var(--shadow-pop);
+  transform-origin: top right;
+  animation: ui-menu-in 240ms var(--ui-spring);
+}
+
+@keyframes ui-menu-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.96);
+  }
+}
+
+.ui-me-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 2px 2px 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.ui-me-head > span:last-child {
+  display: grid;
+  justify-items: start;
+  min-width: 0;
+}
+
+.ui-me-head b {
+  font-size: 0.9375rem;
+}
+
+.ui-me-head small {
+  max-width: 190px;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.75rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ui-me-head .role-tag {
+  margin: 4px 0 0;
+}
+
+.ui-me-label {
+  margin: 12px 2px 8px;
+  color: var(--muted);
+  font-size: 0.6875rem;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+/* Rare UI theme-selector idea: each option previews its own palette. */
+.ui-theme-tiles {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.ui-theme-tiles button {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  min-height: 0;
+  padding: 6px 4px 8px;
+  border: 1.5px solid transparent;
+  border-radius: 12px;
+  color: var(--muted);
+  background: transparent;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.ui-theme-tiles button:hover {
+  color: var(--ink);
+  background: var(--surface-soft);
+}
+
+.ui-theme-tiles button[aria-pressed="true"] {
+  border-color: var(--accent);
+  color: var(--ink);
+  background: var(--surface-soft);
+}
+
+.ui-tile {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 46px;
+  overflow: hidden;
+  border-radius: 8px;
+  box-shadow: inset 0 0 0 1px rgba(127, 127, 127, 0.25);
+}
+
+.ui-tile i {
+  position: absolute;
+  display: block;
+  border-radius: 3px;
+}
+
+.ui-tile i:first-child {
+  top: 7px;
+  left: 7px;
+  width: 22px;
+  height: 32px;
+}
+
+.ui-tile i:last-child {
+  top: 7px;
+  right: 7px;
+  left: 34px;
+  height: 12px;
+}
+
+.ui-tile.is-light {
+  background: #f2f2f7;
+}
+
+.ui-tile.is-light i {
+  background: #ffffff;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.06);
+}
+
+.ui-tile.is-dark {
+  background: #111112;
+}
+
+.ui-tile.is-dark i {
+  background: #2a2a2e;
+}
+
+.ui-tile.is-system {
+  background: linear-gradient(135deg, #f2f2f7 50%, #111112 50%);
+}
+
+.ui-tile.is-system i {
+  background: rgba(127, 127, 127, 0.45);
+}
+
+.ui-me-links {
+  display: grid;
+  gap: 2px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.ui-me-links a,
+.ui-me-links button {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  min-height: 36px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 10px;
+  color: var(--ink);
+  background: transparent;
+  font-size: 0.875rem;
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.ui-me-links a:hover,
+.ui-me-links button:hover {
+  color: var(--ink);
+  background: var(--surface-soft);
+}
+
+.ui-me-links [data-ui-logout] {
+  color: var(--danger);
+}
+
+.ui-me-links [data-ui-logout]:hover {
+  color: var(--danger);
+}
+
+@media (max-width: 700px) {
+  .ui-me-text,
+  .ui-me-chev {
+    display: none;
+  }
+
+  .ui-me-btn {
+    padding: 3px;
+  }
+
+  .ui-me-menu {
+    position: fixed;
+    top: calc(env(safe-area-inset-top, 0px) + 64px);
+    right: 12px;
+    left: 12px;
+    width: auto;
+  }
+}

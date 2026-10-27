@@ -1,0 +1,212 @@
+/*
+ * Dark theme. Activated by <html data-theme="dark"> (set before first paint
+ * from the saved choice, or the device setting). Almost everything in NTT is
+ * built on the tokens in styles.css :root, so most of the work is here; the
+ * rest are the few places that used fixed light colours.
+ */
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --bg: #0e0e11;
+  --bar-bg: rgba(14, 14, 17, 0.82);
+  --surface: #1a1a1d;
+  --surface-soft: #212125;
+  --fill: #2a2a2f;
+  --fill-strong: #323237;
+  --ink: #f2f2f7;
+  --muted: #a1a1a8;
+  --quiet: #6c6c72;
+  --line: #2b2b30;
+  --line-strong: #3b3b41;
+
+  --brand: #2f7a64;
+  --accent: #3b8bff;
+  --accent-strong: #6aa6ff;
+  --accent-soft: rgba(59, 139, 255, 0.16);
+  --focus-ring: rgba(59, 139, 255, 0.42);
+  --danger: #ff6b61;
+
+  --st-open: #5ab8f0;
+  --st-open-ink: #8bd0f7;
+  --st-open-soft: rgba(90, 184, 240, 0.14);
+  --st-progress: #3b8bff;
+  --st-progress-ink: #8ab6ff;
+  --st-progress-soft: rgba(59, 139, 255, 0.16);
+  --st-review: #b77de0;
+  --st-review-ink: #d3a8f2;
+  --st-review-soft: rgba(183, 125, 224, 0.16);
+  --st-overdue: #ff5a4f;
+  --st-overdue-ink: #ff8f86;
+  --st-overdue-soft: rgba(255, 90, 79, 0.15);
+  --st-closed: #34c759;
+  --st-closed-ink: #6fdc8c;
+  --st-closed-soft: rgba(52, 199, 89, 0.15);
+
+  --s1: #3b8bff;
+  --s2: #5ab8f0;
+  --s3: #ff9f43;
+  --s-other: #48484e;
+
+  --shadow-hair: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.35), 0 8px 24px rgba(0, 0, 0, 0.28);
+  --shadow-pop: 0 6px 16px rgba(0, 0, 0, 0.45), 0 24px 56px rgba(0, 0, 0, 0.5);
+
+  --lavender: rgba(103, 97, 221, 0.16);
+  --mint: rgba(52, 199, 89, 0.12);
+  --rose: rgba(255, 90, 140, 0.12);
+  --warm: rgba(255, 196, 0, 0.1);
+  --warning-soft: rgba(255, 159, 67, 0.14);
+  --danger-soft: rgba(255, 90, 79, 0.14);
+}
+
+:root[data-theme="dark"] body {
+  background: var(--bg);
+  color: var(--ink);
+}
+
+/* Logos: white wordmark on dark */
+.brand-ink-dark {
+  display: none !important;
+}
+
+:root[data-theme="dark"] .brand-ink-light {
+  display: none !important;
+}
+
+:root[data-theme="dark"] .brand-ink-dark {
+  display: block !important;
+}
+
+/* Form controls and autofill */
+:root[data-theme="dark"] input,
+:root[data-theme="dark"] select,
+:root[data-theme="dark"] textarea {
+  background-color: var(--surface-soft);
+  color: var(--ink);
+  border-color: var(--line-strong);
+}
+
+:root[data-theme="dark"] input::placeholder,
+:root[data-theme="dark"] textarea::placeholder {
+  color: var(--quiet);
+}
+
+:root[data-theme="dark"] input:-webkit-autofill {
+  -webkit-text-fill-color: var(--ink);
+  -webkit-box-shadow: 0 0 0 40px var(--surface-soft) inset;
+}
+
+/* Sign-in card on the live background */
+:root[data-theme="dark"] body.has-live-bg .login-panel {
+  border-color: rgba(255, 255, 255, 0.08);
+  background: rgba(26, 26, 29, 0.94);
+}
+
+/* Role tags and heatmap levels */
+:root[data-theme="dark"] .role-tag.is-senior {
+  color: #ffd27a;
+  background: rgba(255, 196, 0, 0.14);
+}
+
+:root[data-theme="dark"] .dash-heat .lv-1,
+:root[data-theme="dark"] .dash-heat-legend .lv-1 { background: #16325c; }
+:root[data-theme="dark"] .dash-heat .lv-2,
+:root[data-theme="dark"] .dash-heat-legend .lv-2 { background: #1e57a8; }
+:root[data-theme="dark"] .dash-heat .lv-3,
+:root[data-theme="dark"] .dash-heat-legend .lv-3 { background: #2f7bf0; }
+:root[data-theme="dark"] .dash-heat .lv-4,
+:root[data-theme="dark"] .dash-heat-legend .lv-4 { background: #7fb2ff; }
+
+:root[data-theme="dark"] .dash-compare-track {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+/* Skeleton shimmer */
+:root[data-theme="dark"] .ui-skel {
+  background:
+    linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.07) 50%, transparent 100%) -150% 0 / 60% 100% no-repeat,
+    var(--fill);
+}
+
+/* Welcome card glow */
+:root[data-theme="dark"] .welcome-card {
+  background:
+    radial-gradient(120% 60% at 100% 0%, rgba(59, 139, 255, 0.12), transparent 60%),
+    radial-gradient(80% 50% at 0% 100%, rgba(52, 199, 89, 0.08), transparent 60%),
+    var(--surface);
+}
+
+/* Guide senior icon */
+:root[data-theme="dark"] #seniors .guide-icon {
+  color: #ffd27a;
+  background: rgba(255, 196, 0, 0.14);
+}
+
+/* Arcade (Dino) panels */
+:root[data-theme="dark"] .arcade-card,
+:root[data-theme="dark"] .arcade-icon-card {
+  background: var(--surface-soft);
+  color: var(--ink);
+}
+
+:root[data-theme="dark"] .arcade-card.is-active {
+  background: linear-gradient(135deg, rgba(103, 97, 221, 0.22), rgba(26, 26, 29, 0.9)), var(--surface-soft);
+}
+
+:root[data-theme="dark"] .arcade-card strong,
+:root[data-theme="dark"] .arcade-catalog-panel h2,
+:root[data-theme="dark"] .arcade-scoreboard strong,
+:root[data-theme="dark"] .arcade-overlay-title,
+:root[data-theme="dark"] .dino-scoreboard strong,
+:root[data-theme="dark"] .dino-overlay-title {
+  color: var(--ink);
+}
+
+:root[data-theme="dark"] .arcade-card span:last-child,
+:root[data-theme="dark"] .arcade-status,
+:root[data-theme="dark"] .dino-scoreboard span,
+:root[data-theme="dark"] .dino-overlay p:not(.dino-overlay-title) {
+  color: var(--muted);
+}
+
+:root[data-theme="dark"] .arcade-pick-strip,
+:root[data-theme="dark"] .arcade-scoreboard span,
+:root[data-theme="dark"] .arcade-overlay,
+:root[data-theme="dark"] .dino-scoreboard span,
+:root[data-theme="dark"] .dino-overlay {
+  background: rgba(33, 33, 37, 0.86);
+}
+
+/* Game back button */
+:root[data-theme="dark"] .game-back {
+  color: var(--ink);
+  background: rgba(26, 26, 29, 0.86);
+}
+
+/* Smooth switch between themes (not on first paint) */
+html.theme-switching,
+html.theme-switching *,
+html.theme-switching *::before,
+html.theme-switching *::after {
+  transition:
+    background-color 280ms ease,
+    border-color 280ms ease,
+    color 200ms ease,
+    fill 200ms ease !important;
+}
+
+:root[data-theme="dark"] .arcade-game-summary h2 {
+  color: var(--ink);
+}
+
+:root[data-theme="dark"] .arcade-kicker,
+:root[data-theme="dark"] .arcade-card-tag {
+  color: #5fd3a8;
+}
+
+:root[data-theme="dark"] .tone-soon,
+:root[data-theme="dark"] .task-props dd.is-soon,
+:root[data-theme="dark"] .task-list-due.is-soon {
+  color: #ffb35c;
+}

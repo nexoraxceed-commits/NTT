@@ -2,16 +2,22 @@
 <html lang="en">
   <head>
     <meta charset="utf-8">
+    <script>try{var t=localStorage.getItem("ntt-theme");if(t==="dark"||(t!=="light"&&matchMedia("(prefers-color-scheme: dark)").matches))document.documentElement.setAttribute("data-theme","dark")}catch(e){}</script>
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
     <meta name="theme-color" content="#dff5ee">
     <title>Project Game | Nexora</title>
     <link rel="manifest" href="/manifest.webmanifest">
     <link rel="icon" href="/icons/icon-192.png?v=20260723-user-classes" sizes="192x192" type="image/png">
-    <link rel="stylesheet" href="/Css/styles.css?v=20261027-ui6">
-    <link rel="stylesheet" href="/Css/ui-kit.css?v=20261027-ui5">
+    <link rel="stylesheet" href="/Css/styles.css?v=20261027-ui7">
+    <link rel="stylesheet" href="/Css/ui-kit.css?v=20261027-ui7">
+    <link rel="stylesheet" href="/Css/theme-dark.css?v=1">
   </head>
   <body class="project-game-body">
     <main class="project-game-fullscreen">
+      <a class="game-back" href="/post-login" id="game-back" aria-label="Back to dashboard">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span>Back</span>
+      </a>
       <div class="project-game-score project-game-score-only" aria-live="polite">
         <span>Work Logs <strong id="project-game-score">0</strong></span>
       </div>
@@ -20,8 +26,21 @@
       </div>
     </main>
     <script src="/Js/config.js?v=20260723-user-classes"></script>
-    <script src="/Js/ui-kit.js?v=20261027-ui5"></script>
-    <script src="/Js/app.js?v=20261027-ui6"></script>
+    <script src="/Js/ui-kit.js?v=20261027-ui7"></script>
+    <script src="/Js/app.js?v=20261027-ui7"></script>
     <script src="/Js/project-game.js?v=20260808-project-game-v9"></script>
+    <script>
+      (function () {
+        var back = document.getElementById("game-back");
+        function leave(event) {
+          if (event) { event.preventDefault(); }
+          var sameSite = document.referrer && document.referrer.indexOf(location.origin) === 0;
+          if (sameSite && history.length > 1) { history.back(); } else { location.href = "/post-login"; }
+        }
+        back.addEventListener("pointerdown", function (event) { event.stopPropagation(); });
+        back.addEventListener("click", leave);
+        document.addEventListener("keydown", function (event) { if (event.key === "Escape") { leave(event); } });
+      })();
+    </script>
   </body>
 </html>
