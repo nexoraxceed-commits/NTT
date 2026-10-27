@@ -1129,6 +1129,106 @@
       </article>`;
   }
 
+  /* ------------------------------------------------------------ activity */
+
+  // Day-by-day heatmap of effort (hours logged + tasks finished). It only
+  // shows merits, so it is safe to show to everyone.
+  const HEAT_WEEKS = 20;
+
+  function renderActivity(tasks, email, today) {
+    const first = addDays(weekStart(today), -7 * (HEAT_WEEKS - 1));
+    const days = new Map();
+    const bump = (day, key, amount) => {
+      if (!day || day < first || day > today) {
+        return;
+      }
+      const k = dateKey(day);
+      if (!days.has(k)) {
+        days.set(k, { hours: 0, done: 0 });
+      }
+      days.get(k)[key] += amount;
+    };
+    tasks.forEach((task) => {
+      (task.work_logs || []).forEach((log) => {
+        if (state.scope === "me" && lower(log.logged_by_email) !== email) {
+          return;
+        }
+        bump(parseDay(log.work_date), "hours", Number(log.hours || 0));
+      });
+      if (String(task.status || "").toUpperCase() === "CLOSED" && (state.scope !== "me" || isAssignee(task, email))) {
+        bump(closedOn(task), "done", 1);
+      }
+    });
+
+    const scoreOf = (entry) => (entry ? entry.hours + entry.done : 0);
+    const values = Array.from(days.values()).map(scoreOf).filter((v) => v > 0);
+    const peak = Math.max(1, ...values);
+    const level = (v) => (v <= 0 ? 0 : Math.min(4, Math.ceil((v / peak) * 4)));
+
+    let cells = "";
+    let monthLabels = "";
+    let lastMonth = -1;
+    let activeDays = 0;
+    let hoursTotal = 0;
+    let doneTotal = 0;
+    let streak = 0;
+    let best = 0;
+    for (let w = 0; w < HEAT_WEEKS; w += 1) {
+      const colStart = addDays(first, w * 7);
+      if (colStart.getMonth() !== lastMonth) {
+        lastMonth = colStart.getMonth();
+        monthLabels += `<span style="grid-column:${w + 1}">${colStart.toLocaleDateString(undefined, { month: "short" })}</span>`;
+      }
+      for (let d = 0; d < 7; d += 1) {
+        const day = addDays(colStart, d);
+        if (day > today) {
+          cells += `<span class="dash-heat-cell is-future" aria-hidden="true"></span>`;
+          continue;
+        }
+        const entry = days.get(dateKey(day));
+        const v = scoreOf(entry);
+        if (v > 0) {
+          activeDays += 1;
+          streak += 1;
+          best = Math.max(best, streak);
+        } else if (day < today) {
+          streak = 0;
+        }
+        hoursTotal += entry ? entry.hours : 0;
+        doneTotal += entry ? entry.done : 0;
+        const label = day.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
+        const tip = encodeURIComponent(JSON.stringify({
+          title: label,
+          rows: [["Hours logged", hoursText(entry ? entry.hours : 0), "var(--s1)"], ["Tasks finished", String(entry ? entry.done : 0), "var(--st-closed)"]],
+        }));
+        cells += `<span class="dash-heat-cell lv-${level(v)}" data-dash-tip="${tip}" aria-label="${esc(label)}: ${entry ? entry.hours : 0} hours, ${entry ? entry.done : 0} finished"></span>`;
+      }
+    }
+    const who = state.scope === "me" ? "Your" : "The team's";
+    return `
+      <article class="dash-card dash-split-card dash-activity">
+        <header class="dash-card-head">
+          <div>
+            <p class="dash-eyebrow">Activity</p>
+            <p class="dash-card-sub">${who} hours logged and tasks finished, day by day, last ${HEAT_WEEKS} weeks</p>
+          </div>
+        </header>
+        <div class="dash-activity-body">
+          <div class="dash-heat-wrap">
+            <div class="dash-heat-months" style="grid-template-columns:repeat(${HEAT_WEEKS},minmax(0,1fr))">${monthLabels}</div>
+            <div class="dash-heat" style="grid-template-columns:repeat(${HEAT_WEEKS},minmax(0,1fr))" role="img" aria-label="${activeDays} active days in the last ${HEAT_WEEKS} weeks">${cells}</div>
+            <div class="dash-heat-legend" aria-hidden="true">Less <i class="lv-0"></i><i class="lv-1"></i><i class="lv-2"></i><i class="lv-3"></i><i class="lv-4"></i> More</div>
+          </div>
+          <dl class="dash-heat-stats">
+            <div><dt>Active days</dt><dd>${activeDays}</dd></div>
+            <div><dt>Hours logged</dt><dd>${hoursText(hoursTotal)}</dd></div>
+            <div><dt>Tasks finished</dt><dd>${doneTotal}</dd></div>
+            <div><dt>Best streak</dt><dd>${best} day${best === 1 ? "" : "s"}</dd></div>
+          </dl>
+        </div>
+      </article>`;
+  }
+
   /* -------------------------------------------------------------- render */
 
   function draw() {
@@ -1160,6 +1260,7 @@
         ${renderHours(scopedLogs(tasks, email), today)}
         ${renderTrend(scoped, today)}
         ${renderSplit(scoped, today)}
+        ${renderActivity(tasks, email, today)}
       </div>`;
     container.innerHTML = html;
     bindTrend(container);

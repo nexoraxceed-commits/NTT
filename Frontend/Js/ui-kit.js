@@ -789,6 +789,186 @@
     onDomChange(check);
   }
 
+  /* -------------------------------------------- password show / hide */
+
+  const EYE = '<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/>';
+  const EYE_OFF = '<path d="M3 3l18 18"/><path d="M10.6 5.1A10 10 0 0 1 12 5c6.4 0 10 7 10 7a17 17 0 0 1-3.2 4.1M6.6 6.6A17 17 0 0 0 2 12s3.6 7 10 7a9.7 9.7 0 0 0 5.4-1.6"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/>';
+
+  function enhancePasswordInputs() {
+    document.querySelectorAll('input[type="password"]').forEach((input) => {
+      if (input.dataset.uiEye) {
+        return;
+      }
+      input.dataset.uiEye = "true";
+      const wrap = document.createElement("span");
+      wrap.className = "ui-pass";
+      input.parentNode.insertBefore(wrap, input);
+      wrap.append(input);
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "ui-pass-toggle";
+      const paint = () => {
+        const shown = input.type === "text";
+        button.setAttribute("aria-label", shown ? "Hide password" : "Show password");
+        button.setAttribute("aria-pressed", String(shown));
+        button.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${shown ? EYE_OFF : EYE}</svg>`;
+      };
+      button.addEventListener("click", () => {
+        input.type = input.type === "password" ? "text" : "password";
+        paint();
+        input.focus({ preventScroll: true });
+      });
+      // Never submit a form with the password left visible in autofill history.
+      input.form?.addEventListener("submit", () => {
+        input.type = "password";
+        paint();
+      }, true);
+      paint();
+      wrap.append(button);
+    });
+  }
+
+  /* -------------------------------------- task page: quick-action sheet */
+
+  // Rare UI's Family Drawer idea: on phones, a floating button opens a
+  // bottom sheet with the task's next step, logging hours and posting an
+  // update, so nobody scrolls the whole page to act. Every action simply
+  // triggers the existing button or field on the page.
+  function setupTaskSheet() {
+    const nextActions = document.querySelector("#task-actions-title");
+    if (!nextActions || !document.querySelector("#task-steps")) {
+      return;
+    }
+    const fab = document.createElement("button");
+    fab.type = "button";
+    fab.className = "ui-fab";
+    fab.setAttribute("aria-label", "Task actions");
+    fab.setAttribute("aria-haspopup", "dialog");
+    fab.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>';
+
+    const backdrop = document.createElement("div");
+    backdrop.className = "ui-sheet-backdrop";
+    const sheet = document.createElement("div");
+    sheet.className = "ui-sheet";
+    sheet.setAttribute("role", "dialog");
+    sheet.setAttribute("aria-modal", "true");
+    sheet.setAttribute("aria-label", "Task actions");
+    sheet.innerHTML = '<span class="ui-sheet-grip" aria-hidden="true"></span><p class="ui-sheet-title"></p><div class="ui-sheet-list"></div>';
+    document.body.append(fab, backdrop, sheet);
+    document.body.classList.add("has-ui-fab");
+
+    const list = sheet.querySelector(".ui-sheet-list");
+    const ICONS = {
+      step: '<path d="M5 12.5l4.2 4.2L19 7"/>',
+      hours: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>',
+      update: '<path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16v4Z"/>',
+      edit: '<path d="M4 7h16M4 12h10M4 17h7"/>',
+    };
+    const item = (icon, label, hint, action, primary = false) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = `ui-sheet-item${primary ? " is-primary" : ""}`;
+      b.innerHTML = `<span class="ui-sheet-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[icon]}</svg></span><span><b></b><small></small></span>`;
+      b.querySelector("b").textContent = label;
+      b.querySelector("small").textContent = hint;
+      b.addEventListener("click", () => {
+        close();
+        setTimeout(action, 220);
+      });
+      return b;
+    };
+    const focusField = (selector, open) => () => {
+      if (open) {
+        const details = document.querySelector(open);
+        if (details) {
+          details.open = true;
+        }
+      }
+      const el = document.querySelector(selector);
+      if (el) {
+        el.scrollIntoView({ block: "center", behavior: reduceMotion ? "auto" : "smooth" });
+        setTimeout(() => el.focus({ preventScroll: true }), 350);
+      }
+    };
+    const visible = (el) => el && !el.hidden && !el.classList.contains("is-hidden") && el.offsetParent !== null;
+
+    function build() {
+      list.innerHTML = "";
+      sheet.querySelector(".ui-sheet-title").textContent =
+        document.querySelector("#task-title")?.textContent?.trim() || "This task";
+      nextActions.querySelectorAll("button").forEach((original) => {
+        if (visible(original) && !original.disabled) {
+          list.append(item("step", original.textContent.trim(), "Next step", () => original.click(), original.classList.contains("btn-primary") || original.classList.contains("btn-approve")));
+        }
+      });
+      if (document.querySelector("#work_hours")) {
+        list.append(item("hours", "Log hours", "Add time you spent on this", focusField("#work_hours")));
+      }
+      if (document.querySelector("#comment_text")) {
+        list.append(item("update", "Post an update", "Share progress or a link to your work", focusField("#comment_text")));
+      }
+      const editBox = document.querySelector("#task-edit-box");
+      if (visible(editBox)) {
+        list.append(item("edit", "Edit task", "Name, assignee, due date", focusField("#task_edit_title", "#task-edit-box")));
+      }
+    }
+
+    let lastFocus = null;
+    function open() {
+      build();
+      lastFocus = document.activeElement;
+      document.body.classList.add("ui-sheet-open");
+      sheet.style.transform = "";
+      haptic(8);
+      setTimeout(() => list.querySelector("button")?.focus({ preventScroll: true }), 300);
+    }
+    function close() {
+      document.body.classList.remove("ui-sheet-open");
+      sheet.style.transform = "";
+      lastFocus?.focus?.({ preventScroll: true });
+    }
+    fab.addEventListener("click", open);
+    backdrop.addEventListener("click", close);
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && document.body.classList.contains("ui-sheet-open")) {
+        close();
+      }
+    });
+
+    // Drag the sheet down to dismiss it.
+    let startY = null;
+    sheet.addEventListener("pointerdown", (event) => {
+      if (event.target.closest(".ui-sheet-grip, .ui-sheet-title") || event.pointerType === "touch") {
+        startY = event.clientY;
+      }
+    });
+    sheet.addEventListener("pointermove", (event) => {
+      if (startY === null) {
+        return;
+      }
+      const dy = Math.max(0, event.clientY - startY);
+      if (dy > 6) {
+        sheet.classList.add("is-dragging");
+        sheet.style.transform = `translateY(${dy}px)`;
+      }
+    });
+    const endDrag = (event) => {
+      if (startY === null) {
+        return;
+      }
+      const dy = Math.max(0, event.clientY - startY);
+      startY = null;
+      sheet.classList.remove("is-dragging");
+      if (dy > 90) {
+        close();
+      } else {
+        sheet.style.transform = "";
+      }
+    };
+    sheet.addEventListener("pointerup", endDrag);
+    sheet.addEventListener("pointercancel", endDrag);
+  }
+
   // One shared, frame-throttled watcher for DOM changes app.js makes.
   const domListeners = [];
   let domQueued = false;
@@ -826,7 +1006,7 @@
 
   prewarm();
   document.addEventListener("DOMContentLoaded", () => {
-    [hookSetMessage, enhanceHoursInput, setupHoldToDelete, watchTaskSteps, watchNotificationBell].forEach((fn) => {
+    [hookSetMessage, enhanceHoursInput, enhancePasswordInputs, setupHoldToDelete, watchTaskSteps, watchNotificationBell, setupTaskSheet].forEach((fn) => {
       try {
         fn();
       } catch (_error) {
