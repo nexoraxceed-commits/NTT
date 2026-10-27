@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import re
 import time
@@ -26,6 +27,7 @@ from app.constants import (
     MANAGEMENT_USER_CLASSES,
     PROJECT_ROLE_SUPERVISOR,
     PROJECT_ROLE_TEAM,
+    PROJECT_TEAM_TABLE,
     NORMAL_STATUS,
     PENDING_STATUS,
     NOTIFICATION_LOG_TABLE,
@@ -999,6 +1001,85 @@ def send_due_soon_reminders(
             sent_count += 1
 
     return sent_count
+
+
+ONBOARDING_PROJECT_NAME = "NTT onboarding"
+ONBOARDING_TASK_TITLE = "Get started on NTT: finish onboarding and read the live projects"
+ONBOARDING_TASK_DETAILS = (
+    "1. Finish the welcome in NTT and add your roll number.\n"
+    "2. Install NTT on your phone and allow notifications.\n"
+    "3. Open Projects and read every project you are on: what it is, the next task due and who reviews it.\n"
+    "4. Open Tasks \u2192 My tasks and check your tasks and their due dates.\n"
+    "5. Log the time you spent on this (Hours \u2192 30m is fine), post a one-line update with any questions, then tap Send for review."
+)
+
+
+def ensure_onboarding_task(supabase_admin: Client, junior_user_id: str) -> None:
+    """Give a newly activated junior the starter task, if the onboarding project exists.
+
+    Never raises: onboarding must not block a sign-in.
+    """
+    try:
+        project_rows = (
+            supabase_admin.table(PROJECTS_TABLE)
+            .select("id,created_by,status")
+            .eq("project_name", ONBOARDING_PROJECT_NAME)
+            .order("id")
+            .limit(1)
+            .execute()
+        )
+        project = (getattr(project_rows, "data", None) or [None])[0]
+        if not project or str(project.get("status") or "").upper() in {DELETED_STATUS, PROJECT_STATUS_CLOSED}:
+            return
+        project_id = int(project["id"])
+        existing = (
+            supabase_admin.table(TASKS_TABLE)
+            .select("id")
+            .eq("project_id", project_id)
+            .eq("assigned_to", junior_user_id)
+            .limit(1)
+            .execute()
+        )
+        try:
+            supabase_admin.table(PROJECT_TEAM_TABLE).upsert(
+                {"project_id": project_id, "user_id": junior_user_id, "role": PROJECT_ROLE_TEAM, "status": ACTIVE_STATUS},
+                on_conflict="project_id,user_id,role",
+            ).execute()
+        except Exception:
+            pass
+        if getattr(existing, "data", None):
+            return
+        due = datetime.now(ZoneInfo("Asia/Kolkata")).date() + timedelta(days=3)
+        created = (
+            supabase_admin.table(TASKS_TABLE)
+            .insert(
+                {
+                    "project_id": project_id,
+                    "task_title": ONBOARDING_TASK_TITLE,
+                    "task_details": ONBOARDING_TASK_DETAILS,
+                    "assigned_to": junior_user_id,
+                    "created_by": project.get("created_by"),
+                    "status": TASK_STATUS_OPEN,
+                    "end_date": due.isoformat(),
+                }
+            )
+            .execute()
+        )
+        rows = getattr(created, "data", None) or []
+        if rows:
+            insert_task_access_log(
+                supabase_admin,
+                task_id=int(rows[0]["id"]),
+                project_id=project_id,
+                actor_user_id=str(project.get("created_by") or junior_user_id),
+                event_type="TASK_CREATED",
+                new_status=TASK_STATUS_OPEN,
+                new_assignee_id=junior_user_id,
+                event_note="Task was created.",
+            )
+        backend_cache.clear()
+    except Exception:
+        logging.getLogger(__name__).exception("Could not create the onboarding task")
 
 
 WITTY_SUBJECTS = [
@@ -1996,6 +2077,8 @@ def create_app() -> FastAPI:
                     app_settings.signup_allowed_users_status_column: NORMAL_STATUS,
                 }
                 invalidate_user_cache()
+                if str(ref_user.get(USER_CLASS_COLUMN) or "").upper() == USER_CLASS_JUNIOR:
+                    ensure_onboarding_task(supabase_admin, str(user.id))
 
             sync_ref_user_auth_uid(
                 supabase_admin,

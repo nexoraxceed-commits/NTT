@@ -157,6 +157,8 @@
     const rank = { HIGH: 0, MEDIUM: 1, LOW: 2 };
     return (dashboard.project_details || [])
       .filter((p) => String(p.status || "").toUpperCase() !== "CLOSED")
+      // The starter "NTT onboarding" project is their first task, not live work.
+      .filter((p) => String(p.project_name || "").trim().toLowerCase() !== "ntt onboarding")
       .map((p) => {
         const team = (p.team || []).filter((t) => t.email);
         const juniors = team.filter((t) => classOf.get(String(t.email).toLowerCase()) === "JUNIOR");
