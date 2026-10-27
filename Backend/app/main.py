@@ -1395,6 +1395,17 @@ def build_task_summary_response(
     )
 
 
+def _preview_origin_regex(origin: str) -> str | None:
+    """Regex matching preview subdomains of a *.pages.dev production origin, else None."""
+    import re
+    from urllib.parse import urlparse
+
+    host = urlparse(origin or "").hostname or ""
+    if not host.endswith(".pages.dev"):
+        return None
+    return rf"https://[a-z0-9-]+\.{re.escape(host)}"
+
+
 def create_app() -> FastAPI:
     settings = get_settings()
 
@@ -1428,6 +1439,9 @@ def create_app() -> FastAPI:
     app.add_middleware(
         CORSMiddleware,
         allow_origins=[settings.frontend_origin],
+        # Also allow Cloudflare Pages preview links (e.g. https://ui-upgrade.<project>.pages.dev)
+        # when the main site is on pages.dev, so branches can be tried before going live.
+        allow_origin_regex=_preview_origin_regex(settings.frontend_origin),
         allow_credentials=True,
         allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
         allow_headers=["Content-Type", "Authorization", "Idempotency-Key"],
