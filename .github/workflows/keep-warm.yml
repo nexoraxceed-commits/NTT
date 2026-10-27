@@ -1,5 +1,7 @@
 # Keeps the Render free-plan backend awake during working hours so the first
-# visitor doesn't wait 30-60 seconds for a cold start.
+# visitor doesn't wait 30-60 seconds for a cold start, and nudges the daily
+# overdue-task reminders (the server sends each reminder at most once a day,
+# and never before 9 AM IST, so repeated calls are harmless).
 # Runs every 10 minutes from about 8:00 AM to 2:00 AM IST (02:00-20:59 UTC).
 # Note: GitHub only runs scheduled workflows from the repository's default branch.
 name: Keep backend warm
@@ -12,7 +14,9 @@ on:
 jobs:
   ping:
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    timeout-minutes: 4
     steps:
       - name: Ping health endpoint
         run: curl -fsS --max-time 90 https://ntt-c122.onrender.com/health || true
+      - name: Send today's reminders (no-op once sent)
+        run: curl -fsS --max-time 120 -X POST https://ntt-c122.onrender.com/internal/daily-reminders || true
