@@ -334,6 +334,175 @@
   }
 }
 
+
+/* ------------------------------------------------- hours picker */
+
+.ui-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.ui-chip {
+  min-height: 30px;
+  padding: 0 12px;
+  border: 1px solid var(--line, #e5e5ea);
+  border-radius: 999px;
+  color: var(--ink, #1c1c1e);
+  background: var(--surface, #fff);
+  font: 550 0.8125rem/1 var(--font, system-ui);
+  cursor: pointer;
+  transition:
+    transform 220ms var(--ui-snap),
+    background-color 160ms ease,
+    border-color 160ms ease,
+    color 160ms ease;
+}
+
+.ui-chip:hover {
+  border-color: var(--line-strong, #d1d1d6);
+  color: var(--ink, #1c1c1e);
+  background: var(--surface, #fff);
+}
+
+.ui-chip:active {
+  transform: scale(0.94);
+}
+
+.ui-chip[aria-pressed="true"] {
+  border-color: var(--accent, #0a6cf5);
+  color: #fff;
+  background: var(--accent, #0a6cf5);
+}
+
+.ui-stepper {
+  display: flex;
+  align-items: stretch;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--line-strong, #d1d1d6);
+  border-radius: var(--radius-sm, 10px);
+  background: var(--surface, #fff);
+}
+
+.ui-stepper:focus-within {
+  border-color: var(--accent, #0a6cf5);
+  box-shadow: 0 0 0 3px var(--focus-ring, rgba(10, 108, 245, 0.32));
+}
+
+.ui-stepper input {
+  width: 100%;
+  min-width: 0;
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  text-align: center;
+  -moz-appearance: textfield;
+}
+
+.ui-stepper input::-webkit-outer-spin-button,
+.ui-stepper input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.ui-step {
+  flex: none;
+  width: 34px;
+  border: 0;
+  color: var(--accent, #0a6cf5);
+  background: var(--surface-soft, #f7f7fa);
+  font: 600 1.05rem/1 var(--font, system-ui);
+  cursor: pointer;
+  transition: background-color 150ms ease, transform 150ms ease;
+}
+
+.ui-step:hover {
+  color: var(--accent-strong, #0058d6);
+  background: var(--fill, #eeeef2);
+}
+
+.ui-step:active {
+  transform: scale(0.9);
+}
+
+/* ------------------------------------------------- hold to delete */
+
+.ui-hold {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  -webkit-touch-callout: none;
+  user-select: none;
+  touch-action: manipulation;
+}
+
+.ui-hold::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: var(--st-overdue-soft, #fdeceb);
+  transform: scaleX(0);
+  transform-origin: left;
+}
+
+.ui-hold.is-holding {
+  color: var(--danger, #c8281f);
+}
+
+.ui-hold.is-holding::after {
+  transform: scaleX(1);
+  transition: transform var(--ui-hold-ms, 900ms) linear;
+}
+
+/* ------------------------------------------------- task progress */
+
+.task-steps .ui-step-pop .task-step-dot {
+  animation: ui-dot-pop 620ms var(--ui-snap);
+}
+
+@keyframes ui-dot-pop {
+  0% {
+    transform: scale(0.4);
+  }
+  55% {
+    transform: scale(1.35);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+.task-steps.ui-steps-complete .is-done .task-step-dot {
+  animation: ui-dot-pop 620ms var(--ui-snap) backwards;
+}
+
+.task-steps.ui-steps-complete li:nth-child(2) .task-step-dot { animation-delay: 80ms; }
+.task-steps.ui-steps-complete li:nth-child(3) .task-step-dot { animation-delay: 160ms; }
+.task-steps.ui-steps-complete li:nth-child(4) .task-step-dot { animation-delay: 240ms; }
+
+/* ------------------------------------------------- notification bell */
+
+.ui-bell-ring svg {
+  transform-origin: 50% 8%;
+  animation: ui-bell 900ms ease-in-out;
+}
+
+@keyframes ui-bell {
+  0%, 100% { transform: rotate(0); }
+  15% { transform: rotate(16deg); }
+  30% { transform: rotate(-14deg); }
+  45% { transform: rotate(10deg); }
+  60% { transform: rotate(-6deg); }
+  75% { transform: rotate(3deg); }
+}
+
+.notification-badge.ui-badge-pop {
+  animation: ui-dot-pop 520ms var(--ui-snap);
+}
+
 /* ------------------------------------------------- reduced motion */
 
 @media (prefers-reduced-motion: reduce) {
@@ -345,6 +514,9 @@
   }
 
   .ui-rise,
+  .ui-bell-ring svg,
+  .notification-badge.ui-badge-pop,
+  .task-steps .task-step-dot,
   .dash-drawer.ui-unfold,
   .ui-skel,
   .ui-island-spinner,
@@ -356,4 +528,8 @@
     color: #fff;
     background: none;
   }
+}
+
+.task-log-row:has(.ui-stepper) {
+  grid-template-columns: 132px minmax(0, 1fr);
 }

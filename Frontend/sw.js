@@ -1,4 +1,4 @@
-const NEXORA_CACHE_VERSION = "nexora-ui-kit-v37";
+const NEXORA_CACHE_VERSION = "nexora-ui-kit-v38";
 const STATIC_CACHE = `${NEXORA_CACHE_VERSION}:static`;
 const PAGE_CACHE = `${NEXORA_CACHE_VERSION}:pages`;
 
@@ -10,8 +10,8 @@ const STATIC_ASSETS = [
   "/Js/config.js?v=20260723-user-classes",
   "/Js/app.js?v=20261011-r2",
   "/Js/dashboard.js?v=20261027-ui",
-  "/Js/ui-kit.js?v=20261027-ui",
-  "/Css/ui-kit.css?v=20261027-ui",
+  "/Js/ui-kit.js?v=20261027-ui2",
+  "/Css/ui-kit.css?v=20261027-ui2",
   "/Js/login-bg.js?v=20261011-r2",
   "/Js/dino-game.js?v=20260728-arcade-layout",
   "/Js/project-game.js?v=20260808-project-game-v9",

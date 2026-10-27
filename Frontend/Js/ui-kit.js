@@ -561,6 +561,259 @@
     dash.open = info.open || null;
   }
 
+  /* ------------------------------------------- hours: duration picker */
+
+  // Rare UI's Duration Picker, simplified: quick chips and -/+ steppers on
+  // the "Hours" field. It only fills the existing input; the form and what
+  // it sends are unchanged.
+  const HOUR_CHIPS = [
+    [0.25, "15m"],
+    [0.5, "30m"],
+    [1, "1h"],
+    [2, "2h"],
+    [3, "3h"],
+  ];
+
+  function enhanceHoursInput() {
+    const input = document.querySelector("#work_hours");
+    if (!input || input.dataset.uiEnhanced) {
+      return;
+    }
+    input.dataset.uiEnhanced = "true";
+    const min = Number(input.min) || 0.25;
+    const max = Number(input.max) || 24;
+    const step = Number(input.step) || 0.25;
+
+    const chips = document.createElement("div");
+    chips.className = "ui-chips";
+    chips.setAttribute("role", "group");
+    chips.setAttribute("aria-label", "Quick pick hours");
+    chips.innerHTML = HOUR_CHIPS.map(
+      ([value, label]) => `<button type="button" class="ui-chip" data-hours="${value}" aria-pressed="false">${label}</button>`
+    ).join("");
+
+    const wrap = document.createElement("div");
+    wrap.className = "ui-stepper";
+    input.parentNode.insertBefore(wrap, input);
+    const minus = document.createElement("button");
+    minus.type = "button";
+    minus.className = "ui-step";
+    minus.setAttribute("aria-label", "Fewer hours");
+    minus.textContent = "−";
+    const plus = minus.cloneNode();
+    plus.setAttribute("aria-label", "More hours");
+    plus.textContent = "+";
+    wrap.append(minus, input, plus);
+    input.closest(".task-log-row")?.before(chips);
+
+    function sync() {
+      const value = Number(input.value);
+      chips.querySelectorAll(".ui-chip").forEach((chip) => {
+        chip.setAttribute("aria-pressed", String(Number(chip.dataset.hours) === value));
+      });
+    }
+    function set(value) {
+      const clamped = Math.min(max, Math.max(min, Math.round(value / step) * step));
+      input.value = String(clamped);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      sync();
+      haptic(6);
+    }
+    chips.addEventListener("click", (event) => {
+      const chip = event.target.closest("[data-hours]");
+      if (chip) {
+        set(Number(chip.dataset.hours));
+      }
+    });
+    minus.addEventListener("click", () => set((Number(input.value) || min + step) - step));
+    plus.addEventListener("click", () => set((Number(input.value) || 0) + step));
+    input.addEventListener("input", sync);
+    input.form?.addEventListener("reset", () => setTimeout(sync, 0));
+  }
+
+  /* ------------------------------------------------- hold-to-delete */
+
+  // Rare UI's Delete Button idea: deleting a comment needs a short press and
+  // hold instead of a pop-up. Keyboard users still get the normal pop-up.
+  const HOLD_MS = 900;
+  const HOLD_SELECTOR = "[data-delete-comment-id]";
+  let holdConfirmed = false;
+
+  const nativeConfirm = window.confirm.bind(window);
+  window.confirm = function nttConfirm(message) {
+    if (holdConfirmed) {
+      holdConfirmed = false;
+      return true;
+    }
+    return nativeConfirm(message);
+  };
+
+  function setupHoldToDelete() {
+    let timer = null;
+    let active = null;
+    let completed = null;
+
+    function cancel() {
+      clearTimeout(timer);
+      timer = null;
+      if (active) {
+        active.classList.remove("is-holding");
+      }
+      active = null;
+    }
+
+    document.addEventListener("pointerdown", (event) => {
+      const button = event.target.closest(HOLD_SELECTOR);
+      if (!button || button.disabled || event.button > 0) {
+        return;
+      }
+      active = button;
+      button.classList.add("ui-hold", "is-holding");
+      button.style.setProperty("--ui-hold-ms", `${HOLD_MS}ms`);
+      timer = setTimeout(() => {
+        timer = null;
+        button.classList.remove("is-holding");
+        completed = button;
+        haptic([10, 40, 20]);
+        holdConfirmed = true;
+        button.click();
+        // If nothing asked to confirm, don't leave the flag armed.
+        setTimeout(() => {
+          holdConfirmed = false;
+        }, 0);
+      }, HOLD_MS);
+    });
+    ["pointerup", "pointerleave", "pointercancel"].forEach((type) =>
+      document.addEventListener(type, (event) => {
+        if (active && (type !== "pointerleave" || event.target === active)) {
+          cancel();
+        }
+      }, true)
+    );
+
+    // Swallow the ordinary click that follows a short tap (and the trailing
+    // click a browser fires after a completed hold). Keyboard clicks
+    // (detail === 0) and our own programmatic click go through.
+    let suppressUntil = 0;
+    document.addEventListener(
+      "click",
+      (event) => {
+        const button = event.target.closest(HOLD_SELECTOR);
+        if (!button) {
+          return;
+        }
+        if (completed === button && !event.isTrusted) {
+          completed = null;
+          suppressUntil = Date.now() + 700;
+          return;
+        }
+        if (event.detail === 0) {
+          return;
+        }
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        if (Date.now() > suppressUntil) {
+          toast("Press and hold to delete", { tone: "info", duration: 1800 });
+        }
+      },
+      true
+    );
+
+    // Label the buttons as they appear.
+    const label = () =>
+      document.querySelectorAll(HOLD_SELECTOR).forEach((button) => {
+        if (!button.dataset.uiHoldLabel) {
+          button.dataset.uiHoldLabel = "true";
+          button.classList.add("ui-hold");
+          button.title = "Press and hold to delete";
+        }
+      });
+    label();
+    onDomChange(label);
+  }
+
+  /* ---------------------------------------------- task progress pop */
+
+  // When a task moves forward (started, sent for review, closed), the step it
+  // reached pops; closing a task gets a small celebration.
+  function watchTaskSteps() {
+    const steps = document.querySelector("#task-steps");
+    if (!steps) {
+      return;
+    }
+    let previous = null;
+    new MutationObserver(() => {
+      const items = [...steps.children];
+      if (!items.length) {
+        return;
+      }
+      const done = steps.querySelectorAll(".is-done").length;
+      const allDone = done === items.length;
+      if (previous !== null && done > previous) {
+        const target = allDone ? items[items.length - 1] : items[done];
+        target?.classList.add("ui-step-pop");
+        if (allDone) {
+          steps.classList.add("ui-steps-complete");
+          haptic([12, 50, 12, 50, 24]);
+        }
+      }
+      previous = done;
+    }).observe(steps, { childList: true });
+  }
+
+  /* ------------------------------------------------- notification bell */
+
+  // Rare UI's Notification Bell: the bell rings and the badge pops when the
+  // unread count goes up while you're on the page.
+  function watchNotificationBell() {
+    let lastCount = null;
+    function read(trigger) {
+      const text = trigger.querySelector(".notification-badge")?.textContent || "0";
+      return text === "99+" ? 100 : Number(text) || 0;
+    }
+    function check() {
+      const trigger = document.querySelector("[data-notification-trigger]");
+      if (!trigger) {
+        return;
+      }
+      const count = read(trigger);
+      if (lastCount !== null && count > lastCount) {
+        trigger.classList.remove("ui-bell-ring");
+        void trigger.offsetWidth;
+        trigger.classList.add("ui-bell-ring");
+        trigger.querySelector(".notification-badge")?.classList.add("ui-badge-pop");
+        haptic([8, 40, 8]);
+      }
+      lastCount = count;
+    }
+    onDomChange(check);
+  }
+
+  // One shared, frame-throttled watcher for DOM changes app.js makes.
+  const domListeners = [];
+  let domQueued = false;
+  function onDomChange(listener) {
+    domListeners.push(listener);
+    if (domListeners.length === 1) {
+      new MutationObserver(() => {
+        if (domQueued) {
+          return;
+        }
+        domQueued = true;
+        requestAnimationFrame(() => {
+          domQueued = false;
+          domListeners.forEach((fn) => {
+            try {
+              fn();
+            } catch (_error) {
+              // Decoration must never break the page.
+            }
+          });
+        });
+      }).observe(document.body, { childList: true, subtree: true });
+    }
+  }
+
   /* -------------------------------------------------------------- boot */
 
   window.NTTUI = {
@@ -572,5 +825,13 @@
   };
 
   prewarm();
-  document.addEventListener("DOMContentLoaded", hookSetMessage);
+  document.addEventListener("DOMContentLoaded", () => {
+    [hookSetMessage, enhanceHoursInput, setupHoldToDelete, watchTaskSteps, watchNotificationBell].forEach((fn) => {
+      try {
+        fn();
+      } catch (_error) {
+        // Each enhancement is optional.
+      }
+    });
+  });
 })();
