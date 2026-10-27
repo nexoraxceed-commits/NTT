@@ -12,6 +12,26 @@ class LoginRequest(BaseModel):
 class SignupRequest(BaseModel):
     email: str = Field(min_length=3, max_length=320)
     password: str = Field(min_length=8, max_length=256)
+    code: str | None = Field(default=None, max_length=12)
+
+
+class EmailCodeRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=320)
+
+
+class ResetPasswordRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=320)
+    code: str = Field(min_length=6, max_length=12)
+    password: str = Field(min_length=8, max_length=256)
+
+
+class AuthOptionsResponse(BaseModel):
+    email_codes: bool
+
+
+class ForgotPasswordResponse(BaseModel):
+    detail: str
+    method: str = "link"
 
 
 class ForgotPasswordRequest(BaseModel):

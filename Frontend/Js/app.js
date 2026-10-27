@@ -1943,6 +1943,15 @@ function setupLoginForm() {
   });
 }
 
+async function getAuthOptions() {
+  try {
+    const response = await fetch(`${apiBaseUrl}/auth/options`, { cache: "no-store" });
+    return response.ok ? await response.json() : { email_codes: false };
+  } catch (_error) {
+    return { email_codes: false };
+  }
+}
+
 function setupSignupForm() {
   const form = document.querySelector("#signup-form");
   const messageElement = document.querySelector("#form-message");
@@ -1950,6 +1959,43 @@ function setupSignupForm() {
   if (!form) {
     return;
   }
+
+  const codeGroup = document.querySelector("#signup-code-group");
+  const codeInput = document.querySelector("#signup-code");
+  const resend = document.querySelector("#signup-resend");
+  const submit = form.querySelector("button[type='submit']");
+  let useCodes = false;
+  let codeSent = false;
+  getAuthOptions().then((options) => {
+    useCodes = Boolean(options.email_codes);
+    if (useCodes && submit) {
+      submit.textContent = "Email me a code";
+    }
+  });
+
+  async function sendCode() {
+    const { email } = getFormValues(form);
+    setMessage(messageElement, "Sending your code...");
+    setButtonBusy(submit, true);
+    try {
+      const data = await postJson("/auth/signup/send-code", { email });
+      setMessage(messageElement, data.detail);
+      if (/already have an account/i.test(data.detail || "")) {
+        return;
+      }
+      codeSent = true;
+      codeGroup.hidden = false;
+      codeInput.required = true;
+      submit.textContent = "Create account";
+      codeInput.focus();
+    } catch (error) {
+      setMessage(messageElement, error.message, true);
+    } finally {
+      setButtonBusy(submit, false);
+    }
+  }
+
+  resend?.addEventListener("click", sendCode);
 
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -1959,10 +2005,21 @@ function setupSignupForm() {
       return;
     }
 
+    if (useCodes && !codeSent) {
+      await sendCode();
+      return;
+    }
+
     setMessage(messageElement, "Creating account...");
+    setButtonBusy(submit, true);
 
     try {
-      const result = await postJson("/auth/signup", getFormValues(form));
+      const values = getFormValues(form);
+      const payload = { email: values.email, password: values.password };
+      if (useCodes) {
+        payload.code = String(codeInput.value || "").replace(/\D/g, "");
+      }
+      const result = await postJson("/auth/signup", payload);
       const detail = result?.detail || "Signup successful.";
       setMessage(messageElement, detail);
       if (detail.toLowerCase().includes("check your email")) {
@@ -1970,9 +2027,11 @@ function setupSignupForm() {
       }
       window.setTimeout(() => {
         window.location.replace("/");
-      }, 900);
+      }, 1400);
     } catch (error) {
       setMessage(messageElement, error.message, true);
+    } finally {
+      setButtonBusy(submit, false);
     }
   });
 }
@@ -1985,6 +2044,37 @@ function setupForgotPasswordForm() {
     return;
   }
 
+  const codeFields = document.querySelector("#reset-code-fields");
+  const codeInput = document.querySelector("#reset-code");
+  const passwordInput = document.querySelector("#reset-password");
+  const resend = document.querySelector("#reset-resend");
+  const submit = form.querySelector("button[type='submit']");
+  let stage = "email";
+
+  async function requestCode() {
+    const { email } = getFormValues(form);
+    setMessage(messageElement, "Sending...");
+    setButtonBusy(submit, true);
+    try {
+      const data = await postJson("/auth/forgot-password", { email });
+      setMessage(messageElement, data.detail);
+      if (data.method === "code") {
+        stage = "code";
+        codeFields.hidden = false;
+        codeInput.required = true;
+        passwordInput.required = true;
+        submit.textContent = "Set new password";
+        codeInput.focus();
+      }
+    } catch (error) {
+      setMessage(messageElement, error.message, true);
+    } finally {
+      setButtonBusy(submit, false);
+    }
+  }
+
+  resend?.addEventListener("click", requestCode);
+
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
 
@@ -1993,15 +2083,26 @@ function setupForgotPasswordForm() {
       return;
     }
 
-    setMessage(messageElement, "Sending reset link...");
+    if (stage === "email") {
+      await requestCode();
+      return;
+    }
 
+    setMessage(messageElement, "Updating your password...");
+    setButtonBusy(submit, true);
     try {
-      const data = await postJson("/auth/forgot-password", {
-        email: getFormValues(form).email,
+      const values = getFormValues(form);
+      const data = await postJson("/auth/reset-password", {
+        email: values.email,
+        code: String(codeInput.value || "").replace(/\D/g, ""),
+        password: passwordInput.value,
       });
       setMessage(messageElement, data.detail);
+      window.setTimeout(() => window.location.replace("/"), 1400);
     } catch (error) {
       setMessage(messageElement, error.message, true);
+    } finally {
+      setButtonBusy(submit, false);
     }
   });
 }

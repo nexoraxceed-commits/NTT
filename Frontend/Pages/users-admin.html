@@ -25,6 +25,17 @@
         </div>
       </header>
 
+      <section class="workspace-panel" aria-labelledby="email-check-title">
+        <div class="section-header">
+          <div>
+            <h2 id="email-check-title">Email delivery</h2>
+            <p class="meta-text">Sign-up and password-reset codes are emailed by NTT through Mailjet. Send yourself a test to confirm it works.</p>
+          </div>
+          <button type="button" class="btn btn-secondary" id="test-email-button">Send me a test email</button>
+        </div>
+        <p class="form-message" id="test-email-message" role="status" aria-live="polite"></p>
+      </section>
+
       <section class="workspace-panel" aria-labelledby="register-user-title">
         <div class="section-header">
           <div>
@@ -68,6 +79,25 @@
     </main>
     <script src="/Js/config.js?v=20260723-user-classes"></script>
     <script src="/Js/ui-kit.js?v=20261027-ui7"></script>
-    <script src="/Js/app.js?v=20261027-ui7"></script>
+    <script src="/Js/app.js?v=20261027-ui8"></script>
+    <script>
+      document.addEventListener("DOMContentLoaded", function () {
+        var button = document.getElementById("test-email-button");
+        var message = document.getElementById("test-email-message");
+        if (!button) { return; }
+        button.addEventListener("click", async function () {
+          setButtonBusy(button, true);
+          setMessage(message, "Sending...");
+          try {
+            var data = await postAuthorizedJson("/admin/test-email", {});
+            setMessage(message, data.detail);
+          } catch (error) {
+            setMessage(message, error.message, true);
+          } finally {
+            setButtonBusy(button, false);
+          }
+        });
+      });
+    </script>
   </body>
 </html>

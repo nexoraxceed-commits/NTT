@@ -97,7 +97,11 @@ from app.schemas import (
     CreateTaskRequest,
     CurrentUserResponse,
     ErrorResponse,
+    AuthOptionsResponse,
+    EmailCodeRequest,
     ForgotPasswordRequest,
+    ForgotPasswordResponse,
+    ResetPasswordRequest,
     LoginRequest,
     LoginResponse,
     LogoutRequest,
@@ -125,6 +129,7 @@ from app.schemas import (
 )
 from app.background import run_in_background
 from app.supabase_client import get_supabase_admin_client, get_supabase_client
+from app.email_codes import email_codes_available, send_code_email, verify_code
 from app.profiles import (
     ProfileResponse,
     ProfileUpdateRequest,
@@ -1562,6 +1567,38 @@ def create_app() -> FastAPI:
                 detail="This user record is not ready for signup. Contact an administrator.",
             )
 
+        if email_codes_available(app_settings):
+            enforce_rate_limit("verify-code", normalized_email, limit=8, window_seconds=600)
+            if not payload.code or not verify_code(app_settings, "signup", normalized_email, payload.code):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="That code is wrong or has expired. Request a new one and try again.",
+                )
+            try:
+                supabase_admin.auth.admin.create_user(
+                    {
+                        "email": normalized_email,
+                        "password": payload.password,
+                        "email_confirm": True,
+                    }
+                )
+            except Exception as exc:
+                auth_error = str(exc).lower()
+                if "already" in auth_error and ("registered" in auth_error or "exists" in auth_error):
+                    return MessageResponse(
+                        detail="An account already exists for this email. Sign in, or use Forgot password."
+                    )
+                if "password" in auth_error:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="Choose a stronger password (at least 8 characters).",
+                    ) from exc
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Could not create the account. Please try again.",
+                ) from exc
+            return MessageResponse(detail="Email confirmed and account created. Sign in to continue.")
+
         try:
             signup_result = supabase.auth.sign_up(
                 {
@@ -1625,14 +1662,110 @@ def create_app() -> FastAPI:
             detail="Signup successful. Sign in to activate your Nexora account."
         )
 
-    @app.post("/auth/forgot-password", response_model=MessageResponse)
-    def forgot_password(
-        payload: ForgotPasswordRequest,
-        supabase: Client = Depends(get_supabase_client),
+    @app.get("/auth/options", response_model=AuthOptionsResponse)
+    def auth_options(app_settings: Settings = Depends(get_settings)) -> AuthOptionsResponse:
+        return AuthOptionsResponse(email_codes=email_codes_available(app_settings))
+
+    @app.post("/auth/signup/send-code", response_model=MessageResponse)
+    def send_signup_code(
+        payload: EmailCodeRequest,
+        supabase_admin: Client = Depends(get_supabase_admin_client),
         app_settings: Settings = Depends(get_settings),
     ) -> MessageResponse:
         normalized_email = payload.email.strip().lower()
+        enforce_rate_limit("signup-code", normalized_email, limit=4, window_seconds=600)
+        if not email_codes_available(app_settings):
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Email codes aren't set up yet. Ask an admin.",
+            )
+        try:
+            ref_user = get_ref_user(supabase_admin, app_settings, normalized_email)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Could not verify whether this email is approved for signup.",
+            ) from exc
+        if not ref_user:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="This email is not approved for signup. Ask a senior to add you.",
+            )
+        current_status = str(
+            ref_user.get(app_settings.signup_allowed_users_status_column) or ""
+        ).upper()
+        if current_status == NORMAL_STATUS:
+            return MessageResponse(detail="You already have an account. Sign in, or use Forgot password.")
+        if not send_code_email(app_settings, "signup", normalized_email, ref_user.get(REF_USER_NAME_COLUMN)):
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="We couldn't send the email just now. Please try again in a minute.",
+            )
+        return MessageResponse(detail=f"We've emailed a 6-digit code to {normalized_email}. Check spam if it isn't there.")
+
+    @app.post("/auth/reset-password", response_model=MessageResponse)
+    def reset_password_with_code(
+        payload: ResetPasswordRequest,
+        supabase_admin: Client = Depends(get_supabase_admin_client),
+        app_settings: Settings = Depends(get_settings),
+    ) -> MessageResponse:
+        normalized_email = payload.email.strip().lower()
+        enforce_rate_limit("verify-code", normalized_email, limit=8, window_seconds=600)
+        if not verify_code(app_settings, "reset", normalized_email, payload.code):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="That code is wrong or has expired. Request a new one and try again.",
+            )
+        try:
+            ref_user = get_ref_user(supabase_admin, app_settings, normalized_email)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Could not look up this account. Please try again.",
+            ) from exc
+        auth_uid = (ref_user or {}).get(AUTH_UID_COLUMN)
+        if not auth_uid:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="This email hasn't finished signing up yet. Use Sign up instead.",
+            )
+        try:
+            supabase_admin.auth.admin.update_user_by_id(str(auth_uid), {"password": payload.password})
+        except Exception as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Could not update the password. Choose at least 8 characters and try again.",
+            ) from exc
+        clear_auth_cache()
+        return MessageResponse(detail="Password updated. You can sign in now.")
+
+    @app.post("/auth/forgot-password", response_model=ForgotPasswordResponse)
+    def forgot_password(
+        payload: ForgotPasswordRequest,
+        supabase: Client = Depends(get_supabase_client),
+        supabase_admin: Client = Depends(get_supabase_admin_client),
+        app_settings: Settings = Depends(get_settings),
+    ) -> ForgotPasswordResponse:
+        normalized_email = payload.email.strip().lower()
         enforce_rate_limit("forgot-password", normalized_email, limit=5, window_seconds=600)
+
+        if email_codes_available(app_settings):
+            try:
+                ref_user = get_ref_user(supabase_admin, app_settings, normalized_email)
+            except Exception:
+                ref_user = None
+            if ref_user and ref_user.get(AUTH_UID_COLUMN):
+                sent = send_code_email(app_settings, "reset", normalized_email, ref_user.get(REF_USER_NAME_COLUMN))
+                if not sent:
+                    raise HTTPException(
+                        status_code=status.HTTP_502_BAD_GATEWAY,
+                        detail="We couldn't send the email just now. Please try again in a minute.",
+                    )
+            # Same answer whether or not the account exists.
+            return ForgotPasswordResponse(
+                detail="If this email has an account, we've sent a 6-digit code. Check spam if it isn't there.",
+                method="code",
+            )
 
         try:
             supabase.auth.reset_password_email(
@@ -1649,8 +1782,9 @@ def create_app() -> FastAPI:
                 detail="Could not send password reset email.",
             ) from exc
 
-        return MessageResponse(
-            detail="If this email has an account, a password reset link has been sent."
+        return ForgotPasswordResponse(
+            detail="If this email has an account, a password reset link has been sent.",
+            method="link",
         )
 
     @app.post("/auth/login", response_model=LoginResponse)
@@ -1904,6 +2038,36 @@ def create_app() -> FastAPI:
             ) from exc
         backend_cache.delete("users:profiles")
         return MessageResponse(detail="Profile saved.")
+
+    @app.post("/admin/test-email", response_model=MessageResponse)
+    def send_test_email(
+        current_user: CurrentUser = Depends(require_admin),
+        app_settings: Settings = Depends(get_settings),
+    ) -> MessageResponse:
+        """Lets an admin check that NTT can send email (codes, reminders)."""
+        if not email_codes_available(app_settings):
+            missing = [
+                name
+                for name, value in (
+                    ("MAILJET_API_KEY", app_settings.mailjet_api_key),
+                    ("MAILJET_SECRET_KEY", app_settings.mailjet_secret_key),
+                    ("MAILJET_FROM_EMAIL", app_settings.mailjet_from_email),
+                )
+                if not value
+            ]
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Email isn't set up on the server. Missing on Render: " + ", ".join(missing or ["SUPABASE_SECRET_KEY"]),
+            )
+        if not send_code_email(app_settings, "signup", current_user.email, current_user.user_name):
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=(
+                    "Mailjet refused the email. Check that the sender "
+                    f"{app_settings.mailjet_from_email} is verified in Mailjet and the keys are correct."
+                ),
+            )
+        return MessageResponse(detail=f"Test email sent to {current_user.email} from {app_settings.mailjet_from_email}.")
 
     @app.get("/admin/users", response_model=list[AdminUserResponse])
     def list_admin_users(
