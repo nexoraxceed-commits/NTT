@@ -200,12 +200,9 @@
     const lastActive = person.lastActive
       ? `Active ${shortDate(person.lastActive)}`
       : "No activity yet";
-    const vertical = person.vertical
-      ? `<span class="pp-vertical" title="${esc(VERTICALS[person.vertical] || "")}">${esc(person.vertical)}</span>`
-      : "";
+    const vertical = "";
     const detail = open
       ? `<div class="pp-detail" id="people-detail-${esc(person.email)}">
-          ${person.vertical ? `<p class="pp-detail-line">${esc(VERTICALS[person.vertical] || person.vertical)}</p>` : ""}
           <p class="pp-detail-head">Finished in this window</p>
           ${person.done.length
             ? `<ul class="pp-done">${person.done
@@ -274,9 +271,8 @@
     const hasVerticals = state.users.some((u) => u.vertical);
     const days = Math.round((state.end - state.start) / 86400000) + 1;
 
-    const verticalChips = hasVerticals
-      ? chips("vertical", [["all", "All verticals"], ...Object.keys(VERTICALS).map((k) => [k, k])], state.vertical)
-      : "";
+    // Verticals are not decided yet, so there is no vertical filter for now.
+    const verticalChips = "";
 
     root.innerHTML = `
       <div class="pp-toolbar">

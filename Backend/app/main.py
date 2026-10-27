@@ -1890,10 +1890,10 @@ def create_app() -> FastAPI:
         app_settings: Settings = Depends(get_settings),
     ) -> MessageResponse:
         if str(current_user.user_class or "").upper() == "JUNIOR" and payload.mark_onboarded:
-            if not payload.vertical or not payload.roll_no:
+            if not payload.roll_no:
                 raise HTTPException(
                     status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                    detail="Please pick your vertical and enter your roll number.",
+                    detail="Please enter your roll number.",
                 )
         try:
             update_profile(supabase_admin, app_settings, current_user.email, payload)

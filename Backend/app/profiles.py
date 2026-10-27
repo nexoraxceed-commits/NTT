@@ -120,6 +120,9 @@ def update_profile(
         "linkedin_url": payload.linkedin_url,
         "skills": payload.skills,
     }
+    if payload.vertical is None:
+        # Verticals aren't decided yet; don't wipe one an admin may have set.
+        values.pop("vertical")
     if payload.mark_onboarded:
         values["onboarded_at"] = datetime.now(timezone.utc).isoformat()
     (
