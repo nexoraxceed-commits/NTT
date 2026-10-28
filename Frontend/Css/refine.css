@@ -1,0 +1,631 @@
+/*
+ * NTT refine layer (Oct 2026). Loaded last, on every page.
+ *
+ * What it does, and why:
+ * - Apple-grade materials: SF Pro on Apple devices (Inter elsewhere), the
+ *   #f5f5f7 canvas, a frosted top bar, Apple's action blue, continuous-feel
+ *   radii. Depth from one hairline, never border + shadow together.
+ * - One gradient with a job: a soft aurora behind the top of each page in
+ *   NEXORA's own lime and teal, fading out before content starts. No purple,
+ *   no gradient text, no glow.
+ * - Unslop pass: labels in sentence case without tracking (no shouty
+ *   eyebrows), one primary button per view, motion only as one settle on
+ *   arrival and on press, all of it off under reduced motion.
+ */
+
+:root {
+  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-display: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Inter", "Segoe UI", Roboto, sans-serif;
+
+  --bg: #f5f5f7;
+  --bar-bg: rgba(245, 245, 247, 0.72);
+  --surface-soft: #f9f9fb;
+  --fill: #ececf0;
+  --line: rgba(0, 0, 0, 0.08);
+  --line-strong: rgba(0, 0, 0, 0.14);
+  --ink: #1d1d1f;
+  --muted: #6e6e73;
+
+  --accent: #0071e3;
+  --accent-strong: #0066cc;
+  --accent-soft: #e8f2fd;
+  --focus-ring: rgba(0, 113, 227, 0.34);
+
+  --radius-md: 14px;
+  --radius-lg: 20px;
+  --radius-xl: 24px;
+  --shadow-card: none;
+  --shadow-hair: 0 1px 1px rgba(0, 0, 0, 0.03);
+  --shadow-pop: 0 12px 40px rgba(0, 0, 0, 0.12), 0 0 0 1px rgba(0, 0, 0, 0.05);
+
+  /* NEXORA's mark is lime on ink; the aurora borrows it plus a teal and a sky. */
+  --aurora-1: rgba(190, 230, 60, 0.30);
+  --aurora-2: rgba(40, 170, 150, 0.20);
+  --aurora-3: rgba(90, 170, 255, 0.18);
+
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --dur-micro: 120ms;
+  --dur-short: 220ms;
+}
+
+:root[data-theme="dark"] {
+  --bg: #0b0b0d;
+  --bar-bg: rgba(11, 11, 13, 0.7);
+  --surface: #161618;
+  --surface-soft: #1c1c1f;
+  --line: rgba(255, 255, 255, 0.09);
+  --line-strong: rgba(255, 255, 255, 0.16);
+  --accent: #2997ff;
+  --accent-strong: #64b2ff;
+  --accent-soft: rgba(41, 151, 255, 0.16);
+  --focus-ring: rgba(41, 151, 255, 0.45);
+  --shadow-pop: 0 16px 48px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.08);
+  --aurora-1: rgba(170, 220, 40, 0.13);
+  --aurora-2: rgba(30, 160, 140, 0.14);
+  --aurora-3: rgba(60, 130, 255, 0.12);
+}
+
+body {
+  font-family: var(--font);
+  font-synthesis: none;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* ------------------------------------------------------------- aurora */
+
+.app-body {
+  position: relative;
+  isolation: isolate;
+}
+
+.app-body::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  inset: 0 0 auto 0;
+  height: 560px;
+  pointer-events: none;
+  background:
+    radial-gradient(42% 70% at 12% 0%, var(--aurora-1), transparent 70%),
+    radial-gradient(38% 60% at 58% -10%, var(--aurora-2), transparent 72%),
+    radial-gradient(40% 65% at 96% 4%, var(--aurora-3), transparent 70%);
+  -webkit-mask-image: linear-gradient(to bottom, #000 30%, transparent);
+  mask-image: linear-gradient(to bottom, #000 30%, transparent);
+}
+
+/* ------------------------------------------------------------- top bar */
+
+.workspace-topbar {
+  border-bottom-color: transparent;
+  background: transparent;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  transition: background-color var(--dur-short) var(--ease-out), border-color var(--dur-short) var(--ease-out);
+}
+
+/* Apple's nav: clear at rest, frosted once content slides under it. */
+.workspace-topbar.is-stuck {
+  border-bottom-color: var(--line);
+  background: var(--bar-bg);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  backdrop-filter: saturate(180%) blur(20px);
+}
+
+.nav-link,
+.nav-logout {
+  white-space: nowrap;
+}
+
+@media (min-width: 1024px) {
+  /* Log out already lives in the account menu. */
+  .workspace-nav .nav-logout {
+    display: none;
+  }
+
+  .nav-link {
+    font-weight: 500;
+    transition: color var(--dur-micro) ease-out, background-color var(--dur-micro) ease-out;
+  }
+
+  .nav-link:hover {
+    color: var(--ink);
+  }
+
+  .nav-link.is-active {
+    background: var(--surface);
+    box-shadow: 0 0 0 1px var(--line);
+  }
+}
+
+.topbar-add-task {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 0 14px 0 11px;
+  border: 0;
+  border-radius: 999px;
+  color: #fff;
+  background: var(--ink);
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.topbar-add-task svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.topbar-add-task:hover {
+  color: #fff;
+  background: color-mix(in srgb, var(--ink) 86%, var(--bg));
+}
+
+:root[data-theme="dark"] .topbar-add-task,
+:root[data-theme="dark"] .topbar-add-task:hover {
+  color: #0b0b0d;
+  background: #f5f5f7;
+}
+
+@media (max-width: 560px) {
+  .topbar-add-task {
+    width: 40px;
+    min-height: 40px;
+    padding: 0;
+    justify-content: center;
+  }
+
+  .topbar-add-task span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+  }
+}
+
+/* ---------------------------------------------------------------- type */
+
+h1,
+.workspace-header h1 {
+  font-family: var(--font-display);
+  font-weight: 650;
+  letter-spacing: -0.028em;
+}
+
+h2,
+h3,
+.dash-card-head h2,
+.dash-card-head h3 {
+  letter-spacing: -0.012em;
+}
+
+/* Labels: sentence case, untracked, quiet. The shouting eyebrow is the tell. */
+.eyebrow,
+.data-table th,
+.task-board-filter label,
+.task-board-filter > span,
+.dash-kpi-label,
+.task-box-title,
+.task-workload-row.is-head,
+.welcome-kicker,
+.ui-me-label,
+.project-meta dt,
+.detail-label {
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.eyebrow,
+.data-table th,
+.task-board-filter label,
+.task-box-title,
+.ui-me-label {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.dash-kpi-label {
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.dash-hero-num,
+.dash-kpi strong,
+.dash-kpi-value,
+.dash-kpi .num,
+time,
+td {
+  font-variant-numeric: tabular-nums;
+}
+
+/* -------------------------------------------------------------- surfaces */
+
+.workspace-panel,
+.dash-card,
+.dash-kpi {
+  border: 1px solid var(--line);
+  box-shadow: none;
+}
+
+:root[data-theme="dark"] .workspace-panel,
+:root[data-theme="dark"] .dash-card,
+:root[data-theme="dark"] .dash-kpi {
+  background: var(--surface);
+}
+
+.dash-kpi {
+  transition: border-color var(--dur-short) var(--ease-out), transform var(--dur-micro) var(--ease-out);
+}
+
+.dash-kpi:hover {
+  border-color: var(--line-strong);
+}
+
+.dash-kpi:active {
+  transform: scale(0.985);
+}
+
+/* ------------------------------------------------------------- controls */
+
+.btn,
+button.btn,
+a.btn {
+  transition:
+    background-color var(--dur-micro) ease-out,
+    color var(--dur-micro) ease-out,
+    transform var(--dur-micro) var(--ease-out);
+}
+
+.btn:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.btn-primary,
+.button-link {
+  border-radius: 999px;
+  font-weight: 600;
+}
+
+.btn-primary:hover,
+.button-link:hover {
+  background: var(--accent-strong);
+}
+
+input,
+select,
+textarea {
+  transition: border-color var(--dur-micro) ease-out, box-shadow var(--dur-micro) ease-out;
+}
+
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 4px var(--focus-ring);
+  outline: none;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+/* ------------------------------------------------------ one settle on load */
+
+@media (prefers-reduced-motion: no-preference) {
+  .workspace-shell > :not(.workspace-header):not(.workspace-nav) {
+    animation: ntt-settle 520ms var(--ease-out) both;
+  }
+
+  .workspace-shell > :nth-child(3) { animation-delay: 40ms; }
+  .workspace-shell > :nth-child(4) { animation-delay: 80ms; }
+  .workspace-shell > :nth-child(n + 5) { animation-delay: 120ms; }
+}
+
+@keyframes ntt-settle {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ============================================================ new task */
+
+.nt-lede {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 0.9375rem;
+}
+
+.nt-form {
+  display: grid;
+  gap: 16px;
+  max-width: 760px;
+}
+
+.nt-section {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+  margin: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  padding: clamp(18px, 2.4vw, 24px);
+  background: var(--surface);
+}
+
+.nt-section legend {
+  float: left;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  font-size: 1.0625rem;
+  font-weight: 650;
+  letter-spacing: -0.012em;
+}
+
+.nt-section legend + * {
+  clear: both;
+}
+
+.nt-section .field-group {
+  margin: 0;
+}
+
+.nt-label,
+.nt-section label:not(.nt-seg-option):not(.nt-chips label) {
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.nt-optional {
+  margin-left: 4px;
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.nt-hint {
+  min-height: 0;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.8125rem;
+  line-height: 1.45;
+}
+
+.nt-hint:empty {
+  display: none;
+}
+
+.nt-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+/* Where it goes: a segmented control of three real choices. */
+.nt-seg {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 4px;
+  border-radius: 16px;
+  padding: 4px;
+  background: var(--fill);
+}
+
+.nt-seg-option {
+  position: relative;
+  cursor: pointer;
+}
+
+.nt-seg-option input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.nt-seg-option > span {
+  display: grid;
+  gap: 1px;
+  min-height: 52px;
+  align-content: center;
+  border-radius: 12px;
+  padding: 8px 14px;
+  transition: background-color var(--dur-short) var(--ease-out), box-shadow var(--dur-short) var(--ease-out);
+}
+
+.nt-seg-option b {
+  font-size: 0.9375rem;
+  font-weight: 600;
+}
+
+.nt-seg-option small {
+  color: var(--muted);
+  font-size: 0.8125rem;
+}
+
+.nt-seg-option:hover > span {
+  background: color-mix(in srgb, var(--surface) 50%, transparent);
+}
+
+.nt-seg-option input:checked + span {
+  background: var(--surface);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08), 0 0 0 1px var(--line);
+}
+
+.nt-seg-option input:focus-visible + span {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.nt-pane {
+  display: grid;
+  gap: 16px;
+}
+
+.nt-pane[hidden],
+.nt-hint[hidden] {
+  display: none;
+}
+
+/* Chips for priority and quick due dates */
+.nt-chips,
+.nt-quick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.nt-chips label {
+  position: relative;
+  cursor: pointer;
+}
+
+.nt-chips input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.nt-chips span,
+.nt-quick button {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 0 12px;
+  color: var(--ink);
+  background: var(--surface);
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color var(--dur-micro) ease-out, border-color var(--dur-micro) ease-out;
+}
+
+.nt-quick {
+  margin-top: 8px;
+}
+
+.nt-quick button:hover,
+.nt-chips label:hover span {
+  border-color: var(--line-strong);
+}
+
+.nt-chips input:checked + span {
+  border-color: var(--ink);
+  color: var(--surface);
+  background: var(--ink);
+}
+
+.nt-chips input:focus-visible + span,
+.nt-quick button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.nt-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.nt-actions .btn {
+  min-height: 44px;
+  padding: 0 22px;
+}
+
+.nt-actions .form-message {
+  flex: 1 1 100%;
+  margin: 0;
+}
+
+@media (max-width: 640px) {
+  .nt-row {
+    grid-template-columns: 1fr;
+  }
+
+  .nt-seg {
+    grid-template-columns: 1fr;
+  }
+
+  .nt-seg-option > span {
+    min-height: 48px;
+  }
+
+  .nt-actions .btn-primary {
+    flex: 1;
+  }
+}
+
+/* ======================================================== dashboard */
+
+/* Status counts as one instrument, like Screen Time: a single surface split
+   by hairlines rather than four floating cards. */
+.dash-kpis {
+  gap: 1px;
+  overflow: clip;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--line);
+}
+
+.dash-kpis .dash-kpi {
+  border: 0;
+  border-radius: 0;
+  background: var(--surface);
+}
+
+.dash-kpis .dash-kpi:hover {
+  background: var(--surface-soft);
+}
+
+.dash-kpis .dash-kpi[aria-expanded="true"] {
+  background: var(--k-soft);
+}
+
+.dash-kpis .dash-kpi:active {
+  transform: none;
+}
+
+.dash-kpi-num {
+  font-family: var(--font-display);
+  font-size: clamp(1.75rem, 2.6vw, 2.25rem);
+  font-weight: 650;
+  letter-spacing: -0.035em;
+  font-variant-numeric: tabular-nums;
+}
+
+.nt-section select {
+  min-height: 0;
+  height: auto;
+}
+
+.nt-section input,
+.nt-section select {
+  block-size: 46px;
+}
+
+.nt-row > .field-group {
+  align-content: start;
+}
+
+/* The top bar has + Task now; the project page passes its id along. */
+#create-task-link {
+  display: none !important;
+}

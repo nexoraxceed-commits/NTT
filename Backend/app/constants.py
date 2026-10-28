@@ -38,6 +38,9 @@ ACTIVE_STATUS = "ACTIVE"
 DELETED_STATUS = "DELETED"
 PROJECT_STATUS_OPEN = "OPEN"
 PROJECT_STATUS_CLOSED = "CLOSED"
+# Shared bucket for tasks that are not part of a real project. Anyone active can
+# add to it; it is created the first time someone needs it.
+ADDITIONAL_WORK_PROJECT_NAME = "Additional work"
 NOTIFICATION_STATUS_UNREAD = "UNREAD"
 NOTIFICATION_STATUS_READ = "READ"
 TASK_STATUS_OPEN = "OPEN"

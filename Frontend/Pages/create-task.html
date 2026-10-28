@@ -4,64 +4,131 @@
     <meta charset="utf-8">
     <script>try{var t=localStorage.getItem("ntt-theme");if(t==="dark"||(t!=="light"&&matchMedia("(prefers-color-scheme: dark)").matches))document.documentElement.setAttribute("data-theme","dark")}catch(e){}</script>
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-    <meta name="theme-color" content="#2f6f5d">
+    <meta name="theme-color" content="#f5f5f7">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <meta name="apple-mobile-web-app-title" content="Nexora">
-    <title>Create Task | Nexora</title>
+    <meta name="description" content="Add a task to a project, a new project, or Additional work.">
+    <title>New task | Nexora</title>
     <link rel="manifest" href="/manifest.webmanifest">
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png?v=20260723-user-classes">
     <link rel="icon" href="/icons/icon-192.png?v=20260723-user-classes" sizes="192x192" type="image/png">
     <link rel="stylesheet" href="/Css/styles.css?v=20261027-ui12">
     <link rel="stylesheet" href="/Css/ui-kit.css?v=20261027-ui9">
     <link rel="stylesheet" href="/Css/theme-dark.css?v=2">
+    <link rel="stylesheet" href="/Css/refine.css?v=20261028-r1">
   </head>
   <body class="app-body">
     <main class="workspace-shell narrow-shell">
       <header class="workspace-header">
         <div>
-          <p class="eyebrow">Project task</p>
-          <h1>Create task</h1>
+          <h1>New task</h1>
+          <p class="nt-lede">Put it in a project, start a new one, or keep it as additional work.</p>
         </div>
         <div class="header-actions">
-          <a class="btn btn-icon" id="create-task-back-link" href="/post-login" aria-label="Back to project" title="Back to project">&larr;</a>
+          <a class="btn btn-icon" id="create-task-back-link" href="/tasks" aria-label="Back" title="Back">&larr;</a>
         </div>
       </header>
 
-      <section class="workspace-panel wide-panel" aria-labelledby="create-task-title">
-        <h2 id="create-task-title">Task details</h2>
-        <form class="project-form" id="create-task-form" novalidate>
+      <form class="nt-form" id="create-task-form" novalidate>
+        <fieldset class="nt-section" id="nt-where">
+          <legend>Where it goes</legend>
+          <div class="nt-seg" role="radiogroup" aria-label="Where the task goes">
+            <label class="nt-seg-option">
+              <input type="radio" name="destination" value="additional" checked>
+              <span><b>Additional work</b><small>Not part of a project</small></span>
+            </label>
+            <label class="nt-seg-option">
+              <input type="radio" name="destination" value="existing">
+              <span><b>A project</b><small>Pick one you're on</small></span>
+            </label>
+            <label class="nt-seg-option" data-management-only hidden>
+              <input type="radio" name="destination" value="new">
+              <span><b>New project</b><small>Create it here</small></span>
+            </label>
+          </div>
+
+          <div class="nt-pane" data-pane="existing" hidden>
+            <div class="field-group">
+              <label for="task_project_id">Project</label>
+              <select id="task_project_id" name="project_id">
+                <option value="">Loading projects…</option>
+              </select>
+              <p class="nt-hint" id="task_project_hint"></p>
+            </div>
+          </div>
+
+          <div class="nt-pane" data-pane="new" hidden>
+            <div class="field-group">
+              <label for="new_project_name">Project name</label>
+              <input id="new_project_name" name="new_project_name" type="text" maxlength="160" autocomplete="off" placeholder="e.g. Demo day logistics">
+            </div>
+            <div class="nt-row">
+              <div class="field-group">
+                <span class="nt-label" id="new_project_priority_label">Priority</span>
+                <div class="nt-chips" role="radiogroup" aria-labelledby="new_project_priority_label">
+                  <label><input type="radio" name="new_project_priority" value="" checked><span>None</span></label>
+                  <label><input type="radio" name="new_project_priority" value="HIGH"><span>High</span></label>
+                  <label><input type="radio" name="new_project_priority" value="MEDIUM"><span>Medium</span></label>
+                  <label><input type="radio" name="new_project_priority" value="LOW"><span>Low</span></label>
+                </div>
+              </div>
+              <div class="field-group">
+                <label for="new_project_target">Project wraps up by <span class="nt-optional">optional</span></label>
+                <input id="new_project_target" name="new_project_target" type="date">
+              </div>
+            </div>
+            <p class="nt-hint">You'll supervise it, and the assignee joins its team. Add more people later from the project page.</p>
+          </div>
+
+          <p class="nt-hint" data-pane="additional">For one-off jobs that don't belong to a project. They show up in Tasks and on the dashboard like any other task.</p>
+        </fieldset>
+
+        <fieldset class="nt-section">
+          <legend>The task</legend>
           <div class="field-group">
-            <label for="task_title">Task name</label>
-            <input id="task_title" name="task_title" type="text" maxlength="160" required>
+            <label for="task_title">What needs doing</label>
+            <input id="task_title" name="task_title" type="text" maxlength="160" autocomplete="off" required placeholder="e.g. Send the sponsor deck to Tata">
           </div>
           <div class="field-group">
-            <label for="task_details">Task description</label>
-            <textarea id="task_details" name="task_details" rows="4" maxlength="1000"></textarea>
+            <label for="task_details">Details <span class="nt-optional">optional</span></label>
+            <textarea id="task_details" name="task_details" rows="3" maxlength="1000" placeholder="Context, what done looks like, who to loop in"></textarea>
           </div>
           <div class="field-group">
-            <label for="task_documents">Task documents</label>
-            <input id="task_documents" name="documents" type="url" maxlength="2000">
+            <label for="task_documents">Link to the work <span class="nt-optional">optional</span></label>
+            <input id="task_documents" name="documents" type="url" inputmode="url" maxlength="2000" placeholder="Drive, Docs or Notion link">
           </div>
-          <div class="field-group">
-            <label for="task_end_date">End date</label>
-            <input id="task_end_date" name="end_date" type="date" required>
+          <div class="nt-row">
+            <div class="field-group">
+              <label for="task_end_date">Due</label>
+              <input id="task_end_date" name="end_date" type="date" required>
+              <div class="nt-quick" id="task_due_quick" aria-label="Quick due dates">
+                <button type="button" data-days="0">Today</button>
+                <button type="button" data-days="1">Tomorrow</button>
+                <button type="button" data-days="friday">Friday</button>
+                <button type="button" data-days="7">Next week</button>
+              </div>
+            </div>
+            <div class="field-group">
+              <label for="task_assigned_to_email">Who's doing it</label>
+              <select id="task_assigned_to_email" name="assigned_to_email">
+                <option value="">Unassigned</option>
+              </select>
+              <p class="nt-hint" id="task_assignee_hint"></p>
+            </div>
           </div>
-          <div class="field-group">
-            <label for="task_assigned_to_email">Task assignee</label>
-            <select id="task_assigned_to_email" name="assigned_to_email">
-              <option value="">Unassigned</option>
-              <option value="" disabled>Loading users...</option>
-            </select>
-          </div>
-          <button class="btn btn-primary" type="submit">Create Task</button>
+        </fieldset>
+
+        <div class="nt-actions">
+          <button class="btn btn-primary" type="submit" id="create-task-submit">Add task</button>
+          <a class="btn btn-secondary" id="create-task-cancel" href="/tasks">Cancel</a>
           <p class="form-message" id="create-task-message" role="status" aria-live="polite"></p>
-        </form>
-      </section>
+        </div>
+      </form>
     </main>
     <script src="/Js/config.js?v=20260723-user-classes"></script>
     <script src="/Js/ui-kit.js?v=20261027-ui9"></script>
-    <script src="/Js/app.js?v=20261027-ui12"></script>
+    <script src="/Js/app.js?v=20261028-r1"></script>
   </body>
 </html>

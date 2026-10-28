@@ -1949,10 +1949,35 @@ function setupWorkspaceNavigation() {
       topbarActions.append(actions);
     }
 
+    const userClassForAdd = String(getSession()?.userClass || "").toUpperCase();
+    if (userClassForAdd && userClassForAdd !== "REDUNDANT_USER" && navPath !== "/create-task") {
+      const addTask = document.createElement("a");
+      addTask.className = "btn topbar-add-task";
+      const projectIdForAdd = navPath === "/project" ? getQueryParam("id") : "";
+      addTask.href = projectIdForAdd ? `/create-task?id=${encodeURIComponent(projectIdForAdd)}` : "/create-task";
+      addTask.setAttribute("aria-label", "New task");
+      addTask.title = "New task (N)";
+      addTask.innerHTML =
+        '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg><span>Task</span>';
+      topbarActions.prepend(addTask);
+      document.addEventListener("keydown", (event) => {
+        const typing = event.target.closest?.("input, textarea, select, [contenteditable='true']");
+        if (event.key === "n" && !typing && !event.metaKey && !event.ctrlKey && !event.altKey) {
+          window.location.href = "/create-task";
+        }
+      });
+    }
     topbarActions.append(createNotificationTray(icons.notifications));
 
     topbar.append(brand, topbarActions);
     header.prepend(topbar);
+    const markStuck = () => {
+      const y = Math.max(window.scrollY, document.body.scrollTop || 0, document.documentElement.scrollTop || 0);
+      topbar.classList.toggle("is-stuck", y > 4);
+    };
+    window.addEventListener("scroll", markStuck, { passive: true });
+    document.body.addEventListener("scroll", markStuck, { passive: true });
+    markStuck();
     updateNotificationBadge();
     registerLiveRefreshJob("notification-badge", updateNotificationBadge, {
       intervalMs: liveRefreshIntervals.badge,
@@ -4382,55 +4407,240 @@ function setupEditProjectPage() {
   loadProjectForEdit();
 }
 
+const ADDITIONAL_WORK_NAME = "additional work";
+
+function isAdditionalWorkProject(project) {
+  return String(project?.project_name || "").trim().toLowerCase() === ADDITIONAL_WORK_NAME;
+}
+
+function localIsoDate(date) {
+  const pad = (value) => String(value).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
 function setupCreateTaskPage() {
-  const createTaskForm = document.querySelector("#create-task-form");
-  const taskMessage = document.querySelector("#create-task-message");
+  const form = document.querySelector("#create-task-form");
+  if (!form) {
+    return;
+  }
+  const message = document.querySelector("#create-task-message");
   const backLink = document.querySelector("#create-task-back-link");
-  const projectId = getQueryParam("id");
+  const cancelLink = document.querySelector("#create-task-cancel");
+  const projectSelect = document.querySelector("#task_project_id");
+  const projectHint = document.querySelector("#task_project_hint");
+  const assigneeSelect = document.querySelector("#task_assigned_to_email");
+  const assigneeHint = document.querySelector("#task_assignee_hint");
+  const dueInput = document.querySelector("#task_end_date");
+  const session = getSession();
+  const myEmail = String(session?.email || "").toLowerCase();
+  const isManager = ["ADMIN", "SENIOR"].includes(String(session?.userClass || "").toUpperCase());
+  const presetProjectId = getQueryParam("id");
 
-  if (!createTaskForm) {
-    return;
+  let users = [];
+  let projects = [];
+  let lastDestination = "additional";
+  let createdProjectId = null;
+  let assigneeTouched = false;
+
+  if (presetProjectId) {
+    backLink.href = `/project?id=${presetProjectId}`;
+    cancelLink.href = backLink.href;
+  } else if (document.referrer && new URL(document.referrer).origin === window.location.origin) {
+    const ref = new URL(document.referrer);
+    if (!ref.pathname.includes("create-task")) {
+      backLink.href = ref.pathname + ref.search;
+      cancelLink.href = backLink.href;
+    }
   }
 
-  if (!projectId) {
-    setMessage(taskMessage, "Project id is missing.", true);
-    return;
+  const destination = () => form.querySelector("input[name='destination']:checked")?.value || "additional";
+
+  const emailsOf = (list) =>
+    (list || []).map((person) => String(person?.email || "").toLowerCase()).filter(Boolean);
+
+  const canAddTo = (project) =>
+    isManager ||
+    emailsOf(project.team).includes(myEmail) ||
+    emailsOf(project.supervisors).includes(myEmail) ||
+    String(project.created_by_email || "").toLowerCase() === myEmail ||
+    String(project.stakeholder_email || "").toLowerCase() === myEmail;
+
+  function selectedProject() {
+    return projects.find((project) => String(project.id) === String(projectSelect.value)) || null;
   }
 
-  backLink.href = `/project?id=${projectId}`;
-  populateUserSelect(document.querySelector("#task_assigned_to_email"), {
-    includeCurrentUser: true,
-  }).catch(() => {});
+  function fillAssignees() {
+    const where = destination();
+    const previous = assigneeSelect.value;
+    let allowed = users;
+    let hint = "";
+    if (!isManager && where === "additional") {
+      allowed = users.filter((user) => String(user.email).toLowerCase() === myEmail);
+      hint = "Tasks outside a project go to you.";
+    } else if (!isManager && where === "existing") {
+      const project = selectedProject();
+      const team = new Set([...emailsOf(project?.team), ...emailsOf(project?.supervisors), myEmail]);
+      allowed = users.filter((user) => team.has(String(user.email).toLowerCase()));
+      hint = project ? "You can assign yourself or anyone on this project." : "";
+    }
+    assigneeSelect.replaceChildren();
+    if (isManager || where !== "additional") {
+      assigneeSelect.append(new Option("Unassigned", ""));
+    }
+    const sorted = [...allowed].sort((a, b) => {
+      const aMe = String(a.email).toLowerCase() === myEmail ? 0 : 1;
+      const bMe = String(b.email).toLowerCase() === myEmail ? 0 : 1;
+      return aMe - bMe || String(a.user_name || a.email).localeCompare(String(b.user_name || b.email));
+    });
+    sorted.forEach((user) => {
+      const isMe = String(user.email).toLowerCase() === myEmail;
+      assigneeSelect.append(new Option(isMe ? `Me (${user.user_name || user.email})` : formatAssignee(user), user.email));
+    });
+    if (!assigneeTouched && [...assigneeSelect.options].some((option) => option.value.toLowerCase() === myEmail)) {
+      assigneeSelect.value = [...assigneeSelect.options].find((option) => option.value.toLowerCase() === myEmail).value;
+    } else if ([...assigneeSelect.options].some((option) => option.value === previous)) {
+      assigneeSelect.value = previous;
+    } else if ([...assigneeSelect.options].some((option) => option.value.toLowerCase() === myEmail)) {
+      assigneeSelect.value = [...assigneeSelect.options].find((option) => option.value.toLowerCase() === myEmail).value;
+    }
+    assigneeHint.textContent = hint;
+  }
 
-  createTaskForm?.addEventListener("submit", async (event) => {
-    event.preventDefault();
+  function showDestination() {
+    const where = destination();
+    form.querySelectorAll("[data-pane]").forEach((pane) => {
+      pane.hidden = pane.dataset.pane !== where;
+    });
+    form.querySelector("#new_project_name").required = where === "new";
+    projectSelect.required = where === "existing";
+    if (where !== lastDestination) {
+      setMessage(message, "");
+      lastDestination = where;
+    }
+    fillAssignees();
+  }
 
-    if (!createTaskForm.checkValidity()) {
-      createTaskForm.reportValidity();
+  function fillProjects() {
+    const open = projects.filter(
+      (project) => String(project.status || "OPEN").toUpperCase() === "OPEN" && !isAdditionalWorkProject(project) && canAddTo(project)
+    );
+    projectSelect.replaceChildren();
+    if (!open.length) {
+      projectSelect.append(new Option("You're not on any open project yet", ""));
+      projectSelect.disabled = true;
+      projectHint.textContent = isManager
+        ? "Start a new project instead, or keep this as additional work."
+        : "Ask a senior to add you to a project, or keep this as additional work.";
       return;
     }
+    projectSelect.disabled = false;
+    projectSelect.append(new Option("Choose a project", ""));
+    const order = { HIGH: 0, MEDIUM: 1, LOW: 2 };
+    open
+      .sort((a, b) => (order[a.priority] ?? 3) - (order[b.priority] ?? 3) || a.project_name.localeCompare(b.project_name))
+      .forEach((project) => {
+        const tag = project.priority ? ` · ${project.priority.charAt(0)}${project.priority.slice(1).toLowerCase()} priority` : "";
+        projectSelect.append(new Option(`${project.project_name}${tag}`, project.id));
+      });
+    projectHint.textContent = isManager ? "" : "Only projects you're part of are listed.";
+  }
 
-    const formData = new FormData(createTaskForm);
-    setMessage(taskMessage, "Creating task...");
-    const submitButton =
-      event.submitter || createTaskForm.querySelector("[type='submit']");
+  form.querySelectorAll("input[name='destination']").forEach((radio) => {
+    radio.addEventListener("change", showDestination);
+  });
+  projectSelect.addEventListener("change", fillAssignees);
+  assigneeSelect.addEventListener("change", () => {
+    assigneeTouched = true;
+  });
+
+  document.querySelector("#task_due_quick")?.addEventListener("click", (event) => {
+    const button = event.target.closest("button[data-days]");
+    if (!button) {
+      return;
+    }
+    const date = new Date();
+    if (button.dataset.days === "friday") {
+      const add = (5 - date.getDay() + 7) % 7 || 7;
+      date.setDate(date.getDate() + add);
+    } else {
+      date.setDate(date.getDate() + Number(button.dataset.days));
+    }
+    dueInput.value = localIsoDate(date);
+    dueInput.dispatchEvent(new Event("change"));
+  });
+  dueInput.min = localIsoDate(new Date());
+
+  Promise.all([getActiveUsers().catch(() => []), getAuthorizedJson("/projects").catch(() => [])]).then(
+    ([loadedUsers, loadedProjects]) => {
+      users = (loadedUsers || []).filter((user) => user.email && String(user.user_class || "").toUpperCase() !== "REDUNDANT_USER");
+      projects = Array.isArray(loadedProjects) ? loadedProjects : [];
+      fillProjects();
+      const preset = projects.find((project) => String(project.id) === String(presetProjectId));
+      if (preset && !isAdditionalWorkProject(preset)) {
+        form.querySelector("input[name='destination'][value='existing']").checked = true;
+        projectSelect.value = String(preset.id);
+      }
+      showDestination();
+    }
+  );
+  showDestination();
+
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (!form.checkValidity()) {
+      form.reportValidity();
+      form.querySelector(":invalid")?.focus();
+      return;
+    }
+    const data = new FormData(form);
+    const where = destination();
+    const submitButton = event.submitter || form.querySelector("[type='submit']");
+    const assignee = String(data.get("assigned_to_email") ?? "").trim() || null;
     setButtonBusy(submitButton, true);
 
     try {
-      const data = await postAuthorizedJson(`/projects/${projectId}/tasks`, {
-        task_title: String(formData.get("task_title") ?? "").trim(),
-        task_details: String(formData.get("task_details") ?? "").trim() || null,
-        documents: String(formData.get("documents") ?? "").trim() || null,
-        end_date: String(formData.get("end_date") ?? "").trim(),
-        assigned_to_email:
-          String(formData.get("assigned_to_email") ?? "").trim() || null,
+      let projectId = null;
+      if (where === "existing") {
+        projectId = String(data.get("project_id") || "");
+      } else if (where === "additional") {
+        setMessage(message, "Adding to Additional work…");
+        const bucket = await postAuthorizedJson("/projects/additional-work", {});
+        projectId = bucket.id;
+      } else if (createdProjectId) {
+        projectId = createdProjectId;
+      } else {
+        setMessage(message, "Creating the project…");
+        const team = assignee && assignee.toLowerCase() !== myEmail ? [assignee] : [];
+        const created = await postAuthorizedJson("/projects", {
+          project_name: String(data.get("new_project_name") ?? "").trim(),
+          description: null,
+          supervisor_emails: [session.email],
+          team_emails: team,
+          watcher_emails: [],
+          priority: String(data.get("new_project_priority") || "") || null,
+          target_date: String(data.get("new_project_target") || "") || null,
+          idempotency_key: createIdempotencyKey("create-project"),
+        });
+        projectId = created.id;
+        createdProjectId = projectId || null;
+        if (!projectId) {
+          throw new Error("The project was created, but the task wasn't added. Open the project and add it there.");
+        }
+      }
+
+      setMessage(message, "Adding the task…");
+      const result = await postAuthorizedJson(`/projects/${projectId}/tasks`, {
+        task_title: String(data.get("task_title") ?? "").trim(),
+        task_details: String(data.get("task_details") ?? "").trim() || null,
+        documents: String(data.get("documents") ?? "").trim() || null,
+        end_date: String(data.get("end_date") ?? "").trim(),
+        assigned_to_email: assignee,
         idempotency_key: createIdempotencyKey("create-task"),
       });
-      createTaskForm.reset();
-      setMessage(taskMessage, data.detail || "Task created successfully.");
-      window.location.href = `/project?id=${projectId}`;
+      setMessage(message, result.detail || "Task added.");
+      window.location.href = result.id ? `/task?id=${result.id}` : where === "additional" ? "/tasks" : `/project?id=${projectId}`;
     } catch (error) {
-      setMessage(taskMessage, error.message, true);
+      setMessage(message, error.message, true);
     } finally {
       setButtonBusy(submitButton, false);
     }

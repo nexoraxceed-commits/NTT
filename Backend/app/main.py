@@ -20,6 +20,7 @@ from app.team_report import build_team_report
 from app.backlog_service import BacklogService, load_backlog_config
 from app.config import RESOURCES_ROOT, Settings, get_settings
 from app.constants import (
+    ADDITIONAL_WORK_PROJECT_NAME,
     ASSIGNABLE_USER_CLASSES,
     AUTH_UID_COLUMN,
     ACTIVE_STATUS,
@@ -90,6 +91,7 @@ from app.repositories import (
     upsert_push_subscription,
 )
 from app.schemas import (
+    AdditionalWorkResponse,
     AdminCreateUserRequest,
     AdminUpdateUserRequest,
     AdminUpdateUserClassRequest,
@@ -376,6 +378,51 @@ def ensure_project_is_active(project: dict) -> None:
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Project not found.",
         )
+
+
+def is_additional_work_project(project: dict) -> bool:
+    """The shared bucket for tasks that sit outside any real project."""
+    return (
+        str(project.get("project_name") or "").strip().lower()
+        == ADDITIONAL_WORK_PROJECT_NAME.lower()
+    )
+
+
+def get_or_create_additional_work_project(supabase_admin: Client, user_id: object) -> dict:
+    response = (
+        supabase_admin.table(PROJECTS_TABLE)
+        .select("id,project_name,status,created_at")
+        .ilike("project_name", ADDITIONAL_WORK_PROJECT_NAME)
+        .order("created_at", desc=False)
+        .execute()
+    )
+    for row in getattr(response, "data", None) or []:
+        if str(row.get("status") or PROJECT_STATUS_OPEN).upper() not in {
+            DELETED_STATUS,
+            PROJECT_STATUS_CLOSED,
+        }:
+            return row
+    created = (
+        supabase_admin.table(PROJECTS_TABLE)
+        .insert(
+            {
+                "project_name": ADDITIONAL_WORK_PROJECT_NAME,
+                "description": "Tasks outside a project: one-off requests, admin work and other ad-hoc jobs.",
+                "created_by": user_id,
+                "stakeholder_id": None,
+                "status": PROJECT_STATUS_OPEN,
+            }
+        )
+        .execute()
+    )
+    rows = getattr(created, "data", None) or []
+    if not rows:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Could not set up Additional work. Please try again.",
+        )
+    invalidate_project_cache(int(rows[0]["id"]))
+    return rows[0]
 
 
 def normalize_project_status(value: object) -> str:
@@ -3624,6 +3671,11 @@ def create_app() -> FastAPI:
                 detail="Session expired. Please sign in again.",
             )
         require_management_user(current_user)
+        if payload.project_name.strip().lower() == ADDITIONAL_WORK_PROJECT_NAME.lower():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f'"{ADDITIONAL_WORK_PROJECT_NAME}" is kept for tasks outside a project. Pick another name.',
+            )
         cached_response = get_cached_command_response(
             "create-project",
             str(user_id),
@@ -3764,7 +3816,7 @@ def create_app() -> FastAPI:
             ) from exc
 
         invalidate_project_cache(int(project_id))
-        response = MessageResponse(detail="Project created successfully.")
+        response = MessageResponse(detail="Project created successfully.", id=int(project_id))
         cache_command_response(
             "create-project",
             str(user_id),
@@ -3772,6 +3824,25 @@ def create_app() -> FastAPI:
             response,
         )
         return response
+
+    @app.post("/projects/additional-work", response_model=AdditionalWorkResponse)
+    def ensure_additional_work_project(
+        current_user: object = Depends(get_current_user),
+        supabase_admin: Client = Depends(get_supabase_admin_client),
+    ) -> AdditionalWorkResponse:
+        user_id = getattr(current_user, "id", None)
+        if not user_id:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Session expired. Please sign in again.",
+            )
+        if str(getattr(current_user, "user_class", "") or "").upper() == USER_CLASS_REDUNDANT:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="This account can view work but not add tasks.",
+            )
+        project = get_or_create_additional_work_project(supabase_admin, user_id)
+        return AdditionalWorkResponse(id=int(project["id"]), project_name=str(project["project_name"]))
 
     @app.post("/projects/{project_id}/tasks", response_model=MessageResponse)
     def create_task(
@@ -3799,8 +3870,15 @@ def create_app() -> FastAPI:
         ensure_project_is_active(project)
         project_watchers = get_project_watchers(supabase_admin, project_id)
         project_team = get_project_team(supabase_admin, project_id)
+        additional_work = is_additional_work_project(project)
+        if additional_work and str(getattr(current_user, "user_class", "") or "").upper() == USER_CLASS_REDUNDANT:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="This account can view work but not add tasks.",
+            )
         if not (
-            is_management_user(current_user)
+            additional_work
+            or is_management_user(current_user)
             or is_project_member(project, project_team, user_id)
         ):
             raise HTTPException(
@@ -3823,7 +3901,11 @@ def create_app() -> FastAPI:
             ):
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
-                    detail="You can assign tasks to yourself or to people on this project's team.",
+                    detail=(
+                        "Tasks outside a project can only be assigned to yourself."
+                        if additional_work
+                        else "You can assign tasks to yourself or to people on this project's team."
+                    ),
                 )
 
         end_date = parse_iso_date(payload.end_date, "Task end date")
@@ -3873,7 +3955,7 @@ def create_app() -> FastAPI:
             invalidate_task_cache(task_id, project_id)
         else:
             invalidate_project_cache(project_id)
-        response = MessageResponse(detail="Task created successfully.")
+        response = MessageResponse(detail="Task created successfully.", id=task_id)
         cache_command_response(
             "create-task",
             str(user_id),
@@ -4185,13 +4267,20 @@ def create_app() -> FastAPI:
                 exclude_user_ids={str(user_id)},
             )
 
-        if requested_status == TASK_STATUS_CLOSE_REQUESTED and project_supervisor_ids(
-            project, project_team
+        close_reviewer_ids = project_supervisor_ids(project, project_team)
+        if (
+            not close_reviewer_ids
+            and is_additional_work_project(project)
+            and task.get("created_by")
+            and str(task.get("created_by")) != str(user_id)
         ):
+            # Additional work has no supervisors: whoever added the task reviews it.
+            close_reviewer_ids = [str(task["created_by"])]
+        if requested_status == TASK_STATUS_CLOSE_REQUESTED and close_reviewer_ids:
             notify_user_ids(
                 supabase_admin,
                 app_settings,
-                project_supervisor_ids(project, project_team),
+                close_reviewer_ids,
                 f"{actor_name} requested to close task",
                 f'{actor_name} requested to close "{task_name}".',
                 "TASK",

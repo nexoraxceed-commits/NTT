@@ -114,6 +114,11 @@ class CreateTaskWorkLogRequest(BaseModel):
     idempotency_key: str | None = Field(default=None, max_length=120)
 
 
+class AdditionalWorkResponse(BaseModel):
+    id: int
+    project_name: str
+
+
 class ProjectUserResponse(BaseModel):
     email: str
     user_name: str | None = None
@@ -275,6 +280,8 @@ class ErrorResponse(BaseModel):
 
 class MessageResponse(BaseModel):
     detail: str
+    # The id of the record a create command made, so the page can go to it.
+    id: int | None = None
 
 
 class BatchCatalogResponse(BaseModel):
