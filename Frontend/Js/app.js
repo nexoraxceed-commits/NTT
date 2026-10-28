@@ -1947,6 +1947,21 @@ function setupWorkspaceNavigation() {
 
     if (actions) {
       topbarActions.append(actions);
+      // On phones, worded page actions (e.g. Close project) sit under the
+      // title instead of crowding the top bar; icons stay up top.
+      const wordedActions = [...actions.querySelectorAll(":scope > .btn:not(.btn-icon)")];
+      if (wordedActions.length) {
+        const titleActions = document.createElement("div");
+        titleActions.className = "title-actions";
+        titleBlock.append(titleActions);
+        const narrow = window.matchMedia("(max-width: 560px)");
+        const placeActions = () => {
+          wordedActions.forEach((button) => (narrow.matches ? titleActions : actions).append(button));
+          titleActions.hidden = !narrow.matches;
+        };
+        placeActions();
+        narrow.addEventListener?.("change", placeActions);
+      }
     }
 
     const userClassForAdd = String(getSession()?.userClass || "").toUpperCase();

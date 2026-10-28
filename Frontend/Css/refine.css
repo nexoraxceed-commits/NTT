@@ -629,3 +629,119 @@ textarea:focus-visible {
 #create-task-link {
   display: none !important;
 }
+
+/* ===================================================== mobile top bar */
+
+/* iOS nav-bar manners on phones: bare glyphs instead of white tiles, one
+   filled action (+), appearance moved into the account menu, no orb. */
+@media (max-width: 560px) {
+  .workspace-topbar {
+    gap: 8px;
+    min-height: 52px;
+  }
+
+  .workspace-brand-lockup {
+    gap: 6px;
+    min-width: 0;
+  }
+
+  .workspace-brand-text img {
+    height: 17px;
+  }
+
+  .workspace-topbar-actions {
+    gap: 2px;
+    flex-shrink: 0;
+  }
+
+  .workspace-topbar .ui-theme-toggle {
+    display: none;
+  }
+
+  .nav-trigger,
+  .workspace-topbar .btn-icon,
+  .workspace-topbar .notification-trigger {
+    width: 40px;
+    height: 40px;
+    min-height: 40px;
+    border: 0;
+    border-radius: 999px;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .nav-trigger:active,
+  .workspace-topbar .btn-icon:active {
+    background: var(--fill);
+  }
+
+  .workspace-topbar .topbar-add-task {
+    width: 34px;
+    min-height: 34px;
+    margin: 0 4px;
+  }
+
+  .workspace-topbar .ui-me-btn {
+    min-height: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .workspace-topbar .ui-me-btn .ui-me-avatar {
+    width: 32px;
+    height: 32px;
+    font-size: 0.75rem;
+  }
+
+  .dash-head-copy.has-orb {
+    display: block;
+  }
+
+  .dash-head-copy.has-orb > .ui-orb {
+    display: none;
+  }
+}
+
+.title-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.title-actions .btn {
+  min-height: 36px;
+  padding: 0 14px;
+  border-radius: 999px;
+  font-size: 0.875rem;
+}
+
+@media (max-width: 560px) {
+  .workspace-brand-lockup {
+    flex-shrink: 0;
+  }
+}
+
+@media (max-width: 640px) {
+  .nt-seg {
+    grid-template-columns: none;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(0, 1fr);
+  }
+
+  .nt-seg-option > span {
+    min-height: 40px;
+    padding: 6px 8px;
+    text-align: center;
+  }
+
+  .nt-seg-option b {
+    font-size: 0.875rem;
+  }
+
+  .nt-seg-option small {
+    display: none;
+  }
+}
