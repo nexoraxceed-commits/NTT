@@ -745,3 +745,42 @@ textarea:focus-visible {
     display: none;
   }
 }
+
+/* ---------- illos.dev illustrations (Js/illos.js, Frontend/illos/) ---------- */
+/* Inline SVGs themed through illos's CSS variables, so they follow the app's
+   colours and dark mode. Kept small and only where they show what the text says. */
+.illos {
+  --illos-ground: var(--surface);
+  --illos-ink: var(--ink);
+  --illos-accent: var(--accent);
+  --illos-dark: 0;
+  display: block;
+  width: 100%;
+  max-width: 340px;
+  aspect-ratio: 720 / 460;
+  margin: 0 auto;
+  opacity: 0;
+  transition: opacity 0.4s ease;
+}
+:root[data-theme="dark"] .illos { --illos-dark: 1; }
+.illos.is-loaded { opacity: 1; }
+.illos svg { display: block; width: 100%; height: 100%; }
+
+.empty-illo {
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  padding: 12px 12px 8px;
+  text-align: center;
+}
+.empty-illo .empty-state { margin: 0; }
+
+.welcome-illo { max-width: 300px; margin: 0 auto 10px; }
+.guide-illo { max-width: 300px; margin: 6px auto 2px; }
+
+@media (max-width: 600px) {
+  .illos { max-width: 260px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .illos { transition: none; }
+}

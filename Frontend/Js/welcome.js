@@ -50,6 +50,7 @@
     {
       title: "Welcome",
       render: () => `
+        <div class="illos welcome-illo" data-illos="containers"></div>
         <p class="welcome-kicker">Welcome to NEXORA${firstName() ? `, ${esc(firstName())}` : ""}</p>
         <h2 class="welcome-title">You won't just study entrepreneurship. You'll help build it.</h2>
         <p class="welcome-copy">XCEED is the startup incubator of XLRI Xavier School of Management. It helps early-stage ventures validate ideas, refine business models, strengthen operations, build partnerships and prepare for growth.</p>
@@ -63,6 +64,7 @@
     {
       title: "How work flows",
       render: () => `
+        <div class="illos welcome-illo" data-illos="ci-pipeline"></div>
         <p class="welcome-kicker">How NTT works</p>
         <h2 class="welcome-title">From project to done, in six steps</h2>
         <ol class="welcome-flow">

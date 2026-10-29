@@ -2842,11 +2842,19 @@ function setupCreateProjectForm() {
   });
 }
 
-function renderEmptyState(container, text) {
+function renderEmptyState(container, text, illo = "") {
   container.innerHTML = "";
   const emptyState = document.createElement("p");
   emptyState.className = "empty-state";
   emptyState.textContent = text;
+  if (illo && window.NTTIllos) {
+    // Illustrated empty state (Js/illos.js): picture, then the same text.
+    const wrap = document.createElement("div");
+    wrap.className = "empty-illo";
+    wrap.append(window.NTTIllos.block(illo), emptyState);
+    container.append(wrap);
+    return;
+  }
   container.append(emptyState);
 }
 
@@ -3311,7 +3319,14 @@ function renderMyTasks(container, tasks, projectDetails) {
     empty.textContent = mine.length
       ? "You're all caught up. Nothing open is assigned to you."
       : "Nothing is assigned to you yet. Switch to Board to pick up a task.";
-    wrap.append(empty);
+    if (window.NTTIllos) {
+      const illo = document.createElement("div");
+      illo.className = "empty-illo";
+      illo.append(window.NTTIllos.block("queue"), empty);
+      wrap.append(illo);
+    } else {
+      wrap.append(empty);
+    }
   }
   if (doneRecently) {
     const foot = document.createElement("p");
@@ -4009,7 +4024,7 @@ function setupDashboardProjects() {
     const filterSourceTasks = sourceTasks.length ? sourceTasks : tasks;
 
     if (!tasks.length && !filterSourceTasks.length) {
-      renderEmptyState(taskList, "No tasks found.");
+      renderEmptyState(taskList, "No tasks found.", "queue");
       return;
     }
 
@@ -4159,7 +4174,7 @@ function renderTaskList(tasks) {
   taskList.innerHTML = "";
 
   if (!tasks.length) {
-    renderEmptyState(taskList, "No tasks found.");
+    renderEmptyState(taskList, "No tasks found.", "queue");
     return;
   }
 
@@ -5327,7 +5342,11 @@ function renderNotifications(notifications, targetList = null, options = {}) {
 
   list.innerHTML = "";
   if (!notifications.length) {
-    renderEmptyState(list, options.emptyText || "No notifications yet.");
+    renderEmptyState(
+      list,
+      options.emptyText || "No notifications yet.",
+      list.id === "notification-list" ? "notifications" : ""
+    );
     return;
   }
 
