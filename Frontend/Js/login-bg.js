@@ -33,6 +33,16 @@
     let nodes = [];
     let raf = 0;
     let last = 0;
+    // Speed is eased toward a target set by Js/wake-scene.js while the server
+    // wakes: lines rush and leave trails, then settle back once it is up.
+    let speed = 1;
+    let speedTarget = 1;
+    window.NTTLiveBg = {
+      setSpeed(value) {
+        speedTarget = Math.max(0.5, Math.min(8, Number(value) || 1));
+        play();
+      },
+    };
 
     function resize() {
       const dpr = Math.min(window.devicePixelRatio || 1, lowPower ? 1.25 : 1.5);
@@ -56,15 +66,20 @@
     }
 
     function draw(step) {
-      ctx.fillStyle = "#0b1020";
+      speed += (speedTarget - speed) * 0.06;
+      // Above ~1.3x, paint the backdrop semi-transparent so motion leaves trails.
+      const trail = step && speed > 1.3 ? Math.max(0.22, 1 - (speed - 1) * 0.16) : 1;
+      ctx.fillStyle = trail < 1 ? `rgba(11,16,32,${trail.toFixed(3)})` : "#0b1020";
       ctx.fillRect(0, 0, width, height);
       const reach = Math.min(160, Math.max(90, width / 8));
       if (step) {
         for (const node of nodes) {
-          node.x += node.vx;
-          node.y += node.vy;
+          node.x += node.vx * speed;
+          node.y += node.vy * speed;
           if (node.x < 0 || node.x > width) node.vx *= -1;
           if (node.y < 0 || node.y > height) node.vy *= -1;
+          node.x = Math.min(width, Math.max(0, node.x));
+          node.y = Math.min(height, Math.max(0, node.y));
         }
       }
       ctx.lineWidth = 1;

@@ -151,7 +151,8 @@
     if (pending === 1 && !wakeTimer) {
       wakeTimer = setTimeout(() => {
         wakeTimer = null;
-        if (pending > 0) {
+        // The sign-in pages show their own wake-up scene (Js/wake-scene.js).
+        if (pending > 0 && !document.body.classList.contains("wake-scene-on")) {
           wakeShown = true;
           toast("Waking up the server — this can take up to a minute", {
             tone: "wait",

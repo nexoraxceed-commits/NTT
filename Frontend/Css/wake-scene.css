@@ -1,0 +1,178 @@
+/* ---------- "Jump-starting the server" card (Js/wake-scene.js) ---------- */
+/* Sits on the dark live background in both themes, so it uses its own palette. */
+
+.wake-scene {
+  --ws-p: 0;
+  --ws-ink: #ffffff;
+  --ws-muted: rgba(255, 255, 255, 0.66);
+  --ws-glass: rgba(255, 255, 255, 0.06);
+  --ws-edge: rgba(255, 255, 255, 0.12);
+  --ws-volt: #ffd25a;
+  --ws-red: #ff5d5d;
+  --ws-blue: #5ab8f0;
+  display: grid;
+  gap: 10px;
+  width: 100%;
+  max-width: 440px;
+  margin-top: 6px;
+  padding: 16px 18px 14px;
+  border: 1px solid var(--ws-edge);
+  border-radius: 20px;
+  color: var(--ws-ink);
+  background:
+    radial-gradient(120% 90% at 0% 0%, rgba(90, 184, 240, 0.16), transparent 60%),
+    radial-gradient(90% 80% at 100% 100%, rgba(255, 210, 90, 0.12), transparent 60%),
+    var(--ws-glass);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+  opacity: 0;
+  transform: translateY(10px) scale(0.98);
+  transition: opacity 0.45s ease, transform 0.45s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.wake-scene.is-in { opacity: 1; transform: none; }
+.wake-scene.is-out { opacity: 0; transform: translateY(-6px) scale(0.98); }
+
+.ws-art { display: block; width: 100%; height: auto; max-height: 132px; overflow: visible; }
+
+.ws-copy { display: grid; gap: 2px; }
+.ws-title { margin: 0; font-size: 0.98rem; font-weight: 650; letter-spacing: -0.01em; }
+.ws-sub { margin: 0; color: var(--ws-muted); font-size: 0.84rem; line-height: 1.45; }
+
+.ws-bar {
+  position: relative;
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.ws-bar-fill {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #5ab8f0, #8f7cff 55%, #ffd25a);
+  transform: scaleX(0);
+  transform-origin: left center;
+  transition: transform 0.25s linear;
+}
+
+/* moving shine: the bar always looks alive, even when the number crawls */
+.ws-bar-fill::after {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.55), transparent);
+  background-size: 40% 100%;
+  background-repeat: no-repeat;
+  animation: ws-shine 1.3s linear infinite;
+  content: "";
+}
+
+.wake-scene.is-ready .ws-bar-fill { background: linear-gradient(90deg, #34c77b, #7be0a6); transition-duration: 0.5s; }
+
+.ws-meta {
+  display: flex;
+  justify-content: space-between;
+  margin: 0;
+  color: var(--ws-muted);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- the drawing ---- */
+.ws-ground { stroke: rgba(255, 255, 255, 0.14); stroke-width: 1.5; stroke-dasharray: 2 6; }
+
+.ws-batt-body { fill: #263049; stroke: #3c4a6a; stroke-width: 1.5; }
+.ws-batt-lid { fill: #32405f; }
+.ws-term-pos { fill: var(--ws-red); }
+.ws-term-neg { fill: #9aa6bd; }
+.ws-sign { fill: rgba(255, 255, 255, 0.7); font: 700 12px/1 system-ui, sans-serif; text-anchor: middle; }
+.ws-bolt { fill: var(--ws-volt); filter: drop-shadow(0 0 4px rgba(255, 210, 90, 0.6)); }
+
+.ws-cable { fill: none; stroke-width: 3.2; stroke-linecap: round; }
+.ws-cable-pos { stroke: var(--ws-red); }
+.ws-cable-neg { stroke: #5b6680; }
+.ws-pulse {
+  fill: none;
+  stroke: var(--ws-volt);
+  stroke-width: 3.2;
+  stroke-linecap: round;
+  stroke-dasharray: 5 26;
+  filter: drop-shadow(0 0 3px rgba(255, 210, 90, 0.9));
+  /* faster pulses as the progress grows */
+  animation: ws-pulse calc(1.6s - var(--ws-p) * 1.15s) linear infinite;
+}
+.ws-clamp-pos { fill: #c93b3b; transform-box: fill-box; transform-origin: center; transform: rotate(-35deg); }
+.ws-clamp-neg { fill: #3b4458; }
+
+.ws-srv-body { fill: #1b2438; stroke: #3a4a6a; stroke-width: 1.5; }
+.ws-srv-face { fill: #111a2b; }
+.ws-eyes-shut path { fill: none; stroke: #8fa0bf; stroke-width: 2; stroke-linecap: round; }
+.ws-eyes-open { opacity: 0; }
+.ws-eyes-open circle { fill: #7be0a6; }
+.ws-smile { fill: none; stroke: #7be0a6; stroke-width: 2; stroke-linecap: round; }
+.ws-slot { fill: #141c2d; }
+.ws-led { fill: #2c364b; transition: fill 0.3s ease; }
+
+.wake-scene[data-level="1"] .ws-led-1,
+.wake-scene[data-level="2"] .ws-led-1, .wake-scene[data-level="2"] .ws-led-2,
+.wake-scene[data-level="3"] .ws-led-1, .wake-scene[data-level="3"] .ws-led-2, .wake-scene[data-level="3"] .ws-led-3,
+.wake-scene[data-level="4"] .ws-led { fill: var(--ws-volt); animation: ws-blink 0.7s steps(2) infinite; }
+.wake-scene[data-level="4"] .ws-led-2 { animation-delay: 0.2s; }
+.wake-scene[data-level="4"] .ws-led-4 { animation-delay: 0.45s; }
+.wake-scene[data-level="5"] .ws-led { fill: #34c77b; animation: none; }
+
+.ws-zzz text { fill: rgba(255, 255, 255, 0.55); font: 600 9px/1 system-ui, sans-serif; animation: ws-zzz 2.4s ease-in-out infinite; }
+.ws-zzz text:nth-child(2) { font-size: 11px; animation-delay: 0.4s; }
+.ws-zzz text:nth-child(3) { font-size: 13px; animation-delay: 0.8s; }
+
+.ws-fur { fill: #f6f1e7; }
+.ws-ear > ellipse:first-child { fill: #f6f1e7; }
+.ws-ear-in { fill: #f4a9b8; }
+.ws-tail { fill: #ffffff; }
+.ws-eye { fill: #1b2438; }
+.ws-nose { fill: #f08aa0; }
+.ws-cheek { fill: #f4a9b8; opacity: 0.55; }
+.ws-arm { fill: none; stroke: #f6f1e7; stroke-width: 6.5; stroke-linecap: round; }
+.ws-strap { fill: none; stroke: #ffb347; stroke-width: 2.4; stroke-linecap: round; }
+
+.ws-bunny-inner { animation: ws-brace 0.9s ease-in-out infinite; }
+.ws-ear { transform-box: fill-box; transform-origin: 50% 100%; animation: ws-ear 1.8s ease-in-out infinite; }
+.ws-ear-back { animation-delay: 0.25s; }
+
+.ws-sparks path { fill: none; stroke: var(--ws-volt); stroke-width: 2; stroke-linecap: round; animation: ws-spark 0.35s steps(2) infinite; }
+.ws-sparks path:nth-child(2) { animation-delay: 0.12s; }
+.ws-sparks path:nth-child(3) { animation-delay: 0.22s; }
+
+/* ---- ready: server wakes, bunny celebrates ---- */
+.wake-scene.is-ready .ws-eyes-shut,
+.wake-scene.is-ready .ws-zzz,
+.wake-scene.is-ready .ws-sparks { opacity: 0; transition: opacity 0.3s ease; }
+.wake-scene.is-ready .ws-eyes-open { opacity: 1; transition: opacity 0.3s ease 0.1s; }
+.wake-scene.is-ready .ws-srv-body { stroke: #34c77b; filter: drop-shadow(0 0 10px rgba(52, 199, 123, 0.45)); }
+.wake-scene.is-ready .ws-pulse { animation-duration: 0.4s; }
+.wake-scene.is-ready .ws-bunny-inner { animation: ws-hop 0.55s cubic-bezier(0.3, 0.7, 0.4, 1) 3; }
+
+@keyframes ws-shine { from { background-position: -60% 0; } to { background-position: 160% 0; } }
+@keyframes ws-pulse { to { stroke-dashoffset: -31; } }
+@keyframes ws-blink { 50% { fill: rgba(255, 210, 90, 0.35); } }
+@keyframes ws-zzz { 0%, 100% { opacity: 0.2; transform: translateY(2px); } 50% { opacity: 0.9; transform: translateY(-2px); } }
+@keyframes ws-brace { 0%, 100% { transform: translate(0, 0); } 50% { transform: translate(-1.5px, 1px); } }
+@keyframes ws-ear { 0%, 100% { transform: rotate(-4deg); } 50% { transform: rotate(7deg); } }
+@keyframes ws-spark { 50% { opacity: 0; } }
+@keyframes ws-hop { 0%, 100% { transform: translateY(0); } 45% { transform: translateY(-12px); } }
+
+/* phones: the auth page is a fixed-height screen, so make room */
+@media (max-width: 780px) {
+  .wake-scene { gap: 6px; padding: 10px 12px 10px; border-radius: 16px; text-align: left; }
+  .ws-art { max-height: 84px; }
+  .ws-sub { font-size: 0.78rem; }
+  body.wake-scene-on .brand-partner,
+  body.wake-scene-on .brand-panel h1 { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wake-scene, .ws-bar-fill { transition: none; }
+  .wake-scene *, .wake-scene *::after { animation: none !important; }
+}
