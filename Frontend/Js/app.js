@@ -722,13 +722,52 @@ function getTaskBoardFilters(root) {
   );
 }
 
-function getTaskBoardUrlFilters() {
-  const status = getQueryParam("status");
-  if (!status) {
-    return {};
-  }
+const TASK_URL_FILTER_KEYS = ["status", "project", "assignee", "title"];
 
-  return { status };
+function getTaskBoardUrlFilters() {
+  const params = new URLSearchParams(window.location.search);
+  const filters = {};
+  TASK_URL_FILTER_KEYS.forEach((key) => {
+    const value = params.get(key);
+    if (value) {
+      filters[key] = key === "status" ? value.toUpperCase() : value;
+    }
+  });
+  return filters;
+}
+
+// The Tasks page keeps its filters in the URL, so a filtered view can be
+// refreshed, bookmarked, shared, or opened from the menu ("Overdue").
+function syncTaskFiltersToUrl(filters) {
+  const path = normalizePath(window.location.pathname).replace(/^\/Pages/, "").replace(/\.html$/, "");
+  if (path !== "/tasks") {
+    return;
+  }
+  const params = new URLSearchParams(window.location.search);
+  TASK_URL_FILTER_KEYS.forEach((key) => {
+    const value = String(filters?.[key] || "").trim();
+    if (value) {
+      params.set(key, value);
+    } else {
+      params.delete(key);
+    }
+  });
+  const query = params.toString();
+  const next = `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`;
+  if (next !== `${window.location.pathname}${window.location.search}${window.location.hash}`) {
+    window.history.replaceState(window.history.state, "", next);
+  }
+  const status = String(filters?.status || "").toUpperCase();
+  document.querySelectorAll(".nav-sub-link[href^='/tasks']").forEach((link) => {
+    const linkStatus = (new URL(link.href, window.location.origin).searchParams.get("status") || "").toUpperCase();
+    const isMatch = linkStatus === status;
+    link.classList.toggle("is-active", isMatch);
+    if (isMatch) {
+      link.setAttribute("aria-current", "page");
+    } else {
+      link.removeAttribute("aria-current");
+    }
+  });
 }
 
 function getGlobalTaskBoardFilters(root) {
@@ -1683,7 +1722,7 @@ function createNotificationTray(notificationIcon) {
     }
 
     if (!hasLoaded) {
-      renderEmptyState(list, "Loading notifications...");
+      renderEmptyState(list, "Loading notifications…");
     }
     try {
       const notifications = await getAuthorizedJson("/notifications");
@@ -1837,19 +1876,58 @@ function setupWorkspaceNavigation() {
     logout:
       '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h8a2 2 0 0 1 2 2v2h-2V6H5v12h8v-2h2v2a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Zm12.6 4.4L22.2 13l-4.6 4.6-1.4-1.4 2.2-2.2H10v-2h8.4l-2.2-2.2 1.4-1.4Z"/></svg>',
   };
+  const navUserClass = String(getSession()?.userClass || "").toUpperCase();
+  const canManageNav = ["ADMIN", "SENIOR"].includes(navUserClass);
+  const isReadOnlyNav = navUserClass === "REDUNDANT_USER";
+  const currentStatus = navPath === "/tasks" ? String(getQueryParam("status") || "").toUpperCase() : "";
+
+  // Sections with sub-pages. The first child always repeats the section's own
+  // page ("All tasks"), so on phones nobody has to guess whether tapping the
+  // section name opens it or expands it.
+  const taskChildren = [
+    { href: "/tasks", label: "All tasks", active: navPath === "/tasks" && !currentStatus },
+    { href: "/tasks?status=OPEN", label: "To do", active: currentStatus === "OPEN" },
+    { href: "/tasks?status=IN%20PROGRESS", label: "In progress", active: currentStatus === "IN PROGRESS" },
+    { href: "/tasks?status=OVERDUE", label: "Overdue", active: currentStatus === "OVERDUE" },
+    { href: "/tasks?status=CLOSED", label: "Done", active: currentStatus === "CLOSED" },
+  ];
+  if (!isReadOnlyNav) {
+    taskChildren.push({ href: "/create-task", label: "New task", active: navPath === "/create-task", isNew: true });
+  }
+  const projectChildren = [{ href: "/projects", label: "All projects", active: navPath === "/projects" }];
+  if (canManageNav) {
+    projectChildren.push({ href: "/create-project", label: "New project", active: navPath === "/create-project", isNew: true });
+  }
+
   const links = [
     { href: "/post-login", label: "Dashboard", key: "dashboard" },
-    { href: "/projects", label: "Projects", key: "projects" },
-    { href: "/tasks", label: "Tasks", key: "tasks" },
+    { href: "/projects", label: "Projects", key: "projects", children: projectChildren.length > 1 ? projectChildren : null },
+    { href: "/tasks", label: "Tasks", key: "tasks", children: taskChildren },
     { href: "/people", label: "People", key: "people" },
-    { href: "/guide", label: "Guide", key: "guide" },
+    {
+      href: "/guide",
+      label: "Help",
+      key: "guide",
+      children: [
+        { href: "/guide", label: "How-to guide", active: navPath === "/guide" },
+        { href: "/welcome", label: "My profile", active: navPath === "/welcome" },
+      ],
+    },
   ];
-  if (String(getSession()?.userClass || "").toUpperCase() !== "REDUNDANT_USER") {
+  if (!isReadOnlyNav) {
     links.push({ href: "/project-game", label: "Project Game", key: "game" });
   }
-  if (String(getSession()?.userClass || "").toUpperCase() === "ADMIN") {
-    links.push({ href: "/users-admin", label: "Users", key: "users" });
-    links.push({ href: "/batches", label: "Batches", key: "batches" });
+  if (navUserClass === "ADMIN") {
+    links.push({
+      href: "/users-admin",
+      label: "Admin",
+      key: activeKey === "batches" ? "batches" : "users",
+      activeKeys: ["users", "batches"],
+      children: [
+        { href: "/users-admin", label: "Users", active: navPath === "/users-admin" },
+        { href: "/batches", label: "Batches", active: navPath === "/batches" },
+      ],
+    });
   }
   const nav = document.createElement("nav");
   nav.className = "workspace-nav";
@@ -1869,15 +1947,188 @@ function setupWorkspaceNavigation() {
   const list = document.createElement("div");
   list.className = "nav-links";
 
-  links.forEach((link) => {
-    const item = document.createElement("a");
-    item.href = link.href;
-    item.className = "nav-link";
-    item.innerHTML = `<span class="nav-link-icon">${icons[link.key]}</span><span>${link.label}</span>`;
-    if (link.key === activeKey) {
-      item.classList.add("is-active");
+  const chevron =
+    '<svg class="nav-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="m7 10 5 5 5-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  const groups = [];
+
+  links.forEach((link, index) => {
+    const isActive = (link.activeKeys || [link.key]).includes(activeKey);
+    const iconHtml = `<span class="nav-link-icon">${icons[link.key] || icons.users}</span>`;
+
+    if (!link.children) {
+      const item = document.createElement("a");
+      item.href = link.href;
+      item.className = "nav-link";
+      item.innerHTML = `${iconHtml}<span>${link.label}</span>`;
+      if (isActive) {
+        item.classList.add("is-active");
+        item.setAttribute("aria-current", "page");
+      }
+      list.append(item);
+      return;
     }
-    list.append(item);
+
+    const group = document.createElement("div");
+    group.className = "nav-group";
+    const subId = `nav-sub-${index}`;
+
+    // Wide screens: the section name is a real link (Cmd/middle-click work) and
+    // its sub-pages drop down on hover or keyboard focus.
+    const parentLink = document.createElement("a");
+    parentLink.href = link.href;
+    parentLink.className = "nav-link nav-parent-link";
+    parentLink.innerHTML = `${iconHtml}<span>${link.label}</span>${chevron}`;
+
+    // Phones: the whole row is one button that expands the section in place.
+    const parentButton = document.createElement("button");
+    parentButton.type = "button";
+    parentButton.className = "nav-link nav-parent-button";
+    parentButton.setAttribute("aria-expanded", "false");
+    parentButton.setAttribute("aria-controls", subId);
+    parentButton.innerHTML = `${iconHtml}<span>${link.label}</span>${chevron}`;
+
+    if (isActive) {
+      parentLink.classList.add("is-active");
+      parentButton.classList.add("is-active");
+      group.classList.add("is-current");
+    }
+
+    const sub = document.createElement("div");
+    sub.className = "nav-sub";
+    sub.id = subId;
+    link.children.forEach((child) => {
+      const a = document.createElement("a");
+      a.href = child.href;
+      a.className = `nav-sub-link${child.isNew ? " is-new" : ""}`;
+      a.textContent = child.label;
+      if (child.isNew) {
+        a.insertAdjacentHTML(
+          "afterbegin",
+          '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>'
+        );
+      }
+      if (child.active) {
+        a.classList.add("is-active");
+        a.setAttribute("aria-current", "page");
+      }
+      sub.append(a);
+    });
+
+    group.append(parentLink, parentButton, sub);
+    list.append(group);
+    groups.push({ group, parentButton, parentLink, sub });
+  });
+
+  const wideNav = window.matchMedia("(min-width: 1024px)");
+
+  // ---- phones: accordion, one section open at a time
+  const setExpanded = (entry, expanded) => {
+    entry.group.classList.toggle("is-expanded", expanded);
+    entry.parentButton.setAttribute("aria-expanded", String(expanded));
+  };
+  groups.forEach((entry) => {
+    entry.parentButton.addEventListener("click", () => {
+      const willOpen = !entry.group.classList.contains("is-expanded");
+      groups.forEach((other) => setExpanded(other, other === entry && willOpen));
+    });
+  });
+  const expandCurrentSection = () => {
+    groups.forEach((entry) => setExpanded(entry, entry.group.classList.contains("is-current")));
+  };
+
+  // ---- wide screens: hover drop-downs with a "safe triangle"
+  // Moving the pointer diagonally from a tab down to its menu usually crosses
+  // a neighbouring tab. Like Amazon's mega-menu and macOS menus, we don't
+  // switch menus while the pointer is clearly heading into the open one.
+  let openEntry = null;
+  let pendingTimer = 0;
+  let closeTimer = 0;
+  const trail = [];
+  const openDesktop = (entry) => {
+    window.clearTimeout(closeTimer);
+    if (openEntry === entry) return;
+    if (openEntry) openEntry.group.classList.remove("is-hover-open");
+    openEntry = entry;
+    if (entry) entry.group.classList.add("is-hover-open");
+  };
+  const headingIntoOpenMenu = () => {
+    if (!openEntry || trail.length < 2) return false;
+    const [prev, cur] = [trail[0], trail[trail.length - 1]];
+    const rect = openEntry.sub.getBoundingClientRect();
+    if (!rect.width) return false;
+    const slack = 6;
+    const a = { x: rect.left - slack, y: rect.top };
+    const b = { x: rect.right + slack, y: rect.top };
+    const sign = (p1, p2, p3) => (p1.x - p3.x) * (p2.y - p3.y) - (p2.x - p3.x) * (p1.y - p3.y);
+    const d1 = sign(cur, prev, a);
+    const d2 = sign(cur, a, b);
+    const d3 = sign(cur, b, prev);
+    const hasNeg = d1 < 0 || d2 < 0 || d3 < 0;
+    const hasPos = d1 > 0 || d2 > 0 || d3 > 0;
+    return !(hasNeg && hasPos) && cur.y >= prev.y - 1;
+  };
+  document.addEventListener(
+    "pointermove",
+    (event) => {
+      if (event.pointerType !== "mouse" || !wideNav.matches) return;
+      trail.push({ x: event.clientX, y: event.clientY });
+      if (trail.length > 4) trail.shift();
+    },
+    { passive: true }
+  );
+  groups.forEach((entry) => {
+    entry.group.addEventListener("pointerenter", (event) => {
+      if (event.pointerType !== "mouse" || !wideNav.matches) return;
+      window.clearTimeout(pendingTimer);
+      window.clearTimeout(closeTimer);
+      if (!openEntry) {
+        // Small intent delay so sweeping across the bar doesn't flash menus.
+        pendingTimer = window.setTimeout(() => openDesktop(entry), 90);
+        return;
+      }
+      const trySwitch = () => {
+        if (headingIntoOpenMenu()) {
+          pendingTimer = window.setTimeout(trySwitch, 120);
+          return;
+        }
+        if (entry.group.matches(":hover")) openDesktop(entry);
+      };
+      if (headingIntoOpenMenu()) {
+        pendingTimer = window.setTimeout(trySwitch, 220);
+      } else {
+        openDesktop(entry);
+      }
+    });
+    entry.group.addEventListener("pointerleave", (event) => {
+      if (event.pointerType !== "mouse" || !wideNav.matches) return;
+      window.clearTimeout(pendingTimer);
+      closeTimer = window.setTimeout(() => {
+        if (openEntry === entry && !entry.group.matches(":hover")) openDesktop(null);
+      }, 260);
+    });
+    entry.parentLink.addEventListener("keydown", (event) => {
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        entry.sub.querySelector("a")?.focus();
+      }
+    });
+    entry.sub.addEventListener("keydown", (event) => {
+      const items = [...entry.sub.querySelectorAll("a")];
+      const i = items.indexOf(document.activeElement);
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        items[Math.min(i + 1, items.length - 1)]?.focus();
+      } else if (event.key === "ArrowUp") {
+        event.preventDefault();
+        (i <= 0 ? entry.parentLink : items[i - 1]).focus();
+      } else if (event.key === "Escape") {
+        entry.parentLink.focus();
+        entry.group.classList.add("is-dismissed");
+      }
+    });
+    entry.group.addEventListener("focusout", (event) => {
+      if (!entry.group.contains(event.relatedTarget)) entry.group.classList.remove("is-dismissed");
+    });
   });
 
   const logoutButton = document.createElement("button");
@@ -1898,6 +2149,9 @@ function setupWorkspaceNavigation() {
     event.stopPropagation();
     const isOpen = nav.classList.toggle("is-open");
     trigger.setAttribute("aria-expanded", String(isOpen));
+    if (isOpen) {
+      expandCurrentSection();
+    }
   });
 
   nav.addEventListener("click", (event) => {
@@ -1915,7 +2169,12 @@ function setupWorkspaceNavigation() {
   );
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
+      const wasOpen = nav.classList.contains("is-open");
       closeNavigation();
+      openDesktop(null);
+      if (wasOpen) {
+        trigger.focus();
+      }
     }
   });
 
@@ -2045,7 +2304,7 @@ function setupLoginForm() {
       return;
     }
 
-    setMessage(messageElement, "Signing in...");
+    setMessage(messageElement, "Signing in…");
 
     try {
       const values = getFormValues(form);
@@ -2090,7 +2349,7 @@ function setupSignupForm() {
 
   async function sendCode() {
     const { email } = getFormValues(form);
-    setMessage(messageElement, "Sending your code...");
+    setMessage(messageElement, "Sending your code…");
     setButtonBusy(submit, true);
     try {
       const data = await postJson("/auth/signup/send-code", { email });
@@ -2125,7 +2384,7 @@ function setupSignupForm() {
       return;
     }
 
-    setMessage(messageElement, "Creating account...");
+    setMessage(messageElement, "Creating account…");
     setButtonBusy(submit, true);
 
     try {
@@ -2168,7 +2427,7 @@ function setupForgotPasswordForm() {
 
   async function requestCode() {
     const { email } = getFormValues(form);
-    setMessage(messageElement, "Sending...");
+    setMessage(messageElement, "Sending…");
     setButtonBusy(submit, true);
     try {
       const data = await postJson("/auth/forgot-password", { email });
@@ -2203,7 +2462,7 @@ function setupForgotPasswordForm() {
       return;
     }
 
-    setMessage(messageElement, "Updating your password...");
+    setMessage(messageElement, "Updating your password…");
     setButtonBusy(submit, true);
     try {
       const values = getFormValues(form);
@@ -2308,7 +2567,7 @@ function setupBatchesPage() {
 
     const submitButton = form.querySelector("button[type='submit']");
     setButtonBusy(submitButton, true);
-    setMessage(messageElement, "Running batch...");
+    setMessage(messageElement, "Running batch…");
     try {
       if (isMonthlyReport) {
         const response = await authorizedFile("/admin/batches/monthly-report", {
@@ -2417,7 +2676,7 @@ function setupLegacyAdminUsersPage() {
         });
         select.addEventListener("change", async () => {
           select.disabled = true;
-          setMessage(messageElement, `Updating ${user.email}...`);
+          setMessage(messageElement, `Updating ${user.email}…`);
           try {
             await postAuthorizedJson(`/admin/users/${user.id}/user-class`, {
               user_class: select.value,
@@ -2460,7 +2719,7 @@ function setupLegacyAdminUsersPage() {
     const submitButton = event.submitter || form.querySelector("[type='submit']");
     const formData = new FormData(form);
     setButtonBusy(submitButton, true);
-    setMessage(messageElement, "Registering user...");
+    setMessage(messageElement, "Registering user…");
     try {
       await postAuthorizedJson("/admin/users", {
         email: String(formData.get("email") || "").trim(),
@@ -2600,7 +2859,7 @@ function setupAdminUsersPage() {
         saveButton.textContent = "Save";
         saveButton.addEventListener("click", async () => {
           setButtonBusy(saveButton, true);
-          setMessage(messageElement, `Saving ${emailInput.value}...`);
+          setMessage(messageElement, `Saving ${emailInput.value}…`);
           try {
             await patchAuthorizedJson(`/admin/users/${user.id}`, {
               email: emailInput.value.trim(),
@@ -2627,7 +2886,7 @@ function setupAdminUsersPage() {
             return;
           }
           setButtonBusy(deleteButton, true);
-          setMessage(messageElement, `Deleting ${user.email}...`);
+          setMessage(messageElement, `Deleting ${user.email}…`);
           try {
             await deleteAuthorizedJson(`/admin/users/${user.id}`);
             activeUsersPromise = null;
@@ -2669,7 +2928,7 @@ function setupAdminUsersPage() {
     const submitButton = event.submitter || form.querySelector("[type='submit']");
     const formData = new FormData(form);
     setButtonBusy(submitButton, true);
-    setMessage(messageElement, "Registering user...");
+    setMessage(messageElement, "Registering user…");
     try {
       await postAuthorizedJson("/admin/users", {
         email: String(formData.get("email") || "").trim(),
@@ -2706,7 +2965,7 @@ async function populatePeoplePicker(container, options = {}) {
   const search = document.createElement("input");
   search.type = "search";
   search.className = "people-search";
-  search.placeholder = "Search people";
+  search.placeholder = "Search people…";
   search.setAttribute("aria-label", `Search ${container.getAttribute("aria-label") || "people"}`);
 
   const summary = document.createElement("p");
@@ -2825,7 +3084,7 @@ function setupCreateProjectForm() {
       idempotency_key: createIdempotencyKey("create-project"),
     };
 
-    setMessage(messageElement, "Creating project...");
+    setMessage(messageElement, "Creating project…");
     const submitButton = event.submitter || form.querySelector("[type='submit']");
     setButtonBusy(submitButton, true);
 
@@ -2941,7 +3200,7 @@ function getTaskFilterLabels(tasks, key, options = {}) {
 
   if (key === "status") {
     return Array.from(
-      new Set([...tasks.map((task) => task.status || "OPEN"), "OVERDUE"])
+      new Set([...tasks.map((task) => task.status || "OPEN"), "OPEN", "IN PROGRESS", "CLOSED", "OVERDUE"])
     ).sort();
   }
 
@@ -2986,7 +3245,7 @@ function renderTaskBoardFilters(
       key: "title",
       label: "Task title",
       type: "search",
-      placeholder: "Search task title",
+      placeholder: "Search task title…",
     },
   ];
 
@@ -3010,6 +3269,9 @@ function renderTaskBoardFilters(
       const input = document.createElement("input");
       input.type = "search";
       input.placeholder = definition.placeholder;
+      input.autocomplete = "off";
+      input.spellcheck = false;
+      input.name = `filter-${definition.key}`;
       input.value = activeFilters[definition.key] || "";
       input.dataset.taskBoardFilter = definition.key;
       field.append(input);
@@ -3063,10 +3325,26 @@ function createTaskBoardCard(task, options = {}) {
   applyIdentityColor(card, "task", task);
   card.tabIndex = 0;
   card.setAttribute("role", "link");
-  card.addEventListener("click", () => {
+  card.addEventListener("click", (event) => {
+    if (event.target.closest("a, button, input, select, textarea")) {
+      return;
+    }
+    // Cmd/Ctrl-click opens in a new tab, like a normal link.
+    if (event.metaKey || event.ctrlKey) {
+      window.open(`/task?id=${task.id}`, "_blank", "noopener");
+      return;
+    }
     window.location.href = `/task?id=${task.id}`;
   });
+  card.addEventListener("auxclick", (event) => {
+    if (event.button === 1 && !event.target.closest("a, button")) {
+      window.open(`/task?id=${task.id}`, "_blank", "noopener");
+    }
+  });
   card.addEventListener("keydown", (event) => {
+    if (event.target !== card) {
+      return;
+    }
     if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
       window.location.href = `/task?id=${task.id}`;
@@ -3911,7 +4189,7 @@ function setupDashboardProjects() {
 
     projectList.innerHTML = `
       <div class="pj-toolbar">
-        <input type="search" class="pj-search" id="pj-search" placeholder="Search projects" value="${esc(view.query)}" aria-label="Search projects" autocomplete="off">
+        <input type="search" class="pj-search" id="pj-search" placeholder="Search projects…" value="${esc(view.query)}" aria-label="Search projects" autocomplete="off">
         <label class="pj-select">Priority
           <select id="pj-priority">
             <option value="">All</option>
@@ -4053,6 +4331,7 @@ function setupDashboardProjects() {
       activeFilters,
       (nextFilters) => {
         currentTasks = filterTasksForBoard(filterSourceTasks, nextFilters);
+        syncTaskFiltersToUrl(nextFilters);
         drawView();
       },
       { showProjectFilter: true }
@@ -4066,7 +4345,7 @@ function setupDashboardProjects() {
     const activeProjectFilters = getProjectTableFilters(projectList);
     const activeTaskFilters = getGlobalTaskBoardFilters(taskList);
     if (!silent) {
-      setMessage(messageElement, "Loading workspace data...");
+      setMessage(messageElement, "Loading workspace data…");
     }
     try {
       const dashboardData = await getAuthorizedJson("/dashboard");
@@ -4260,7 +4539,7 @@ function setupProjectPage() {
     }
 
     if (!silent) {
-      setMessage(projectMessage, "Loading project...");
+      setMessage(projectMessage, "Loading project…");
     }
     try {
       const project = await getAuthorizedJson(`/projects/${projectId}`);
@@ -4325,7 +4604,7 @@ function setupProjectPage() {
   inlineProjectForm?.addEventListener("submit", async (event) => {
     event.preventDefault();
     const formData = new FormData(inlineProjectForm);
-    setMessage(inlineProjectMessage, "Saving project...");
+    setMessage(inlineProjectMessage, "Saving project…");
 
     try {
       const data = await postAuthorizedJson(`/projects/${projectId}/update`, {
@@ -4413,7 +4692,7 @@ function setupEditProjectPage() {
       setMessage(editMessage, "Keep at least one supervisor to review the work.", true);
       return;
     }
-    setMessage(editMessage, "Saving project...");
+    setMessage(editMessage, "Saving project…");
 
     try {
       const data = await postAuthorizedJson(`/projects/${projectId}/update`, {
@@ -5400,7 +5679,7 @@ function setupNotificationsPage() {
   async function loadNotifications(options = {}) {
     const { silent = false } = options;
     if (!silent) {
-      setMessage(messageElement, "Loading notifications...");
+      setMessage(messageElement, "Loading notifications…");
     }
     try {
       const notifications = await getAuthorizedJson("/notifications");
@@ -5419,7 +5698,7 @@ function setupNotificationsPage() {
 
   readAllButton?.addEventListener("click", async () => {
     readAllButton.disabled = true;
-    setMessage(messageElement, "Marking notifications as read...");
+    setMessage(messageElement, "Marking notifications as read…");
     try {
       await markAllNotificationsRead();
       await loadNotifications({ silent: true });
@@ -5578,7 +5857,7 @@ function setupTaskPage() {
 
   document.querySelector("#save-task-button")?.addEventListener("click", async (event) => {
     const button = event.currentTarget;
-    setMessage(taskActionMessage, "Saving task details...");
+    setMessage(taskActionMessage, "Saving task details…");
     setButtonBusy(button, true);
     try {
       const data = await postAuthorizedJson(`/tasks/${taskId}/update`, {
@@ -5598,7 +5877,7 @@ function setupTaskPage() {
   });
 
   document.querySelector("#start-work-button")?.addEventListener("click", async () => {
-    setMessage(taskActionMessage, "Starting work...");
+    setMessage(taskActionMessage, "Starting work…");
     try {
       const data = await postAuthorizedJson(`/tasks/${taskId}/status`, {
         status: "IN PROGRESS",
@@ -5613,7 +5892,7 @@ function setupTaskPage() {
   document
     .querySelector("#request-close-button")
     ?.addEventListener("click", async () => {
-      setMessage(taskActionMessage, "Requesting close...");
+      setMessage(taskActionMessage, "Requesting close…");
       try {
         const data = await postAuthorizedJson(`/tasks/${taskId}/status`, {
           status: "CLOSE REQUESTED",
@@ -5628,7 +5907,7 @@ function setupTaskPage() {
   document
     .querySelector("#withdraw-close-button")
     ?.addEventListener("click", async () => {
-      setMessage(taskActionMessage, "Withdrawing close request...");
+      setMessage(taskActionMessage, "Withdrawing close request…");
       try {
         const data = await postAuthorizedJson(`/tasks/${taskId}/status`, {
           status: "IN PROGRESS",
@@ -5651,7 +5930,7 @@ function setupTaskPage() {
       commentTextInput?.focus();
       return;
     }
-    setMessage(taskActionMessage, "Sending back...");
+    setMessage(taskActionMessage, "Sending back…");
     try {
       await postAuthorizedJson(`/tasks/${taskId}/comments`, {
         comment_text: note,
@@ -5671,7 +5950,7 @@ function setupTaskPage() {
   });
 
   document.querySelector("#close-task-button")?.addEventListener("click", async () => {
-    setMessage(taskActionMessage, "Closing task...");
+    setMessage(taskActionMessage, "Closing task…");
     try {
       const data = await postAuthorizedJson(`/tasks/${taskId}/status`, {
         status: "CLOSED",
@@ -5684,7 +5963,7 @@ function setupTaskPage() {
   });
 
   document.querySelector("#reopen-task-button")?.addEventListener("click", async () => {
-    setMessage(taskActionMessage, "Reopening task...");
+    setMessage(taskActionMessage, "Reopening task…");
     try {
       const data = await postAuthorizedJson(`/tasks/${taskId}/status`, {
         status: "OPEN",
@@ -5726,7 +6005,7 @@ function setupTaskPage() {
       return;
     }
 
-    setMessage(messageElement, "Deleting comment...");
+    setMessage(messageElement, "Deleting comment…");
     deleteButton.disabled = true;
     deleteAuthorizedJson(`/tasks/${taskId}/comments/${commentId}`)
       .then((data) => {
@@ -5758,7 +6037,7 @@ function setupTaskPage() {
     const formData = new FormData(commentForm);
     const submitButton = commentForm.querySelector("button[type='submit']");
     const editingCommentId = editingCommentInput?.value || "";
-    setMessage(messageElement, editingCommentId ? "Saving comment..." : "Adding comment...");
+    setMessage(messageElement, editingCommentId ? "Saving comment…" : "Adding comment…");
     setButtonBusy(submitButton, true);
 
     try {
@@ -5804,7 +6083,7 @@ function setupTaskPage() {
 
     const formData = new FormData(workLogForm);
     const submitButton = workLogForm.querySelector("button[type='submit']");
-    setMessage(workLogMessage, "Adding work log...");
+    setMessage(workLogMessage, "Adding work log…");
     setButtonBusy(submitButton, true);
 
     try {

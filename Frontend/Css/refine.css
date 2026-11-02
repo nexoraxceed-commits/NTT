@@ -784,3 +784,215 @@ textarea:focus-visible {
 @media (prefers-reduced-motion: reduce) {
   .illos { transition: none; }
 }
+
+/* ------------------------------------------- navigation: sections + sub-pages */
+/* Phones: the hamburger panel is an accordion. A section row is one big
+   button; its sub-pages slide open underneath on an indented rail, and the
+   first sub-page repeats the section itself ("All tasks"). */
+
+.nav-panel {
+  width: min(320px, calc(100vw - 24px));
+  max-height: calc(100dvh - 88px - env(safe-area-inset-bottom, 0px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.nav-group {
+  display: grid;
+}
+
+.nav-parent-link {
+  display: none;
+}
+
+.nav-parent-button {
+  display: inline-flex;
+  cursor: pointer;
+  font: inherit;
+  touch-action: manipulation;
+}
+
+.nav-link,
+.nav-sub-link {
+  -webkit-tap-highlight-color: transparent;
+}
+
+@media (max-width: 1023.98px) {
+  .nav-link {
+    min-height: 44px;
+  }
+}
+
+.nav-chevron {
+  width: 16px;
+  height: 16px;
+  margin-left: auto;
+  color: var(--muted);
+  transition: transform var(--dur-micro) var(--ease-out);
+}
+
+.nav-group.is-expanded .nav-parent-button .nav-chevron {
+  transform: rotate(180deg);
+}
+
+/* An open section that isn't the current page reads as "open", not "here". */
+.nav-group.is-expanded:not(.is-current) .nav-parent-button {
+  background: var(--fill);
+}
+
+.nav-sub {
+  display: none;
+  gap: 1px;
+  margin: 2px 0 6px 21px;
+  padding-left: 12px;
+  border-left: 1.5px solid var(--line);
+}
+
+.nav-group.is-expanded .nav-sub {
+  display: grid;
+}
+
+.nav-sub-link {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 0 10px;
+  border-radius: 9px;
+  color: var(--ink);
+  font-size: 0.9375rem;
+  font-weight: 500;
+  white-space: nowrap;
+  touch-action: manipulation;
+  transition: background-color var(--dur-micro) ease-out, color var(--dur-micro) ease-out;
+}
+
+.nav-sub-link:hover {
+  background: var(--fill);
+  text-decoration: none;
+}
+
+.nav-sub-link:active {
+  background: var(--fill);
+}
+
+.nav-sub-link.is-active {
+  color: var(--accent);
+  background: var(--accent-soft);
+  font-weight: 600;
+}
+
+.nav-sub-link.is-new {
+  color: var(--accent);
+}
+
+.nav-sub-link svg {
+  width: 15px;
+  height: 15px;
+  flex: none;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .nav-group.is-expanded .nav-sub {
+    animation: nav-sub-in 180ms var(--ease-out) both;
+  }
+}
+
+@keyframes nav-sub-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+/* Wide screens: tabs in the top bar; sections drop down on hover (with a
+   safe-triangle in app.js) or on keyboard focus. */
+@media (min-width: 1024px) {
+  .nav-panel {
+    width: auto;
+    max-height: none;
+    overflow: visible;
+  }
+
+  .nav-group {
+    position: relative;
+    display: block;
+  }
+
+  .nav-parent-button {
+    display: none;
+  }
+
+  .nav-parent-link {
+    display: inline-flex;
+    gap: 3px;
+    padding-right: 9px;
+  }
+
+  .nav-parent-link .nav-chevron {
+    width: 13px;
+    height: 13px;
+    margin-left: 0;
+    opacity: 0.7;
+  }
+
+  .nav-group.is-hover-open .nav-parent-link .nav-chevron,
+  .nav-group:focus-within:not(.is-dismissed) .nav-parent-link .nav-chevron {
+    transform: rotate(180deg);
+  }
+
+  .nav-sub,
+  .nav-group.is-expanded .nav-sub {
+    position: absolute;
+    z-index: 40;
+    top: calc(100% + 8px);
+    left: -6px;
+    display: grid;
+    min-width: 196px;
+    margin: 0;
+    padding: 6px;
+    border: 0;
+    border-radius: 14px;
+    background: var(--surface);
+    box-shadow: var(--shadow-pop);
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(-4px);
+    transform-origin: top left;
+    visibility: hidden;
+    animation: none;
+    transition:
+      opacity 140ms var(--ease-out),
+      transform 140ms var(--ease-out),
+      visibility 0s linear 140ms;
+  }
+
+  /* Invisible bridge over the gap, so the pointer never "falls out". */
+  .nav-sub::before {
+    content: "";
+    position: absolute;
+    inset: -10px 0 auto;
+    height: 10px;
+  }
+
+  .nav-group.is-hover-open .nav-sub,
+  .nav-group:focus-within:not(.is-dismissed) .nav-sub {
+    opacity: 1;
+    pointer-events: auto;
+    transform: none;
+    visibility: visible;
+    transition:
+      opacity 140ms var(--ease-out),
+      transform 140ms var(--ease-out),
+      visibility 0s;
+  }
+
+  .nav-sub-link {
+    min-height: 36px;
+    font-size: 0.875rem;
+  }
+
+  .nav-sub-link.is-new {
+    margin-top: 4px;
+  }
+}

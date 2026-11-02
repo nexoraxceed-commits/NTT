@@ -68,7 +68,7 @@ form.addEventListener("submit", async (event) => {
   }
 
   const password = String(new FormData(form).get("password") ?? "");
-  setResetMessage("Updating password...");
+  setResetMessage("Updating password…");
 
   try {
     const client = await getSupabaseClient();
@@ -86,7 +86,7 @@ form.addEventListener("submit", async (event) => {
       throw updateResult.error;
     }
 
-    setResetMessage("Password updated. Redirecting to sign in...");
+    setResetMessage("Password updated. Redirecting to sign in…");
     window.setTimeout(() => {
       window.location.replace("/");
     }, 900);

@@ -290,7 +290,7 @@
         ${chips("group", [["all", "Everyone"], ["senior", "Seniors"], ["junior", "Juniors"]], state.group)}
         ${verticalChips}
         <label class="pp-search"><span class="visually-hidden">Search people</span>
-          <input type="search" id="pp-search" placeholder="Search by name" value="${esc(state.query)}" autocomplete="off">
+          <input type="search" id="pp-search" placeholder="Search by name…" spellcheck="false" value="${esc(state.query)}" autocomplete="off">
         </label>
       </div>
       <div class="pp-window">
