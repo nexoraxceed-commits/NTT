@@ -40,6 +40,7 @@ from app.constants import (
     PROJECT_STATUS_OPEN,
     REF_USER_NAME_COLUMN,
     TASK_COMMENTS_TABLE,
+    TASK_REMINDER_LOG_TABLE,
     TASK_STATUS_CLOSED,
     TASK_STATUS_CLOSE_REQUESTED,
     TASK_STATUS_IN_PROGRESS,
@@ -150,6 +151,8 @@ from app.visibility import (
     junior_may_open_task,
 )
 from app.utils import normalize_optional_text
+
+logger = logging.getLogger(__name__)
 
 
 def normalize_email_list(emails: list[str]) -> list[str]:
@@ -1165,6 +1168,101 @@ def reminder_schedule(user_class: str, days_overdue: int) -> dict:
     return plan
 
 
+def _claim_reminder(
+    supabase_admin: Client,
+    *,
+    task_id: int,
+    project_id: int,
+    recipient_user_id: str,
+    recipient_email: str | None,
+    reminder_type: str,
+    sent_for_date: str,
+) -> str:
+    """Reserve today's reminder for this person and task.
+
+    Returns "claimed" (send it), "duplicate" (already sent today) or
+    "no_log_table" (neither reminder table exists, so nothing is sent rather
+    than risk emailing people every 10 minutes).
+    """
+    try:
+        supabase_admin.table(TASK_REMINDER_LOG_TABLE).insert(
+            {
+                "task_id": task_id,
+                "project_id": project_id,
+                "recipient_user_id": recipient_user_id,
+                "recipient_email": recipient_email,
+                "reminder_type": reminder_type,
+                "sent_for_date": sent_for_date,
+                "status": "SENT",
+            }
+        ).execute()
+        return "claimed"
+    except Exception as exc:
+        message = str(exc).lower()
+        if "duplicate key" in message or "23505" in message:
+            return "duplicate"
+        logger.warning("TASK_REMINDER_LOG insert failed (%s); trying TASK_DAILY_REMINDERS.", exc)
+    try:
+        supabase_admin.table("TASK_DAILY_REMINDERS").insert(
+            {
+                "task_id": task_id,
+                "recipient_email": (recipient_email or recipient_user_id).lower(),
+                "kind": reminder_type,
+                "sent_on": sent_for_date,
+            }
+        ).execute()
+        return "claimed"
+    except Exception as exc:
+        message = str(exc).lower()
+        if "duplicate key" in message or "23505" in message:
+            return "duplicate"
+        logger.error("No reminder log table is usable; overdue reminder not sent: %s", exc)
+        return "no_log_table"
+
+
+def _had_earlier_daily_reminder(
+    supabase_admin: Client,
+    task_id: int,
+    recipient_user_id: str,
+    recipient_email: str | None,
+    today: date,
+) -> bool:
+    """True if this person was already sent an overdue reminder for this task
+    on an earlier day. Escalations wait for this, so the secretary is never
+    told someone ignored reminders they never got."""
+    try:
+        rows = (
+            supabase_admin.table(TASK_REMINDER_LOG_TABLE)
+            .select("id")
+            .eq("task_id", task_id)
+            .eq("recipient_user_id", recipient_user_id)
+            .eq("reminder_type", "OVERDUE_DAILY")
+            .lt("sent_for_date", today.isoformat())
+            .limit(1)
+            .execute()
+        )
+        if getattr(rows, "data", None):
+            return True
+    except Exception:
+        pass
+    if not recipient_email:
+        return False
+    try:
+        rows = (
+            supabase_admin.table("TASK_DAILY_REMINDERS")
+            .select("id")
+            .eq("task_id", task_id)
+            .eq("recipient_email", recipient_email.lower())
+            .eq("kind", "OVERDUE_DAILY")
+            .lt("sent_on", today.isoformat())
+            .limit(1)
+            .execute()
+        )
+        return bool(getattr(rows, "data", None))
+    except Exception:
+        return False
+
+
 def send_daily_task_reminders(
     supabase_admin: Client,
     app_settings: Settings,
@@ -1184,9 +1282,40 @@ def send_daily_task_reminders(
         .execute()
     )
     tasks = [task for task in (getattr(response, "data", None) or []) if task.get("assigned_to")]
-    summary = {"reminders": 0, "escalations": 0, "tasks_checked": len(tasks)}
+    summary = {
+        "reminders": 0,
+        "escalations": 0,
+        "tasks_checked": len(tasks),
+        "emails_sent": 0,
+        "emails_failed": 0,
+        "skipped": {},
+    }
     if not tasks:
         return summary
+
+    def skip(reason: str) -> None:
+        summary["skipped"][reason] = summary["skipped"].get(reason, 0) + 1
+
+    def deliver(recipient_id: str, recipient: dict | None, subject: str, body: str, task_id: int) -> None:
+        """In-app notification plus an email sent now (not in the background),
+        so the summary shows whether Mailjet accepted it."""
+        notify_user_ids(
+            supabase_admin, app_settings, [recipient_id], subject, body, "TASK", task_id,
+            target_url=get_task_target_url(task_id), send_email=False,
+        )
+        email = normalize_optional_text((recipient or {}).get(app_settings.signup_allowed_users_email_column))
+        if not email:
+            summary["emails_failed"] += 1
+            return
+        ok = send_mailjet_notification(
+            app_settings,
+            email,
+            normalize_optional_text((recipient or {}).get(REF_USER_NAME_COLUMN)),
+            subject,
+            body,
+            target_url=get_task_target_url(task_id),
+        )
+        summary["emails_sent" if ok else "emails_failed"] += 1
 
     users_by_id = get_ref_users_by_auth_uids(
         supabase_admin, app_settings, list({str(t["assigned_to"]) for t in tasks})
@@ -1207,10 +1336,15 @@ def send_daily_task_reminders(
             except HTTPException:
                 project_cache[project_id] = None
         if not project_cache[project_id]:
+            skip("project_closed")
             continue
         assignee_id = str(task["assigned_to"])
         assignee = users_by_id.get(assignee_id)
-        if not assignee or str(assignee.get(app_settings.signup_allowed_users_status_column) or "").upper() != NORMAL_STATUS:
+        if not assignee:
+            skip("assignee_not_found")
+            continue
+        if str(assignee.get(app_settings.signup_allowed_users_status_column) or "").upper() != NORMAL_STATUS:
+            skip("assignee_inactive")
             continue
         user_class = str(assignee.get(USER_CLASS_COLUMN) or "").upper()
         try:
@@ -1224,15 +1358,24 @@ def send_daily_task_reminders(
         assignee_email = normalize_optional_text(assignee.get(app_settings.signup_allowed_users_email_column))
         day_word = f"{days} day{'s' if days != 1 else ''}"
 
-        if plan["remind"] and insert_task_reminder_log(
-            supabase_admin,
-            task_id=task_id,
-            project_id=project_id,
-            recipient_user_id=assignee_id,
-            recipient_email=assignee_email,
-            reminder_type="OVERDUE_DAILY",
-            sent_for_date=today.isoformat(),
-        ):
+        if not plan["remind"]:
+            skip("not_a_reminder_day")
+        claim = (
+            _claim_reminder(
+                supabase_admin,
+                task_id=task_id,
+                project_id=project_id,
+                recipient_user_id=assignee_id,
+                recipient_email=assignee_email,
+                reminder_type="OVERDUE_DAILY",
+                sent_for_date=today.isoformat(),
+            )
+            if plan["remind"]
+            else "off"
+        )
+        if claim in {"duplicate", "no_log_table"}:
+            skip(f"reminder_{claim}")
+        if claim == "claimed":
             if plan["witty"]:
                 subject = WITTY_SUBJECTS[(task_id + days) % len(WITTY_SUBJECTS)].format(task=task_name[:60], days=days)
             else:
@@ -1241,10 +1384,7 @@ def send_daily_task_reminders(
                 f"Hi {person}, \"{task_name}\" was due on {due.strftime('%d %b')} and is now {day_word} overdue. "
                 "Finish it and send it for review, or ask your supervisor to move the due date."
             )
-            notify_user_ids(
-                supabase_admin, app_settings, [assignee_id], subject, body, "TASK", task_id,
-                target_url=get_task_target_url(task_id), send_email=True,
-            )
+            deliver(assignee_id, assignee, subject, body, task_id)
             summary["reminders"] += 1
 
         if plan["oversee"]:
@@ -1271,7 +1411,7 @@ def send_daily_task_reminders(
                     continue
                 if str(overseer.get(app_settings.signup_allowed_users_status_column) or "").upper() != NORMAL_STATUS:
                     continue
-                if not insert_task_reminder_log(
+                if _claim_reminder(
                     supabase_admin,
                     task_id=task_id,
                     project_id=project_id,
@@ -1279,7 +1419,7 @@ def send_daily_task_reminders(
                     recipient_email=normalize_optional_text(overseer.get(app_settings.signup_allowed_users_email_column)),
                     reminder_type="OVERDUE_OVERSIGHT",
                     sent_for_date=today.isoformat(),
-                ):
+                ) != "claimed":
                     continue
                 subject = f"{person} is {day_word} late on \"{task_name}\""
                 body = (
@@ -1287,13 +1427,15 @@ def send_daily_task_reminders(
                     f"{due.strftime('%d %b')} and is now {day_word} overdue. They've been reminded. "
                     "A quick check-in from you usually unblocks it."
                 )
-                notify_user_ids(
-                    supabase_admin, app_settings, [str(overseer_id)], subject, body, "TASK", task_id,
-                    target_url=get_task_target_url(task_id), send_email=True,
-                )
+                deliver(str(overseer_id), overseer, subject, body, task_id)
                 summary["oversight"] = summary.get("oversight", 0) + 1
 
-        if plan["escalate"] and secretary_id and secretary_id != assignee_id and insert_task_reminder_log(
+        escalate = plan["escalate"] and secretary_id and secretary_id != assignee_id
+        if escalate and not _had_earlier_daily_reminder(supabase_admin, task_id, assignee_id, assignee_email, today):
+            # They haven't actually been reminded yet; escalate on a later cycle.
+            skip("escalation_waits_for_first_reminder")
+            escalate = False
+        if escalate and _claim_reminder(
             supabase_admin,
             task_id=task_id,
             project_id=project_id,
@@ -1301,16 +1443,13 @@ def send_daily_task_reminders(
             recipient_email=secretary_email,
             reminder_type="OVERDUE_ESCALATION",
             sent_for_date=today.isoformat(),
-        ):
+        ) == "claimed":
             subject = f"Follow-up needed: {person}'s task is {day_word} overdue"
             body = (
                 f"{person} ({assignee_email}) hasn't closed \"{task_name}\", due {due.strftime('%d %b')} "
                 f"({day_word} overdue), after daily reminders. Please follow up with them."
             )
-            notify_user_ids(
-                supabase_admin, app_settings, [secretary_id], subject, body, "TASK", task_id,
-                target_url=get_task_target_url(task_id), send_email=True,
-            )
+            deliver(secretary_id, secretary, subject, body, task_id)
             summary["escalations"] += 1
 
     return summary
@@ -1841,7 +1980,7 @@ def create_app() -> FastAPI:
 
     @app.get("/health")
     def health_check() -> dict[str, str]:
-        return {"status": "ok"}
+        return {"status": "ok", "reminders": "v2"}
 
     @app.exception_handler(Exception)
     def unexpected_error_handler(_request, _exc: Exception) -> JSONResponse:

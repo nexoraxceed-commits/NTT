@@ -1,0 +1,29 @@
+# After a backend change lands on v1.2, wait for Render to finish deploying
+# it, then run today's overdue reminders once and print the summary
+# (who was reminded, emails sent/failed, and why any task was skipped).
+# Safe to run any time: each person gets at most one reminder per task a day.
+name: Reminders after backend deploy
+
+on:
+  push:
+    branches: [v1.2]
+    paths:
+      - "Backend/app/**"
+  workflow_dispatch:
+
+jobs:
+  remind:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Wait for the new backend on Render
+        run: |
+          for i in $(seq 1 60); do
+            body=$(curl -fsS --max-time 90 https://ntt-c122.onrender.com/health || true)
+            echo "$(date -u +%H:%M:%S) $body"
+            if echo "$body" | grep -q '"reminders":"v2"'; then exit 0; fi
+            sleep 15
+          done
+          echo "New backend not live yet; running reminders on whatever is deployed."
+      - name: Send today's reminders
+        run: curl -sS --max-time 180 -X POST https://ntt-c122.onrender.com/internal/daily-reminders
