@@ -110,7 +110,7 @@
           </div>
           <div class="field-group">
             <label for="wf-phone">WhatsApp number <span class="field-optional">(optional)</span></label>
-            <input id="wf-phone" name="phone" type="text" inputmode="tel" maxlength="30" placeholder="98765 43210" value="${esc(state.form.phone)}" autocomplete="tel">
+            <input id="wf-phone" name="phone" type="tel" inputmode="tel" maxlength="30" placeholder="98765 43210" value="${esc(state.form.phone)}" autocomplete="tel">
           </div>
           <div class="field-group">
             <label for="wf-linkedin">LinkedIn <span class="field-optional">(optional)</span></label>
