@@ -185,6 +185,9 @@ def get_ref_users_by_auth_uids(
                     REF_USER_NAME_COLUMN,
                     AUTH_UID_COLUMN,
                     USER_CLASS_COLUMN,
+                    # Needed by callers that skip inactive accounts (e.g. the
+                    # overdue reminders); without it every user looked inactive.
+                    app_settings.signup_allowed_users_status_column,
                 )
             )
         )
